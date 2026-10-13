@@ -91,3 +91,11 @@ body{font-family:'Manrope',sans-serif;font-weight:500;color:#fffdf5;background:r
 .contact-links a:first-child:before{content:'✉';display:inline-grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#ffd43b;color:#11100a;font-size:14px}
 .contact-links a:nth-child(2):before{content:'↗';display:inline-grid;place-items:center;flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:#ffd43b;color:#11100a;font-size:17px}
 @media(max-width:600px){.contact-links{align-items:stretch;flex-direction:column;gap:10px}.contact-links a{width:fit-content;max-width:100%;padding:11px 14px;font-size:13px}.contact-links a:first-child{overflow-wrap:anywhere}}
+
+/* Minimal contact icon buttons: click the icon to connect */
+.contact-links.icon-links{display:flex;flex-direction:row;align-items:center;gap:14px;margin:26px 0 30px}
+.contact-links.icon-links .contact-icon{display:inline-flex;align-items:center;justify-content:center;width:54px;height:54px;min-width:54px;padding:0;border:2px solid #ffd43b;border-radius:50%;background:linear-gradient(145deg,#252b3e,#111522);color:#ffd43b;box-shadow:0 6px 18px #0003;transition:transform .2s ease,background .2s ease,box-shadow .2s ease}
+.contact-links.icon-links .contact-icon:before{content:none!important}
+.contact-links.icon-links .contact-icon svg{display:block;width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.contact-links.icon-links .contact-icon:hover{transform:translateY(-3px) scale(1.05);background:#ffd43b;color:#101116;box-shadow:0 8px 24px #ffd43b25}
+@media(max-width:600px){.contact-links.icon-links{flex-direction:row;align-items:center;gap:13px}.contact-links.icon-links .contact-icon{width:52px;height:52px;min-width:52px}}
