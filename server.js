@@ -62,7 +62,7 @@ function csrfCheck(req, res, next) {
   next();
 }
 function requireAuth(req, res, next) { if (!req.session.memberId) return res.redirect('/login'); next(); }
-function validEmail(email) { return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) && email.length <= 254; }
+function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254; }
 function validUsername(username) { return /^[a-zA-Z0-9_]{3,30}$/.test(username); }
 function formError(title, message, back) { return page(title, '<h1>' + esc(title) + '</h1><div class="notice">' + esc(message) + '</div><a class="btn" href="' + esc(back || '/register') + '">Go back</a>'); }
 function registerForm(req, message) {
@@ -90,14 +90,14 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
     const phone = String(req.body.phone || '').trim(), username = String(req.body.username || '').trim(), password = String(req.body.password || '');
     if (fullName.length < 2 || fullName.length > 120) return res.status(400).send(formError('Check your details', 'Enter your full name (2–120 characters).'));
     if (!validEmail(email)) return res.status(400).send(formError('Check your details', 'Enter a valid email address.'));
-    if (!phone || phone.length > 32 || !/^[+()\\d\\s.-]{7,32}$/.test(phone)) return res.status(400).send(formError('Check your details', 'Enter a valid phone number.'));
+    if (!phone || phone.length > 32 || !/^[+()\d\s.-]{7,32}$/.test(phone)) return res.status(400).send(formError('Check your details', 'Enter a valid phone number.'));
     if (!validUsername(username)) return res.status(400).send(formError('Check your details', 'Username must be 3–30 letters, numbers or underscores.'));
     if (password.length < 12 || password.length > 128) return res.status(400).send(formError('Check your password', 'Use a password between 12 and 128 characters.'));
     const [existing] = await pool.execute('SELECT id FROM members WHERE email = ? OR username = ? LIMIT 1', [email, username]);
     if (existing.length) return res.status(409).send(formError('Account already exists', 'That email or username is already in use. Try logging in or choose another.', '/register'));
     let referrerId = null;
     const referralCode = String(req.body.ref || req.query.ref || '').trim().toUpperCase();
-    if (/^MONARCH\\d{6}$/.test(referralCode)) {
+    if (/^MONARCH\d{6}$/.test(referralCode)) {
       const [referrers] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [referralCode]);
       if (referrers.length) referrerId = referrers[0].id;
     }
@@ -146,7 +146,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
     const member = rows[0];
     if (!member) { req.session.destroy(() => res.redirect('/login')); return; }
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [member.id]);
-    const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '');
+    const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '');
     const referralLink = baseUrl + '/register?ref=' + encodeURIComponent(member.monarch_uid);
     const body = '<div class="muted small">MEMBER DASHBOARD</div><h1>Welcome, ' + esc(member.full_name.split(' ')[0]) + '</h1><p class="muted">Your Monarch Codex membership is active.</p>' +
       '<div class="grid"><div class="stat"><span class="muted small">Your Monarch ID</span><strong>' + esc(member.monarch_uid) + '</strong></div><div class="stat"><span class="muted small">Successful referrals</span><strong>' + (Number(counts[0].total) || 0) + '</strong></div></div>' +
@@ -171,8 +171,8 @@ app.post('/forgot-password', resetLimiter, csrfCheck, async (req, res, next) => 
       await pool.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].id]);
       await pool.execute('INSERT INTO password_resets (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))', [rows[0].id, tokenHash]);
       const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: String(process.env.SMTP_SECURE || 'false') === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } });
-      const link = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '') + '/reset-password?token=' + token;
-      await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to: rows[0].email, subject: 'Reset your Monarch Codex password', text: 'Use this one-time link within 30 minutes to reset your password: ' + link + '\\nIf you did not request this, ignore this email.' });
+      const link = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/reset-password?token=' + token;
+      await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to: rows[0].email, subject: 'Reset your Monarch Codex password', text: 'Use this one-time link within 30 minutes to reset your password: ' + link + '\nIf you did not request this, ignore this email.' });
     }
     res.send(page('Check your email', '<h1>Check your email</h1><p class="muted">If an account exists for that address and email delivery is configured, reset instructions will arrive shortly.</p><a class="btn" href="/login">Return to login</a>'));
   } catch (e) { next(e); }
