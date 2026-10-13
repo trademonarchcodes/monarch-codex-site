@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 650" role="img" aria-label="Monarch Codex logo">
+<defs>
+ <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFF0A3"/><stop offset=".22" stop-color="#E8B53B"/><stop offset=".5" stop-color="#FFD96A"/><stop offset=".78" stop-color="#B77B12"/><stop offset="1" stop-color="#F6CF59"/></linearGradient>
+ <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#55565A"/><stop offset=".28" stop-color="#292A2D"/><stop offset=".6" stop-color="#111214"/><stop offset="1" stop-color="#3B3C40"/></linearGradient>
+ <linearGradient id="gold2" x1="0" y1="0" x2="1" y2=".8"><stop stop-color="#9B650D"/><stop offset=".48" stop-color="#FFE58A"/><stop offset=".72" stop-color="#D99D22"/><stop offset="1" stop-color="#FFEBA0"/></linearGradient>
+</defs>
+<g stroke-linejoin="round" stroke-linecap="round">
+ <path fill="url(#gold)" stroke="#E5B847" stroke-width="1.5" d="M82 115 C112 70 166 44 213 65 C248 81 335 147 438 216 L352 270 L82 115 Z"/>
+ <path fill="url(#gold)" stroke="#E5B847" stroke-width="1.5" d="M82 115 L82 448 C82 481 103 502 130 522 L208 574 L208 245 L82 115 Z"/>
+ <path fill="url(#steel)" stroke="#4A4B4E" stroke-width="1.5" d="M278 281 L532 125 C582 94 622 68 659 72 C696 75 715 99 715 132 L715 499 L631 438 L631 208 C631 181 612 168 590 176 L278 367 C246 387 224 421 224 461 L224 383 C224 340 243 304 278 281 Z"/>
+ <path fill="url(#gold2)" stroke="#E8B847" stroke-width="1.5" d="M542 291 C493 278 448 284 406 306 C358 331 319 366 290 409 C263 449 251 480 260 511 C274 562 321 606 375 622 C434 640 493 628 546 596 L642 532 L588 490 L533 532 C498 559 463 574 425 571 C384 568 352 546 339 515 C325 483 337 447 360 417 C394 373 449 337 493 316 C512 307 528 299 542 291 Z"/>
+</g>
+</svg>
