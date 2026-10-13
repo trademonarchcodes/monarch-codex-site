@@ -3,11 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Monarch Codex is developing an education-led approach to AI, digital innovation and financial-market literacy. Investment services are not currently open.">
+  <meta name="description" content="Explore Monarch Codex: trading education, The Sovereign Desk, The Online Cooperative, community events and FAQs.">
   <meta name="theme-color" content="#0b0b0c">
   <title>Monarch Codex | Knowledge. Strategy. Empowerment.</title>
   <link rel="icon" type="image/svg+xml" href="assets/images/monarch-codex-logo.svg">
   <link rel="stylesheet" href="assets/css/style.css">
+  <style>
+    .partner-grid,.event-grid,.faq-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:32px}
+    .partner-card,.event-card,.faq-item{background:linear-gradient(145deg,rgba(30,34,49,.96),rgba(15,16,23,.96));border:1px solid rgba(240,199,65,.25);border-radius:22px;padding:26px;box-shadow:0 16px 44px rgba(0,0,0,.18)}
+    .partner-card h3,.event-card h3{font-size:1.45rem;font-weight:800;margin:10px 0}
+    .partner-kicker{display:inline-flex;border:1px solid rgba(255,211,61,.45);border-radius:999px;padding:5px 11px;color:#ffda52;font-size:.75rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+    .partner-symbol{display:grid;place-items:center;width:58px;height:58px;border-radius:17px;background:rgba(255,211,61,.12);border:1px solid rgba(255,211,61,.4);color:#ffda52;font-size:1.5rem;font-weight:900}
+    .partner-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+    .outline-link{display:inline-flex;align-items:center;justify-content:center;border:1px solid #f3cf3c;border-radius:999px;padding:10px 16px;color:#ffe16b;font-weight:800;text-decoration:none}
+    .outline-link:hover{background:#f3cf3c;color:#111}
+    .event-card{min-height:190px}.event-card .event-emoji{font-size:1.8rem}
+    .faq-list{display:grid;gap:12px;margin-top:30px}
+    .faq-item{padding:0;overflow:hidden}.faq-item summary{cursor:pointer;list-style:none;padding:20px 24px;font-weight:800;font-size:1.05rem;display:flex;justify-content:space-between;gap:16px;align-items:center}
+    .faq-item summary::-webkit-details-marker{display:none}.faq-item summary:after{content:'+';color:#ffda52;font-size:1.5rem;line-height:1}.faq-item[open] summary:after{content:'−'}
+    .faq-answer{padding:0 24px 22px;color:#d0ced5}.faq-answer a{color:#ffdc55;font-weight:700}
+    .social-chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}.social-chip{border:1px solid rgba(255,211,61,.32);border-radius:999px;padding:9px 14px;color:#f8e8a2;font-weight:700;font-size:.9rem}
+    .section-intro{max-width:700px;color:var(--muted);margin:12px auto 0}.partner-note{font-size:.88rem;color:var(--muted);margin-top:18px}
+    .notice-card{margin-top:22px;padding:18px 20px;border-left:4px solid #f3cf3c;border-radius:0 14px 14px 0;background:rgba(255,211,61,.07)}
+    @media(max-width:700px){.partner-grid,.event-grid{grid-template-columns:1fr}.partner-card,.event-card{padding:22px}.faq-item summary{padding:18px}.faq-answer{padding:0 18px 18px}}
+  </style>
 </head>
 <body>
   <header class="site-header">
@@ -16,89 +35,115 @@
       <span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span>
     </a>
     <button class="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
-    <nav class="nav">
-      <a href="#about">About</a><a href="#focus">Our Focus</a><a href="#roadmap">Roadmap</a><a class="nav-cta" href="#contact">Contact</a>
+    <nav class="nav" aria-label="Main navigation">
+      <a href="#about">About</a><a href="#partners">Partners</a><a href="#events">Events</a><a href="#faqs">FAQs</a><a class="nav-cta" href="#contact">Contact</a>
     </nav>
   </header>
 
   <main id="top">
     <section class="hero section-wrap">
       <div class="hero-copy">
-        <p class="eyebrow">BIG IDEAS. GOOD ENERGY. REAL SKILLS. ✦</p>
-        <h1>Curious minds.<br><span>Big moves.</span></h1>
-        <p class="hero-lede">We make room for curious minds to explore AI, digital tools and money skills — one smart idea, one experiment and one level-up at a time.</p>
+        <p class="eyebrow">KNOWLEDGE · STRATEGY · EMPOWERMENT ✦</p>
+        <h1>Big curiosity.<br><span>Bold next moves.</span></h1>
+        <p class="hero-lede">Welcome to Monarch Codex — a community exploring trading education, personal growth and smarter ways to navigate the digital world. Come curious. Leave with new questions, new skills and room to grow.</p>
         <div class="hero-actions">
-          <a class="button button-gold" href="#about">Come see what we’re about <span>↗</span></a>
-          <a class="text-link" href="#contact">Say hello</a>
+          <a class="button button-gold" href="#about">Meet Monarch Codex <span>↗</span></a>
+          <a class="text-link" href="#partners">Explore our partners</a>
         </div>
-        <p class="microcopy">An early-stage initiative. No investment products are currently available through this website.</p>
+        <p class="microcopy">Learn first. Ask questions. Make informed decisions. Financial markets involve risk; no profit is guaranteed.</p>
       </div>
       <div class="hero-art logo-showcase" aria-label="Monarch Codex logo">
-        <img src="assets/images/monarch-codex-logo.svg" alt="Monarch Codex monogram" class="hero-logo">
-        <div class="art-caption"><span class="tiny-line"></span> STAY CURIOUS. KEEP BUILDING. ✦</div>
+        <img src="assets/images/monarch-codex-logo.svg" alt="Monarch Codex logo" class="hero-logo">
+        <div class="art-caption"><span class="tiny-line"></span> THINK CLEARLY. KEEP GROWING. ✦</div>
       </div>
     </section>
 
     <section class="status-band">
-      <div class="status-icon">i</div>
-      <div><strong>A quick heads-up</strong><p>Monarch Codex is still planning its services and is not yet authorised to offer investment services. This website is for general information and enquiries only. Do not send money or digital assets to anyone claiming to invest on our behalf.</p></div>
+      <div class="status-icon">✦</div>
+      <div><strong>A quick, important note</strong><p>This website shares general information. Access to particular trading-related resources may require eligibility or administrator approval. Never treat a trading signal as a guarantee, and never send passwords or private login codes to anyone.</p></div>
     </section>
 
     <section id="about" class="section-wrap section-pad">
       <div class="section-heading"><p class="eyebrow">WHO WE ARE</p><h2>Good ideas.<br>Better together.</h2></div>
       <div class="about-copy">
-        <p>We’re a team of curious builders exploring how AI, digital tools and financial-market knowledge can open up new ways to learn, create and think. No gatekeeping — just useful ideas, practical learning and room to grow.</p>
-        <p>We take learning seriously, but we don’t think it has to feel stiff. We value honesty, fresh thinking, asking better questions and helping people make informed choices as they build their skills.</p>
+        <p>Monarch Codex is a community focused on trading education, investments, personal development and trading-related services. We want complex ideas to feel easier to explore, with simple explanations that help people ask better questions and make informed choices.</p>
+        <p>We believe learning can be ambitious without being intimidating. Our team-led approach values integrity, curiosity, discipline and clear communication. We’ll be upfront when information is not yet confirmed rather than making promises we can’t support.</p>
         <div class="values"><span>Integrity</span><span>Learning</span><span>Innovation</span><span>Discipline</span></div>
       </div>
     </section>
 
     <section id="focus" class="focus-section">
       <div class="section-wrap section-pad">
-        <div class="section-heading centered"><p class="eyebrow">OUR AREAS OF FOCUS</p><h2>For the curious.<br>For the “what if?” people.</h2><p class="subhead">A few things we’re exploring and building. Think learning lab, not boring lecture hall.</p></div>
+        <div class="section-heading centered"><p class="eyebrow">EXPLORE THE ECOSYSTEM</p><h2>Different paths.<br>One curious community.</h2><p class="subhead">Here’s what each area is for — and what you should know before getting involved.</p></div>
         <div class="focus-grid">
-          <article class="focus-card"><div class="card-number">01</div><div class="card-icon">✳</div><h3>AI & Digital Skills</h3><p>Exploring practical AI tools and digital workflows that can help people learn, create and work more effectively.</p></article>
-          <article class="focus-card"><div class="card-number">02</div><div class="card-icon">⌁</div><h3>Market Education</h3><p>Planned educational resources on crypto, Forex and derivatives, with a focus on risk awareness and informed decisions.</p></article>
-          <article class="focus-card"><div class="card-number">03</div><div class="card-icon">◇</div><h3>Monarch Codex Academy</h3><p>A planned learning environment for foundational knowledge, practical skills and responsible digital participation.</p></article>
+          <article class="focus-card"><div class="card-number">01</div><div class="card-icon">✳</div><h3>Monarch Codex Academy</h3><p>The learning section for trading education and educational content. Ask support for confirmed class dates, times and official class links.</p></article>
+          <article class="focus-card"><div class="card-number">02</div><div class="card-icon">↗</div><h3>The Sovereign Desk</h3><p>Our associated signals and trading-guidance section for eligible or approved users. Access may depend on payment or administrator approval. Signals can lose money.</p><a class="text-link" href="#partners">Learn about The Sovereign Desk ↗</a></article>
+          <article class="focus-card"><div class="card-number">03</div><div class="card-icon">◎</div><h3>The Online Cooperative</h3><p>A separate cooperative opportunity that may be relevant to members of our community. Its participation terms should be checked through its official channel.</p><a class="text-link" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Official registration ↗</a></article>
         </div>
       </div>
     </section>
 
-    <section id="roadmap" class="section-wrap section-pad roadmap">
-      <div class="section-heading"><p class="eyebrow">THE ROAD AHEAD</p><h2>Small steps.<br>Big possibilities.</h2></div>
-      <div class="roadmap-list">
-        <div class="roadmap-item"><span class="roadmap-state">NOW</span><div><h3>Planning & foundations</h3><p>Clarifying the business model, service scope, governance and compliance requirements.</p></div></div>
-        <div class="roadmap-item"><span class="roadmap-state">NEXT</span><div><h3>Learning resources</h3><p>Developing educational content, public information and community communication channels.</p></div></div>
-        <div class="roadmap-item"><span class="roadmap-state">LATER</span><div><h3>Any regulated services</h3><p>Any future investment-related service would be considered only after appropriate professional review, required authorisation and clear risk disclosures.</p></div></div>
+    <section id="partners" class="section-wrap section-pad">
+      <div class="section-heading centered"><p class="eyebrow">OUR PARTNER SPOTLIGHT</p><h2>Know the difference.<br>Choose with clarity.</h2><p class="section-intro">These are distinct areas associated with the Monarch Codex community. Their participation rules and services are not automatically the same.</p></div>
+      <div class="partner-grid">
+        <article class="partner-card">
+          <div class="partner-symbol" aria-hidden="true">SD</div>
+          <p class="partner-kicker">Trading guidance</p>
+          <h3>The Sovereign Desk</h3>
+          <p>The Sovereign Desk is the signals and trading-guidance section associated with Monarch Codex. It provides trading-related information to eligible or approved users. Access may depend on payment or administrator approval.</p>
+          <p>Trading concepts can be explained in simple language, but no signal can promise a profitable outcome. Markets are uncertain, and you may lose some or all of the money you put at risk.</p>
+          <div class="partner-actions"><a class="outline-link" href="mailto:contactmonarchcodex@gmail.com?subject=Sovereign%20Desk%20enquiry">Ask official support ↗</a></div>
+        </article>
+        <article class="partner-card">
+          <div class="partner-symbol" aria-hidden="true">OC</div>
+          <p class="partner-kicker">Separate opportunity</p>
+          <h3>The Online Cooperative</h3>
+          <p>The Online Cooperative is a separate cooperative opportunity that may be relevant to members of the Monarch Codex community. Monarch Codex membership or services do not automatically mean you are enrolled in the cooperative.</p>
+          <p>Review the cooperative’s own information and ask its official support about participation requirements, contributions, returns, withdrawals or benefits. We do not assume or promise any of these terms here.</p>
+          <div class="partner-actions"><a class="button button-gold" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Visit registration ↗</a></div>
+        </article>
       </div>
+      <div class="notice-card"><strong>Keep it smart:</strong> Don’t pay through unofficial links or rely on promised returns. If a fee, account status or access rule isn’t clearly confirmed, check with official support before acting.</div>
     </section>
 
-    <section class="tiers-section">
+    <section id="events" class="focus-section">
       <div class="section-wrap section-pad">
-        <div class="section-heading centered"><p class="eyebrow">FUTURE CONCEPT</p><h2>Proposed tier structure</h2><p class="subhead">The amounts below are planning placeholders only. They are not open packages, offers to invest, or requests for payment.</p></div>
-        <div class="tier-grid">
-          <div class="tier"><small>01 / CONCEPT</small><h3>Monarch Starters</h3><strong>$50</strong><span>Not available</span></div>
-          <div class="tier"><small>02 / CONCEPT</small><h3>Monarch Bronze</h3><strong>$100</strong><span>Not available</span></div>
-          <div class="tier"><small>03 / CONCEPT</small><h3>Monarch Silver</h3><strong>$200</strong><span>Not available</span></div>
-          <div class="tier"><small>04 / CONCEPT</small><h3>Monarch Gold</h3><strong>$500</strong><span>Not available</span></div>
-          <div class="tier"><small>05 / CONCEPT</small><h3>Monarch Platinum</h3><strong>$1,000</strong><span>Not available</span></div>
-          <div class="tier"><small>06 / CONCEPT</small><h3>Monarch Elite</h3><strong>$2,000</strong><span>Not available</span></div>
+        <div class="section-heading centered"><p class="eyebrow">SAVE THE VIBE</p><h2>Events & meetups</h2><p class="subhead">Workshops, learning sessions and community updates belong here.</p></div>
+        <div class="event-grid">
+          <article class="event-card"><div class="event-emoji" aria-hidden="true">📅</div><h3>No events announced yet</h3><p>We don’t have a confirmed event date or registration link to share right now. Check back for updates, or email the team to ask about upcoming classes.</p><a class="text-link" href="mailto:contactmonarchcodex@gmail.com?subject=Upcoming%20Monarch%20Codex%20events">Ask about upcoming events ↗</a></article>
+          <article class="event-card"><div class="event-emoji" aria-hidden="true">🎓</div><h3>Interested in a trading class?</h3><p>Ask support for the confirmed date, time and official class link. We won’t list a session as scheduled until those details are confirmed.</p><a class="text-link" href="mailto:contactmonarchcodex@gmail.com?subject=Trading%20class%20enquiry">Ask the team ↗</a></article>
         </div>
-        <p class="tier-disclaimer">No return rate, payout schedule, referral commission or investment availability is being advertised. Any future financial arrangement will require legal and regulatory review before publication or launch.</p>
+      </div>
+    </section>
+
+    <section id="faqs" class="section-wrap section-pad">
+      <div class="section-heading centered"><p class="eyebrow">GOOD QUESTIONS</p><h2>FAQs, minus the mystery.</h2><p class="section-intro">Tap a question to see the answer. If something isn’t confirmed, we’ll say so and point you to support.</p></div>
+      <div class="faq-list">
+        <details class="faq-item"><summary>What is Monarch Codex?</summary><div class="faq-answer"><p>Monarch Codex is a community focused on trading education, investments, personal development and trading-related services. Some resources may require eligibility or approval.</p></div></details>
+        <details class="faq-item"><summary>How can I join?</summary><div class="faq-answer"><p>Visit the <a href="https://monarchcodex.pages.dev" target="_blank" rel="noopener noreferrer">official Monarch Codex website</a> and use the registration option available there.</p></div></details>
+        <details class="faq-item"><summary>What is the Academy?</summary><div class="faq-answer"><p>The Academy is the learning section for trading and educational content. For class availability, dates, times and official class links, contact support.</p></div></details>
+        <details class="faq-item"><summary>What is The Sovereign Desk?</summary><div class="faq-answer"><p>It is the signals and trading-guidance section associated with Monarch Codex. It provides trading-related information to eligible or approved users. Access may depend on payment or administrator approval. Contact official support for access questions.</p></div></details>
+        <details class="faq-item"><summary>Are profits guaranteed?</summary><div class="faq-answer"><p>No. Trading and investing involve risk, and profits are never guaranteed. A signal is not a promise or certainty of a market outcome. Only risk money you can afford to lose, and consider getting independent financial advice.</p></div></details>
+        <details class="faq-item"><summary>What is The Online Cooperative?</summary><div class="faq-answer"><p>It is a separate cooperative opportunity that may be relevant to community members. Cooperative participation and Monarch Codex services are not automatically the same thing. Review its own information and ask its official support to clarify any terms before joining. <a href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Official registration link ↗</a></p></div></details>
+        <details class="faq-item"><summary>How do I fund my account or withdraw?</summary><div class="faq-answer"><p>Follow the current instructions in your account or contact official support. We don’t publish unverified payment or withdrawal instructions here. Never send your password or private login codes to anyone.</p></div></details>
+        <details class="faq-item"><summary>How do I get help?</summary><div class="faq-answer"><p>Email <a href="mailto:contactmonarchcodex@gmail.com">contactmonarchcodex@gmail.com</a>. For account access, payments or approval, contact official support directly.</p></div></details>
+        <details class="faq-item"><summary>Can I join the trading class?</summary><div class="faq-answer"><p>Yes, you can ask about it, but the confirmed date, time and official class link have not been provided on this page. <a href="mailto:contactmonarchcodex@gmail.com?subject=Trading%20class%20enquiry">Contact support to confirm details.</a></p></div></details>
       </div>
     </section>
 
     <section id="contact" class="contact-section">
       <div class="section-wrap contact-layout">
-        <div><p class="eyebrow">DON’T BE A STRANGER</p><h2>Got an idea?<br><span>Let’s chat.</span></h2><p class="contact-intro">Got a question, suggestion or cool idea? Drop the team a message.</p>
-          <div class="contact-links icon-links"><a class="contact-icon email-icon" href="mailto:trademonarchofficial@gmail.com" aria-label="Email Monarch Codex" title="Email Monarch Codex"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></a><a class="contact-icon whatsapp-icon" href="https://wa.me/2349135424851" target="_blank" rel="noopener noreferrer" aria-label="Chat with Monarch Codex on WhatsApp" title="WhatsApp Monarch Codex"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5a8.3 8.3 0 0 1-12.3 7.2L4 20l1.3-3.5A8.3 8.3 0 1 1 20 11.5Z"></path><path d="M9 8.5c.3 2 2.5 4.2 4.5 4.5l1.2-1.2 2 1c-.2 1.5-1.4 2.3-2.7 2.1-3.3-.6-6.3-3.6-6.9-6.9-.2-1.3.6-2.5 2.1-2.7l1 2Z"></path></svg></a></div>
+        <div><p class="eyebrow">YOUR PEOPLE, ONE TAP AWAY</p><h2>Got a question?<br><span>Let’s connect.</span></h2><p class="contact-intro">Need help with access, a class, a partner or something on the site? Reach the team through official support.</p>
+          <div class="contact-links icon-links"><a class="contact-icon email-icon" href="mailto:contactmonarchcodex@gmail.com" aria-label="Email Monarch Codex support" title="Email support"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></a><a class="contact-icon telegram-icon" href="https://t.me/Trade_Monarch" target="_blank" rel="noopener noreferrer" aria-label="Open Monarch Codex Telegram" title="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4Z"></path><path d="M10 14 21 3"></path></svg></a></div>
+          <p class="partner-note">Social handles supplied by the team:</p>
+          <div class="social-chips"><span class="social-chip">Telegram: @Trade_Monarch</span><span class="social-chip">X: @MetaTron777X</span><span class="social-chip">YouTube: @Monachcodexacademy</span></div>
         </div>
         <form class="contact-form" id="contactForm">
           <label for="visitorName">Your name</label><input id="visitorName" name="name" autocomplete="name" required>
           <label for="visitorEmail">Email address</label><input id="visitorEmail" name="email" type="email" autocomplete="email" required>
-          <label for="visitorMessage">How can we help?</label><textarea id="visitorMessage" name="message" rows="4" required placeholder="General enquiry or request for company updates"></textarea>
+          <label for="visitorMessage">How can we help?</label><textarea id="visitorMessage" name="message" rows="4" required placeholder="Tell us what you need help with…"></textarea>
           <p class="form-note">This form opens a draft email in your email app. It does not submit information to a server.</p>
-          <button class="button button-gold" type="submit">Let’s write that email <span>↗</span></button>
+          <button class="button button-gold" type="submit">Write to the team <span>↗</span></button>
           <p id="formStatus" class="form-status" aria-live="polite"></p>
         </form>
       </div>
@@ -106,11 +151,11 @@
   </main>
 
   <footer class="footer">
-    <a class="brand footer-brand" href="#top"><span class="brand-mark">MC</span><span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span></a>
+    <a class="brand footer-brand" href="#top"><span class="brand-mark"><img src="assets/images/monarch-codex-logo.svg" alt=""></span><span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span></a>
     <p>Knowledge. Strategy. Empowerment.</p>
-    <div class="footer-links"><a href="privacy.html">Privacy</a><a href="terms.html">Website notice</a><a href="mailto:trademonarchofficial@gmail.com">Email</a></div>
+    <div class="footer-links"><a href="privacy.html">Privacy</a><a href="terms.html">Website notice</a><a href="mailto:contactmonarchcodex@gmail.com">Email support</a><a href="https://monarchcodex.pages.dev" target="_blank" rel="noopener noreferrer">Official website</a></div>
     <small class="copyright">© <span id="year"></span> Monarch Codex. All rights reserved.</small>
-    <p class="footer-disclaimer">Monarch Codex is in the planning stage. This website provides general information only and does not constitute investment advice, an offer, invitation or solicitation to invest. No investment services are currently offered through this website. Financial markets involve risk, including possible loss of capital.</p>
+    <p class="footer-disclaimer">This website provides general information only and does not constitute investment advice or a promise of returns. Trading and investing involve risk, including possible loss of capital. The Online Cooperative is separate from Monarch Codex services; review its own terms before participating.</p>
   </footer>
   <script src="assets/js/main.js"></script>
 </body>
