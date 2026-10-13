@@ -109,3 +109,34 @@ body{font-family:'Manrope',sans-serif;font-weight:500;color:#fffdf5;background:r
 .logo-showcase .hero-logo{position:relative;z-index:1;display:block;width:min(88%,520px);height:auto;max-height:340px;object-fit:contain;filter:drop-shadow(0 12px 32px #0009)}
 .logo-showcase .art-caption{color:#ffe6a3}
 @media(max-width:760px){.brand-mark{width:52px;height:52px;min-width:52px}.logo-showcase .hero-logo{width:min(90%,420px);max-height:280px}}
+
+
+/* Events, partner and FAQ sections — bold, friendly, mobile-first */
+.events-section,.faq-section{position:relative}
+.events-section .section-heading h2,.faq-section .section-heading h2,.partners-section .section-heading h2{font-weight:900;letter-spacing:-.045em}
+.events-section .section-heading h2 span,.partner-card h3{color:var(--gold,#f5ca43)}
+.event-empty{display:flex;align-items:flex-start;gap:18px;margin-top:28px;padding:26px;border:1px solid rgba(245,202,67,.3);border-radius:24px;background:linear-gradient(135deg,rgba(245,202,67,.09),rgba(30,37,57,.72));box-shadow:0 14px 40px rgba(0,0,0,.18)}
+.event-spark{display:grid;place-items:center;flex:0 0 48px;width:48px;height:48px;border-radius:16px;background:#f5ca43;color:#111;font-size:26px;font-weight:900}
+.event-empty h3,.partner-card h3{font-weight:900;letter-spacing:-.025em}
+.event-empty p,.partner-card p,.partner-note{line-height:1.75;color:var(--muted,#c0c3cf)}
+.partners-section{background:radial-gradient(ellipse at 10% 10%,rgba(245,202,67,.08),transparent 42%),#111421}
+.partner-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:36px}
+.partner-card{padding:clamp(22px,4vw,34px);border:1px solid rgba(245,202,67,.22);border-radius:26px;background:linear-gradient(145deg,rgba(35,42,62,.96),rgba(18,21,33,.98));box-shadow:0 16px 38px rgba(0,0,0,.2);transition:transform .22s ease,border-color .22s ease}
+.partner-card:hover{transform:translateY(-5px);border-color:rgba(245,202,67,.65)}
+.partner-logo{display:grid;place-items:center;width:72px;height:72px;margin-bottom:22px;border-radius:22px;background:linear-gradient(135deg,#ffe783,#d5a91d);color:#101116;font-size:34px;font-weight:900;box-shadow:0 8px 22px rgba(245,202,67,.18)}
+.partner-card h3{font-size:clamp(1.35rem,3vw,1.8rem);margin:8px 0 12px}
+.partner-card .button{margin-top:18px;display:inline-flex}
+.partner-note{margin-top:22px;font-size:.92rem}
+.button-outline{border:1px solid #f5ca43;color:#ffdc62;background:transparent;border-radius:14px;padding:13px 18px;font-weight:850;text-decoration:none;transition:background .2s ease,color .2s ease}
+.button-outline:hover{background:#f5ca43;color:#101116}
+.faq-list{display:grid;gap:12px;margin-top:30px;max-width:920px}
+.faq-item{border:1px solid rgba(245,202,67,.2);border-radius:18px;background:linear-gradient(120deg,rgba(32,39,58,.86),rgba(17,20,31,.94));overflow:hidden}
+.faq-item summary{position:relative;cursor:pointer;list-style:none;padding:20px 56px 20px 22px;font-size:1.04rem;font-weight:850;color:#fff}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary:after{content:'+';position:absolute;right:20px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#f5ca43;color:#111;font-size:22px;font-weight:900}
+.faq-item[open] summary:after{content:'−'}
+.faq-item[open] summary{color:#ffdc62}
+.faq-item p{padding:0 22px 20px;margin:0;line-height:1.75;color:var(--muted,#c0c3cf)}
+.faq-item a{color:#ffdc62;font-weight:800}
+.footer-brand .brand-mark img{display:block;width:100%;height:100%;object-fit:contain;border-radius:inherit}
+@media(max-width:700px){.partner-grid{grid-template-columns:1fr}.event-empty{padding:20px;gap:14px}.partner-card{border-radius:22px}.faq-item summary{font-size:.98rem;padding:18px 52px 18px 18px}.faq-item p{padding:0 18px 18px}}
