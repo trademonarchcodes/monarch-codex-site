@@ -71,7 +71,7 @@ function registerForm(req, message) {
   '<label for="fullName">Full name</label><input id="fullName" name="fullName" autocomplete="name" maxlength="120" required>' +
   '<label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>' +
   '<label for="phone">Phone number</label><input id="phone" name="phone" type="tel" autocomplete="tel" maxlength="32" required>' +
-  '<label for="username">Username</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="30" pattern="[A-Za-z0-9_]{3,30}" required><p class="muted small">Use 3–30 letters, numbers or underscores.</p>' +
+  '<label for="username">Username</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="30" pattern="[A-Za-z0-9_]{3,30}" title="Username cannot contain spaces. Use 3–30 letters, numbers or underscores." autocapitalize="none" spellcheck="false" required><p class="muted small">No spaces allowed. Use 3–30 letters, numbers or underscores.</p>' +
   '<label for="password">Password</label><div class="password-wrap"><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required><button class="password-toggle" type="button" data-toggle-password="password" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><p class="muted small">Use at least 12 characters.</p>' +
   '<button class="btn" type="submit">Create account</button></form><div class="links"><a href="/login">Already a member? Log in</a></div>');
 }
@@ -91,7 +91,7 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
     if (fullName.length < 2 || fullName.length > 120) return res.status(400).send(formError('Check your details', 'Enter your full name (2–120 characters).'));
     if (!validEmail(email)) return res.status(400).send(formError('Check your details', 'Enter a valid email address.'));
     if (!phone || phone.length > 32 || !/^[+()\d\s.-]{7,32}$/.test(phone)) return res.status(400).send(formError('Check your details', 'Enter a valid phone number.'));
-    if (!validUsername(username)) return res.status(400).send(formError('Check your details', 'Username must be 3–30 letters, numbers or underscores.'));
+    if (!validUsername(username) || /\s/.test(String(req.body.username || ''))) return res.status(400).send(formError('Check your details', 'Username cannot contain spaces. Use 3–30 letters, numbers or underscores.'));
     if (password.length < 12 || password.length > 128) return res.status(400).send(formError('Check your password', 'Use a password between 12 and 128 characters.'));
     const [existing] = await pool.execute('SELECT id FROM members WHERE email = ? OR username = ? LIMIT 1', [email, username]);
     if (existing.length) return res.status(409).send(formError('Account already exists', 'That email or username is already in use. Try logging in or choose another.', '/register'));
