@@ -140,3 +140,11 @@ body{font-family:'Manrope',sans-serif;font-weight:500;color:#fffdf5;background:r
 .faq-item a{color:#ffdc62;font-weight:800}
 .footer-brand .brand-mark img{display:block;width:100%;height:100%;object-fit:contain;border-radius:inherit}
 @media(max-width:700px){.partner-grid{grid-template-columns:1fr}.event-empty{padding:20px;gap:14px}.partner-card{border-radius:22px}.faq-item summary{font-size:.98rem;padding:18px 52px 18px 18px}.faq-item p{padding:0 18px 18px}}
+
+/* Compact clickable social-logo bubbles */
+.social-bubbles{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:24px}
+.social-bubbles .contact-icon{display:grid;place-items:center;width:58px;height:58px;flex:0 0 58px;border-radius:50%;border:1.5px solid rgba(255,211,77,.48);background:linear-gradient(145deg,#22283b,#10131e);color:#ffda55;box-shadow:0 7px 20px rgba(0,0,0,.22);transition:transform .2s ease,background .2s ease,border-color .2s ease,box-shadow .2s ease}
+.social-bubbles .contact-icon svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.social-bubbles .contact-icon:hover,.social-bubbles .contact-icon:focus-visible{transform:translateY(-4px) scale(1.06);background:#f5ca43;color:#111;border-color:#f5ca43;box-shadow:0 10px 26px rgba(245,202,67,.2);outline:none}
+.social-bubbles .x-icon svg path{stroke-width:2.3}
+@media(max-width:600px){.social-bubbles{gap:12px}.social-bubbles .contact-icon{width:54px;height:54px;flex-basis:54px}}
