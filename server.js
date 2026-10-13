@@ -67,7 +67,7 @@ function validUsername(username) { return /^[a-zA-Z0-9_]{3,30}$/.test(username);
 function formError(title, message, back) { return page(title, '<h1>' + esc(title) + '</h1><div class="notice">' + esc(message) + '</div><a class="btn" href="' + esc(back || '/register') + '">Go back</a>'); }
 function registerForm(req, message) {
   return page('Create your account', '<h1>Become a Monarch</h1><p class="muted">Create your member account. Dashboard access begins after successful registration.</p>' +
-  (message ? '<div class="notice">' + esc(message) + '</div>' : '') + '<form method="post" action="/register">' + csrfField(req) +
+  (message ? '<div class="notice">' + esc(message) + '</div>' : '') + '<form method="post" action="/register">' + csrfField(req) + '<input type="hidden" name="ref" value="' + esc(req.query.ref || '') + '">' +
   '<label for="fullName">Full name</label><input id="fullName" name="fullName" autocomplete="name" maxlength="120" required>' +
   '<label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>' +
   '<label for="phone">Phone number</label><input id="phone" name="phone" type="tel" autocomplete="tel" maxlength="32" required>' +
