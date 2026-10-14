@@ -5,7 +5,8 @@
   "description": "Monarch Codex website and membership backend",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": "22.x"
