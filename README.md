@@ -37,3 +37,16 @@ Open `index.html` in a browser. The contact form opens a draft email; it does no
 
 ## Domain
 No domain is included. Choose and register a domain after checking availability and trademark considerations. A domain usually has a registration fee; hosting and domain registration are separate services.
+
+## Secure KYC deployment requirements
+
+The KYC submission route is implemented, but it remains unavailable until the following are configured on the server. Never put these values in source control or send them in chat.
+
+- Apply `migrations/001_kyc_submissions.sql`, then `migrations/003_kyc_submission_storage.sql` to the same production database after taking a backup.
+- Set `KYC_STORAGE_DIR` to an absolute directory **outside** the public web root and application folder, writable only by the Node.js process (for example, a private directory provided by your hosting plan).
+- Set `KYC_ENCRYPTION_KEY` to a securely generated 32-byte key encoded as Base64. Keep a protected backup; losing it makes encrypted identity files unrecoverable. Rotate only with a planned re-encryption process.
+- Deploy the updated `package.json` and run the hosting platform's dependency installation/rebuild so `multer` is installed; restart the Node.js app.
+- Test with synthetic documents only first. Confirm upload rejection, session/CSRF protection, encrypted files outside the public directory, database transaction, and admin review queue at `/admin/kyc` before collecting real identity data.
+- Restrict server and database backups, set a documented retention/deletion policy, publish a reviewed privacy notice, and confirm applicable privacy/legal requirements before production KYC collection.
+
+Uploaded files are encrypted at rest with AES-256-GCM. The admin queue currently exposes submission metadata and status review only; a separately authenticated, audited document-view/download workflow and deletion/retention tooling must be completed before staff can inspect submitted images. Do not treat the KYC system as production-ready until those controls and live tests are complete.
