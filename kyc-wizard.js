@@ -21,6 +21,48 @@
   var startCamera = document.getElementById('kycStartCamera');
   var captureSelfie = document.getElementById('kycCaptureSelfie');
   var retakeSelfie = document.getElementById('kycRetakeSelfie');
+  var docType = document.getElementById('kycDocType');
+  var docNumber = document.getElementById('kycDocNumber');
+  var docNumberError = document.getElementById('kycDocNumberError');
+
+  function isNinDocument() {
+    return docType && docType.value === 'national_id' && document.getElementById('kycDocCountry').value === 'NG';
+  }
+
+  function validateDocumentNumber(showError) {
+    if (!docNumber || !docNumberError) return true;
+    var value = docNumber.value.trim();
+    var invalid = isNinDocument() && value.length > 0 && !/^\\d{11}$/.test(value);
+    docNumberError.hidden = !invalid;
+    docNumber.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+    if (invalid) docNumberError.textContent = value.length < 11 ? 'NIN must contain 11 digits.' : 'NIN must contain exactly 11 digits.';
+    if (showError && isNinDocument() && !/^\\d{11}$/.test(value)) {
+      docNumberError.hidden = false;
+      docNumberError.textContent = value.length < 11 ? 'NIN must contain 11 digits.' : 'NIN must contain exactly 11 digits.';
+      docNumber.focus();
+      return false;
+    }
+    return !(isNinDocument() && value.length > 0 && !/^\\d{11}$/.test(value));
+  }
+
+  if (docNumber) {
+    docNumber.addEventListener('input', function () {
+      if (isNinDocument()) {
+        docNumber.value = docNumber.value.replace(/\\D/g, '').slice(0, 11);
+      }
+      validateDocumentNumber(false);
+    });
+    docNumber.addEventListener('blur', function () { validateDocumentNumber(false); });
+  }
+  if (docType) docType.addEventListener('change', function () {
+    if (docNumber) docNumber.value = '';
+    validateDocumentNumber(false);
+    if (docNumber) {
+      docNumber.inputMode = isNinDocument() ? 'numeric' : 'text';
+      docNumber.maxLength = isNinDocument() ? 11 : 80;
+      docNumber.placeholder = '';
+    }
+  });
 
   function setProgress() {
     progressSteps.forEach(function (item, index) {
