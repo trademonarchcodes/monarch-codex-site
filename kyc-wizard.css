@@ -82,3 +82,12 @@
  .kyc-btn-primary { min-width:130px; }
 }
 @media(prefers-reduced-motion:reduce) { .kyc-stage.is-entering-next,.kyc-stage.is-entering-back { animation:none; } *,*::before,*::after { scroll-behavior:auto !important; transition-duration:.01ms !important; } }
+
+/* Live selfie camera: no file picker for selfie */
+.kyc-selfie-card{grid-column:1/-1;cursor:default}
+.kyc-selfie-card video,.kyc-selfie-card img{display:block;width:min(100%,360px);max-height:360px;aspect-ratio:3/4;object-fit:cover;background:#080809;border-radius:14px}
+.kyc-camera-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:9px;margin-top:7px}
+.kyc-camera-btn{padding:10px 15px;border:1px solid #766326;border-radius:999px;background:#30270f;color:#f3cf3c;font:inherit;font-size:.86rem;font-weight:800;cursor:pointer}
+.kyc-camera-btn:hover{background:#443713}
+.kyc-camera-status{font-size:.78rem!important;font-weight:500!important;color:#aaa69a!important;line-height:1.5;margin:5px 0 0!important}
+.kyc-camera-actions button[hidden],.kyc-selfie-card video[hidden],.kyc-selfie-card img[hidden]{display:none!important}
