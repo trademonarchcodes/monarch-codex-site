@@ -26,7 +26,7 @@ const dbOptions = {
 };
 const pool = mysql.createPool({ ...dbOptions, waitForConnections: true, connectionLimit: 10, queueLimit: 0 });
 const MySQLStore = MySQLStoreFactory(session);
-const sessionStore = new MySQLStore({ ...dbOptions, clearExpired: true, checkExpirationInterval: 900000, expiration: 86400000, createDatabaseTable: false, schema: { tableName: 'web_sessions' } });
+const sessionStore = new MySQLStore({ ...dbOptions, clearExpired: true, checkExpirationInterval: 900000, expiration: 86400000, createDatabaseTable: true, schema: { tableName: 'web_sessions' } });
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
