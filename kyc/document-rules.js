@@ -73,9 +73,9 @@ function validateDocumentNumber({ issuingCountry, documentType, documentNumber }
     return { valid: false, normalized: '', message: 'Use only letters, numbers, spaces, dots, hyphens, or slashes.' };
   }
   return {
-    valid: true,
-    normalized,
-    message: '',
+    valid: false,
+    normalized: '',
+    message: 'Strict format validation is not configured for this country and document type yet. Choose a supported document or contact support.',
     formatSpecificRuleConfigured: false
   };
 }
