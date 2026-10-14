@@ -93,6 +93,7 @@
   }
 
   function validateCurrentStage() {
+    if (current === 2 && !validateDocumentNumber(true)) return false;
     var fields = stages[current].querySelectorAll('input,select,textarea');
     for (var i = 0; i < fields.length; i++) {
       var field = fields[i];
