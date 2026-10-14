@@ -202,10 +202,31 @@
       showStage(current + 1, 'next');
       return;
     }
-    // No form is submitted until private document storage and the DB write endpoint are deployed.
-    message.textContent = 'Secure submission is not active yet. Nothing was uploaded or saved. Please do not use real identity documents on this preview.';
+    if (!selfieBlob) {
+      message.textContent = 'Capture your selfie before submitting.';
+      return;
+    }
     var notice = document.getElementById('kycSubmitNotice');
-    if (notice) notice.textContent = 'Submission is not connected yet. Your selected images and entered details remain in this browser only and have not been sent to Monarch Codex.';
+    var data = new FormData(form);
+    data.set('confirmOwnership', document.getElementById('kycConfirm').checked ? 'yes' : 'no');
+    data.set('selfie', new File([selfieBlob], 'selfie.jpg', { type: 'image/jpeg' }));
+    next.disabled = true;
+    uploading = true;
+    message.textContent = 'Submitting securely…';
+    if (notice) notice.textContent = 'Uploading your verification securely. Please keep this page open.';
+    fetch('/kyc/submit', { method: 'POST', body: data, credentials: 'same-origin' })
+      .then(function (response) { return response.json().catch(function () { return {}; }).then(function (body) { if (!response.ok) throw new Error(body.error || 'Submission failed.'); return body; }); })
+      .then(function (body) {
+        message.textContent = 'Verification submitted successfully. Reference: ' + body.submissionId + '.';
+        if (notice) notice.textContent = 'Your verification has been received and is pending administrator review.';
+        next.textContent = 'Submitted';
+      })
+      .catch(function (error) {
+        message.textContent = error.message || 'Secure submission failed. Please try again later.';
+        if (notice) notice.textContent = 'Your submission was not confirmed. Please correct any errors or try again.';
+        next.disabled = false;
+        uploading = false;
+      });
   });
 
   back.addEventListener('click', function () {
