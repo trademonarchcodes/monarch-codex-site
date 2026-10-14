@@ -195,6 +195,34 @@ app.get('/admin', requireAdmin, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+
+app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query("SELECT id,member_id,legal_full_name,contact_email,document_type,document_issuer_country,document_number_last4,status,submitted_at FROM kyc_submissions ORDER BY submitted_at DESC LIMIT 200");
+    const items = rows.map(row => '<tr><td>' + esc(row.id) + '</td><td>' + esc(row.legal_full_name) + '<br><small>' + esc(row.contact_email) + '</small></td><td>' + esc(row.document_type) + ' (' + esc(row.document_issuer_country) + ')<br><small>•••• ' + esc(row.document_number_last4) + '</small></td><td>' + esc(row.status) + '</td><td><form method="post" action="/admin/kyc/' + encodeURIComponent(row.id) + '/review">' + csrfField(req) + '<select name="status" required><option value="pending">Pending</option><option value="approved">Approve</option><option value="rejected">Reject</option><option value="needs_resubmission">Request resubmission</option></select><input name="note" maxlength="1000" placeholder="Reviewer note (optional)"><button class="btn" type="submit">Save</button></form></td></tr>').join('');
+    const body = '<div class="wrap"><h1>KYC review queue</h1><p class="muted">Sensitive documents are stored encrypted outside the public web directory. This list never displays full document numbers or document files.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c}td small{color:#aaa}</style>';
+    res.send(page('KYC review queue', body));
+  } catch(e) { next(e); }
+});
+app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  const id = String(req.params.id || '');
+  const status = req.body.status;
+  const note = String(req.body.note || '').trim().slice(0,1000);
+  if (!/^\\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
+  try {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [found] = await conn.execute('SELECT id FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
+      if (!found.length) { await conn.rollback(); return res.status(404).send(page('Not found','<h1>KYC submission not found</h1>')); }
+      await conn.execute('UPDATE kyc_submissions SET status = ?, reviewer_member_id = ?, reviewer_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',[status,req.session.memberId,note || null,id]);
+      await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note || null]);
+      await conn.commit();
+    } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    return res.redirect('/admin/kyc');
+  } catch(e) { next(e); }
+});
+
 app.get('/dashboard', requireAuth, async (req, res, next) => {
   try {
     const [rows] = await pool.execute('SELECT id, monarch_uid, full_name, email, username FROM members WHERE id = ? LIMIT 1', [req.session.memberId]);
