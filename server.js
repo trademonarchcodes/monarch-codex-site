@@ -8,6 +8,8 @@ const crypto = require('node:crypto');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const path = require('node:path');
+const fs = require('node:fs');
+const multer = require('multer');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -238,6 +240,93 @@ async function getMemberForPage(req, res) {
   return null;
 }
 app.get('/profile', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;res.send(memberPage('Profile','/profile',m,'<div class="member-card"><p><span class="muted">Monarch UID</span><br><strong>'+esc(m.monarch_uid)+'</strong></p><p><span class="muted">Full name</span><br><strong>'+esc(m.full_name)+'</strong></p><p><span class="muted">Email</span><br><strong>'+esc(m.email)+'</strong></p><p><span class="muted">Username</span><br><strong>@'+esc(m.username)+'</strong></p><p class="muted small">Profile editing and payout methods require protected database fields and are not enabled yet.</p></div>',req));}catch(e){next(e)}});
+
+const kycUploadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
+function getKycStorageConfig() {
+  const directory = process.env.KYC_STORAGE_DIR;
+  const keyText = process.env.KYC_ENCRYPTION_KEY;
+  if (!directory || !path.isAbsolute(directory) || directory === path.resolve(__dirname) || directory.startsWith(path.resolve(__dirname) + path.sep)) {
+    const err = new Error('Private KYC storage must be configured as an absolute directory outside the application folder.');
+    err.status = 503; throw err;
+  }
+  let key;
+  try { key = Buffer.from(keyText || '', 'base64'); } catch (_) { key = Buffer.alloc(0); }
+  if (key.length !== 32) { const err = new Error('KYC encryption key is not configured.'); err.status = 503; throw err; }
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  return { directory, key };
+}
+function encryptKycBuffer(buffer, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  return Buffer.concat([Buffer.from('MC1'), iv, cipher.getAuthTag(), encrypted]);
+}
+const kycUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 3, fileSize: 8 * 1024 * 1024, fields: 20, fieldSize: 4096 },
+  fileFilter: (_req, file, cb) => {
+    if (!['image/jpeg', 'image/png'].includes(file.mimetype)) return cb(new Error('Only JPG and PNG identity images are accepted.'));
+    cb(null, true);
+  }
+}).fields([{ name: 'documentFront', maxCount: 1 }, { name: 'documentBack', maxCount: 1 }, { name: 'selfie', maxCount: 1 }]);
+function validKycText(value, max) { return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max; }
+app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
+  kycUpload(req, res, async err => {
+    if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Each image must be 8 MB or smaller.' : 'Upload rejected. Use JPG or PNG images.' });
+    try {
+      csrfCheck(req, res, async csrfErr => {
+        if (csrfErr) return;
+        let config;
+        try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
+        const b = req.body || {};
+        const files = req.files || {};
+        const front = files.documentFront && files.documentFront[0];
+        const back = files.documentBack && files.documentBack[0];
+        const selfie = files.selfie && files.selfie[0];
+        const docNumber = String(b.documentNumber || '').trim();
+        if (!validKycText(b.legalFullName,160) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(b.dateOfBirth || '') ||
+            !validKycText(b.phoneNumber,32) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(b.contactEmail || '') ||
+            !['NG','GH','KE','ZA'].includes(b.countryCode) || !validKycText(b.stateRegion,120) ||
+            !validKycText(b.localityLga,120) || !validKycText(b.streetAddress,240) ||
+            !['national_id','passport','drivers_license','voters_card'].includes(b.documentType) ||
+            !['NG','GH','KE','ZA'].includes(b.documentIssuerCountry) || !validKycText(docNumber,80) ||
+            (b.documentType === 'national_id' && b.documentIssuerCountry === 'NG' && !/^\\d{11}$/.test(docNumber)) ||
+            !front || !selfie || b.confirmOwnership !== 'yes') {
+          return res.status(400).json({ error: 'Check all required fields, the NIN length, consent, and required images.' });
+        }
+        if (![front,back,selfie].filter(Boolean).every(f => ['image/jpeg','image/png'].includes(f.mimetype))) return res.status(400).json({ error: 'Only JPG and PNG images are accepted.' });
+        const stored = [];
+        try {
+          for (const [kind,file] of [['front',front],['back',back],['selfie',selfie]]) {
+            if (!file) { stored.push(null); continue; }
+            const id = crypto.randomBytes(24).toString('hex') + '.enc';
+            fs.writeFileSync(path.join(config.directory,id), encryptKycBuffer(file.buffer,config.key), { flag:'wx', mode:0o600 });
+            stored.push(id);
+          }
+          const numberCipher = encryptKycBuffer(Buffer.from(docNumber,'utf8'),config.key).toString('base64');
+          const conn = await pool.getConnection();
+          let submissionId;
+          try {
+            await conn.beginTransaction();
+            const [result] = await conn.execute(
+              "INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
+              [req.session.memberId,b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]]);
+            submissionId = result.insertId;
+            await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            await conn.commit();
+          } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
+          return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
+        } catch (e) {
+          for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+          if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'KYC database migration has not been applied.' });
+          console.error('[kyc submission]', e && e.code ? e.code : 'submission_failed');
+          return res.status(500).json({ error:'Could not save verification securely. Please try again later.' });
+        }
+      });
+    } catch (e) { next(e); }
+  });
+});
+
 app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
