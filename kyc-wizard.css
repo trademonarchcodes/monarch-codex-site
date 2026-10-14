@@ -39,7 +39,7 @@
 .kyc-stage input:focus,.kyc-stage select:focus { border-color:#d3b32f; box-shadow:0 0 0 3px #f3cf3c18; }
 .kyc-stage input[type=date] { color-scheme:dark; }
 .kyc-two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-.kyc-hint { margin-top:18px; padding:13px 14px; background:#201c10; border-left:3px solid #8f7822; border-radius:8px; color:#c9c4b4; line-height:1.55; font-size:.86rem; }
+.kyc-field-error { margin:7px 0 0; color:#ff646e; font-size:.84rem; font-weight:750; line-height:1.45; }\n.kyc-field-error[hidden] { display:none !important; }\n.kyc-hint { margin-top:18px; padding:13px 14px; background:#201c10; border-left:3px solid #8f7822; border-radius:8px; color:#c9c4b4; line-height:1.55; font-size:.86rem; }
 .kyc-upload-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
 .kyc-upload-card { display:flex !important; min-height:170px; align-items:center; justify-content:center; flex-direction:column; gap:8px; padding:17px; margin:0 !important; text-align:center; border:1px dashed #62572c; border-radius:15px; background:#13130f; cursor:pointer; transition:border-color .2s,background .2s; }
 .kyc-upload-card:hover { border-color:#f3cf3c; background:#1b190f; }
