@@ -151,6 +151,48 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
     });
   } catch (e) { next(e); }
 });
+
+// Admin access is granted only by an explicit row in admin_users; email alone never grants privileges.
+async function requireAdmin(req, res, next) {
+  if (!req.session.memberId) return res.redirect('/login');
+  try {
+    const [rows] = await pool.execute(
+      'SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',
+      [req.session.memberId]
+    );
+    if (!rows.length) return res.status(403).send(page('Admin access required',
+      '<h1>Admin access required</h1><p class="muted">This account has not been provisioned for administrator access. Sign in with an authorised admin account or contact the site owner.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
+    req.adminRole = rows[0].role;
+    next();
+  } catch (e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Admin setup required',
+      '<h1>Admin setup required</h1><p class="muted">The admin database migration has not been applied yet. Apply migrations/002_admin_access.sql, then provision an admin account securely.</p><a class="btn" href="/dashboard">Return to dashboard</a>'));
+    next(e);
+  }
+}
+app.get('/admin', requireAdmin, async (req, res, next) => {
+  try {
+    const [[members]] = await pool.query('SELECT COUNT(*) AS total FROM members');
+    const [[recent]] = await pool.query('SELECT COUNT(*) AS total FROM members WHERE created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)');
+    const [[admins]] = await pool.query('SELECT COUNT(*) AS total FROM admin_users WHERE is_active = 1');
+    let kycCount = null;
+    try {
+      const [[kyc]] = await pool.query("SELECT COUNT(*) AS total FROM kyc_submissions WHERE status = 'pending'");
+      kycCount = Number(kyc.total) || 0;
+    } catch (e) { if (!e || e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    const stat = (label, value, hint) => '<article class="admin-stat"><span>' + esc(label) + '</span><strong>' + esc(value) + '</strong><small>' + esc(hint) + '</small></article>';
+    const body = '<style>.admin-shell{max-width:1200px;margin:0 auto}.admin-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.admin-tag{display:inline-flex;align-items:center;gap:8px;border:1px solid #5b4c20;border-radius:999px;padding:7px 12px;color:#f3cf3c;font-size:.78rem;font-weight:800;letter-spacing:.06em}.admin-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:24px 0}.admin-stat{padding:20px;border:1px solid #403a27;border-radius:16px;background:linear-gradient(145deg,#19191d,#101013);min-width:0}.admin-stat span,.admin-stat small{display:block;color:#b8b6c0}.admin-stat strong{display:block;font-size:clamp(1.5rem,4vw,2.2rem);color:#f3cf3c;margin:10px 0;overflow-wrap:anywhere}.admin-stat small{font-size:.82rem}.admin-panel{padding:22px;border:1px solid #403a27;border-radius:16px;background:#121215;margin-top:16px}.admin-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.admin-link{display:block;padding:16px;border:1px solid #39352a;border-radius:12px;color:#f7f5ef;text-decoration:none;background:#17171b}.admin-link:hover,.admin-link:focus-visible{border-color:#b99a2c;outline:2px solid #8e7628}.admin-link strong{display:block;color:#f3cf3c}.admin-link small{display:block;color:#b8b6c0;margin-top:5px}.admin-warning{padding:14px;border:1px solid #6b5520;background:#28210f;border-radius:12px;color:#e9dfb7;margin-top:16px}.admin-actions{display:flex;gap:10px;flex-wrap:wrap}.admin-actions a{width:auto;padding:10px 16px;margin:0}.admin-role{font-size:.82rem;color:#d4d0c5}@media(max-width:700px){.admin-grid{grid-template-columns:1fr 1fr}.admin-links{grid-template-columns:1fr}}@media(max-width:430px){.admin-grid{grid-template-columns:1fr}.admin-panel{padding:16px}}</style><div class="admin-shell"><div class="admin-head"><div><span class="muted small">MONARCH CODEX / CONTROL CENTER</span><h1>Admin dashboard</h1><p class="muted">Operational overview and account administration.</p></div><div><span class="admin-tag">● ADMIN ACCESS</span><p class="admin-role">Role: ' + esc(req.adminRole.replace(/_/g,' ')) + '</p></div></div><div class="admin-grid">' +
+      stat('Total members', Number(members.total)||0, 'Registered member accounts') +
+      stat('New members · 7 days', Number(recent.total)||0, 'Recent registrations') +
+      stat('Active administrators', Number(admins.total)||0, 'Explicitly provisioned accounts') +
+      stat('Pending KYC reviews', kycCount === null ? 'Not configured' : kycCount, kycCount === null ? 'KYC migration or table unavailable' : 'Submissions awaiting review') +
+      stat('Deposits', 'Disabled', 'No live payment processing connected') +
+      stat('Withdrawals', 'Disabled', 'No live payout processing connected') +
+      '</div><section class="admin-panel"><h2>Management</h2><p class="muted">Review and operational tools. Financial actions remain disabled until ledger, controls, and required compliance reviews are completed.</p><div class="admin-links"><a class="admin-link" href="/admin#members"><strong>Member accounts</strong><small>Member totals and account administration</small></a><a class="admin-link" href="/admin#verification"><strong>KYC verification</strong><small>' + (kycCount === null ? 'Not yet connected to review queue' : 'Pending submissions: ' + kycCount) + '</small></a><a class="admin-link" href="/admin#audit"><strong>Audit and access</strong><small>Admin roles are explicitly provisioned in the database</small></a><a class="admin-link" href="/dashboard"><strong>Member dashboard</strong><small>Return to your member account</small></a></div><div class="admin-warning"><strong>Setup still required:</strong> this dashboard does not automatically make any email an admin. Apply the migration and explicitly provision the intended member account before access is granted.</div></section><div class="admin-actions"><a class="btn" href="/dashboard">Member area</a></div></div>';
+    res.send(page('Admin dashboard', body));
+  } catch (e) { next(e); }
+});
+
 app.get('/dashboard', requireAuth, async (req, res, next) => {
   try {
     const [rows] = await pool.execute('SELECT id, monarch_uid, full_name, email, username FROM members WHERE id = ? LIMIT 1', [req.session.memberId]);
