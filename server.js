@@ -251,7 +251,7 @@ function memberPage(title, active, member, content, req) {
   const nav = items.map(([href,label,mark]) => '<a href="' + href + '"' + (href===active?' aria-current="page"':'') + '><span class="member-nav-icon" aria-hidden="true">' + mark + '</span><span>' + label + '</span></a>').join('');
   const firstName = esc((member.full_name || 'Member').split(' ')[0]);
   const uid = esc(member.monarch_uid || 'Pending');
-  const body = '<link rel="stylesheet" href="/member-dashboard.css"><div class="member-experience"><aside class="member-rail" id="memberRail"><a class="member-brand" href="/dashboard"><span class="member-brand-mark">M</span><span><strong>MONARCH</strong><small>CODEX</small></span></a><div class="member-rail-label">YOUR ACCOUNT</div><nav aria-label="Member navigation">' + nav + '</nav><div class="member-rail-account"><span class="member-rail-label">MEMBER ID</span><div class="member-rail-uid"><strong id="memberUid">' + uid + '</strong><button type="button" class="member-copy-uid" data-copy-uid aria-label="Copy member ID">Copy</button></div><small>Keep your account details private.</small></div><div class="member-rail-logout"><form method="post" action="/logout">' + csrfField(req) + '<button type="submit">↪ <span>Log out</span></button></form></div></aside><div class="member-workspace"><header class="member-mobile-head"><button type="button" class="member-menu-toggle" aria-label="Open navigation" aria-expanded="false" data-member-menu>☰</button><a class="member-brand" href="/dashboard"><span class="member-brand-mark">M</span><span><strong>MONARCH</strong><small>CODEX</small></span></a><span class="member-live-dot" aria-label="Secure account"></span></header><div class="member-page-heading"><div><p class="member-overline">MONARCH CODEX / MEMBER AREA</p><h1>' + firstName + ', welcome back.</h1><p>Manage your account, verification and funds in one place.</p></div><div class="member-heading-status"><span></span> Account workspace</div></div><main class="member-main"><div class="member-content-heading"><div><span class="member-overline">ACCOUNT MANAGEMENT</span><h2>' + esc(title) + '</h2></div><span class="member-secure-label">⌑ Secure session</span></div>' + content + '</main><footer class="member-footer"><span>MONARCH CODEX</span><span>Move with clarity. Build with purpose.</span></footer></div></div><div class="member-mobile-scrim" data-member-close></div><div class="page-loading" id="pageLoading" aria-live="polite"><span class="page-spinner"></span><strong>Opening page…</strong></div><script>(function(){var rail=document.getElementById("memberRail"),toggle=document.querySelector("[data-member-menu]"),scrim=document.querySelector("[data-member-close]");function close(){rail.classList.remove("is-open");scrim.classList.remove("is-visible");if(toggle)toggle.setAttribute("aria-expanded","false")}if(toggle)toggle.addEventListener("click",function(){rail.classList.toggle("is-open");scrim.classList.toggle("is-visible");toggle.setAttribute("aria-expanded",rail.classList.contains("is-open")?"true":"false")});if(scrim)scrim.addEventListener("click",close);document.querySelectorAll(".member-experience nav a").forEach(function(a){a.addEventListener("click",function(){var loader=document.getElementById("pageLoading");if(loader)loader.classList.add("show")})});var copy=document.querySelector("[data-copy-uid]");if(copy)copy.addEventListener("click",async function(){try{await navigator.clipboard.writeText(document.getElementById("memberUid").textContent);copy.textContent="Copied";setTimeout(function(){copy.textContent="Copy"},1400)}catch(e){copy.textContent="Select ID"}})})();</script>';
+  const body = '<link rel="stylesheet" href="/member-dashboard.css"><div class="member-experience"><aside class="member-rail" id="memberRail"><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/assets/images/monarch-codex-logo.svg" alt="Monarch Codex" style="width:100%;height:100%;object-fit:contain"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><div class="member-rail-label">YOUR ACCOUNT</div><nav aria-label="Member navigation">' + nav + '</nav><div class="member-rail-account"><span class="member-rail-label">MEMBER ID</span><div class="member-rail-uid"><strong id="memberUid">' + uid + '</strong><button type="button" class="member-copy-uid" data-copy-uid aria-label="Copy member ID">Copy</button></div><small>Keep your account details private.</small></div><div class="member-rail-logout"><form method="post" action="/logout">' + csrfField(req) + '<button type="submit">↪ <span>Log out</span></button></form></div></aside><div class="member-workspace"><header class="member-mobile-head"><button type="button" class="member-menu-toggle" aria-label="Open navigation" aria-expanded="false" data-member-menu>☰</button><a class="member-brand" href="/dashboard"><span class="member-brand-mark">M</span><span><strong>MONARCH</strong><small>CODEX</small></span></a><span class="member-live-dot" aria-label="Secure account"></span></header><div class="member-page-heading"><div><p class="member-overline">MONARCH CODEX / MEMBER AREA</p><h1>' + firstName + ', welcome back.</h1><p>Manage your account, verification and funds in one place.</p></div><div class="member-heading-status"><span></span> Account workspace</div></div><main class="member-main"><div class="member-content-heading"><div><span class="member-overline">ACCOUNT MANAGEMENT</span><h2>' + esc(title) + '</h2></div><span class="member-secure-label">⌑ Secure session</span></div>' + content + '</main><footer class="member-footer"><span>MONARCH CODEX</span><span>Move with clarity. Build with purpose.</span></footer></div></div><div class="member-mobile-scrim" data-member-close></div><div class="page-loading" id="pageLoading" aria-live="polite"><span class="page-spinner"></span><strong>Opening page…</strong></div><script>(function(){var rail=document.getElementById("memberRail"),toggle=document.querySelector("[data-member-menu]"),scrim=document.querySelector("[data-member-close]");function close(){rail.classList.remove("is-open");scrim.classList.remove("is-visible");if(toggle)toggle.setAttribute("aria-expanded","false")}if(toggle)toggle.addEventListener("click",function(){rail.classList.toggle("is-open");scrim.classList.toggle("is-visible");toggle.setAttribute("aria-expanded",rail.classList.contains("is-open")?"true":"false")});if(scrim)scrim.addEventListener("click",close);document.querySelectorAll(".member-experience nav a").forEach(function(a){a.addEventListener("click",function(){var loader=document.getElementById("pageLoading");if(loader)loader.classList.add("show")})});var copy=document.querySelector("[data-copy-uid]");if(copy)copy.addEventListener("click",async function(){try{await navigator.clipboard.writeText(document.getElementById("memberUid").textContent);copy.textContent="Copied";setTimeout(function(){copy.textContent="Copy"},1400)}catch(e){copy.textContent="Select ID"}})})();</script>';
   return page('Member dashboard', body);
 }
 function wizardPage(title, content, req) {
@@ -268,7 +268,110 @@ async function getMemberForPage(req, res) {
   req.session.destroy(() => res.redirect('/login'));
   return null;
 }
-app.get('/profile', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;res.send(memberPage('Profile','/profile',m,'<div class="member-card"><p><span class="muted">Monarch UID</span><br><strong>'+esc(m.monarch_uid)+'</strong></p><p><span class="muted">Full name</span><br><strong>'+esc(m.full_name)+'</strong></p><p><span class="muted">Email</span><br><strong>'+esc(m.email)+'</strong></p><p><span class="muted">Username</span><br><strong>@'+esc(m.username)+'</strong></p><p class="muted small">Profile editing and payout methods require protected database fields and are not enabled yet.</p></div>',req));}catch(e){next(e)}});
+
+// Profile changes are authenticated, validated, and constrained by KYC status.
+function profileKey() {
+  const key = Buffer.from(String(process.env.KYC_ENCRYPTION_KEY || ''), 'base64');
+  if (key.length !== 32) { const e = new Error('Profile encryption is not configured.'); e.status = 503; throw e; }
+  return key;
+}
+function encryptProfileValue(value) {
+  const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv('aes-256-gcm', profileKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
+}
+function decryptProfileValue(value) {
+  if (!value) return '';
+  const data = Buffer.from(value, 'base64'), iv = data.subarray(0,12), tag = data.subarray(12,28), encrypted = data.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', profileKey(), iv); decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+}
+const profilePhotoUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:3*1024*1024},fileFilter:(_req,file,cb)=>cb(null,['image/jpeg','image/png','image/webp'].includes(file.mimetype))}).single('profilePhoto');
+app.get('/profile', requireAuth, async (req,res,next)=>{
+  try {
+    const [rows] = await pool.execute('SELECT id,monarch_uid,full_name,email,username FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+    const m=rows[0]; if(!m){req.session.destroy(()=>res.redirect('/login'));return;}
+    let profile={phone:'',bankName:'',bankAccountName:'',bankAccountNumber:'',avatarKey:null,kycLocked:false};
+    try {
+      const [p]=await pool.execute('SELECT phone_number,bank_details_ciphertext,avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[m.id]);
+      if(p.length){profile.phone=p[0].phone_number||'';profile.avatarKey=p[0].avatar_key; if(p[0].bank_details_ciphertext){const b=JSON.parse(decryptProfileValue(p[0].bank_details_ciphertext));profile.bankName=b.bankName||'';profile.bankAccountName=b.bankAccountName||'';profile.bankAccountNumber=b.bankAccountNumber||'';}}
+    } catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    try {const [k]=await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved','rejected','needs_resubmission') LIMIT 1",[m.id]);profile.kycLocked=k.length>0;} catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const avatar=profile.avatarKey?'/member-avatar/'+encodeURIComponent(profile.avatarKey):'/assets/images/monarch-codex-logo.svg';
+    const lock=profile.kycLocked;
+    const content='<style>.profile-head{display:flex;gap:18px;align-items:center;margin-bottom:24px}.profile-avatar{width:96px;height:96px;object-fit:cover;border-radius:50%;border:2px solid #f3cf3c;background:#17171c}.profile-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.profile-form-grid .full{grid-column:1/-1}.profile-card{padding:20px;border:1px solid #403a27;border-radius:16px;background:#111115;margin:16px 0}.profile-card h3{margin-top:0}.profile-save{width:auto;padding:12px 24px}.profile-hint{color:#b8b6c0;font-size:.86rem}.profile-public{color:#f3cf3c}@media(max-width:520px){.profile-form-grid{grid-template-columns:1fr}.profile-form-grid .full{grid-column:auto}.profile-head{align-items:flex-start}.profile-avatar{width:76px;height:76px}}</style>'+
+      '<div class="profile-head"><img class="profile-avatar" src="'+avatar+'" alt="Profile picture" id="profileAvatar"><div><h3>'+esc(m.full_name)+'</h3><p class="muted">@'+esc(m.username)+'</p><a class="profile-public" href="/members/'+encodeURIComponent(m.username)+'">View public profile ↗</a></div></div>'+
+      '<div class="profile-card"><h3>Profile picture</h3><p class="profile-hint">JPG, PNG or WebP, up to 3 MB. Your picture is shown on your public profile.</p><form method="post" action="/profile/photo" enctype="multipart/form-data">'+csrfField(req)+'<label for="profilePhoto">Choose a picture</label><input id="profilePhoto" name="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" required><button class="btn profile-save" type="submit">Upload picture</button></form></div>'+
+      '<form method="post" action="/profile" class="profile-card">'+csrfField(req)+'<h3>Personal details</h3><div class="profile-form-grid"><div><label for="fullName">Full name</label><input id="fullName" name="fullName" value="'+esc(m.full_name)+'" maxlength="160" required '+(lock?'readonly':'')+'></div><div><label for="username">Username</label><input id="username" name="username" value="'+esc(m.username)+'" pattern="[A-Za-z0-9_]{3,30}" maxlength="30" required></div><div><label for="email">Email</label><input id="email" type="email" name="email" value="'+esc(m.email)+'" maxlength="254" required></div><div><label for="phone">Phone number</label><input id="phone" type="tel" name="phone" value="'+esc(profile.phone)+'" maxlength="32" autocomplete="tel"></div></div><p class="profile-hint">'+(lock?'Your legal name is locked because a KYC submission exists. Contact support if it needs correction.':'You can update your name until you submit KYC. Once KYC starts, your name is locked to protect verification integrity.')+'</p><button class="btn profile-save" type="submit">Save personal details</button></form>'+
+      '<form method="post" action="/profile/bank" class="profile-card">'+csrfField(req)+'<h3>Bank account details</h3><p class="profile-hint">Stored encrypted. These details are private and are not shown on your public profile. Saving details does not enable deposits or withdrawals.</p><div class="profile-form-grid"><div><label for="bankName">Bank name</label><input id="bankName" name="bankName" value="'+esc(profile.bankName)+'" maxlength="120"></div><div><label for="bankAccountName">Account name</label><input id="bankAccountName" name="bankAccountName" value="'+esc(profile.bankAccountName)+'" maxlength="160"></div><div class="full"><label for="bankAccountNumber">Account number</label><input id="bankAccountNumber" name="bankAccountNumber" value="'+esc(profile.bankAccountNumber)+'" inputmode="numeric" maxlength="34" autocomplete="off"></div></div><button class="btn profile-save" type="submit">Save bank details</button></form>';
+    res.send(memberPage('Profile','/profile',m,content,req));
+  } catch(e){next(e);}
+});
+app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{
+    const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
+    if(!/^[A-Za-z0-9_]{3,30}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||phone.length>32||fullName.length>160||(!fullName&&!(await pool.execute('SELECT id FROM members WHERE id=?',[req.session.memberId])))) return res.status(400).send(page('Invalid profile','<h1>Check your profile details</h1><a class="btn" href="/profile">Back to profile</a>'));
+    const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=?) AS has_kyc",[req.session.memberId]);
+    if(Number(status.has_kyc)>0){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">A KYC submission exists for this account. Contact support to request a correction.</p><a class="btn" href="/profile">Back to profile</a>'));}
+    const [[dupe]]=await pool.execute('SELECT SUM(username = ?) AS username_used, SUM(email = ?) AS email_used FROM members WHERE id <> ?',[username,email,req.session.memberId]);
+    if(Number(dupe.username_used)>0||Number(dupe.email_used)>0)return res.status(409).send(page('Profile conflict','<h1>Username or email is already in use</h1><a class="btn" href="/profile">Back to profile</a>'));
+    await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
+    await pool.execute('INSERT INTO member_profiles (member_id,phone_number) VALUES (?,?) ON DUPLICATE KEY UPDATE phone_number=VALUES(phone_number)',[req.session.memberId,phone||null]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Profile setup required','<h1>Profile updates are not configured yet</h1><p class="muted">The site owner must apply the member profile migration first.</p>'));next(e);}
+});
+app.post('/profile/bank', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{
+    const bankName=String(req.body.bankName||'').trim(),bankAccountName=String(req.body.bankAccountName||'').trim(),bankAccountNumber=String(req.body.bankAccountNumber||'').trim();
+    if(bankName.length>120||bankAccountName.length>160||bankAccountNumber.length>34||(/[<>]/.test(bankName+bankAccountName+bankAccountNumber)))return res.status(400).send(page('Invalid bank details','<h1>Check your bank details</h1><a class="btn" href="/profile">Back to profile</a>'));
+    const ciphertext=bankName||bankAccountName||bankAccountNumber?encryptProfileValue(JSON.stringify({bankName,bankAccountName,bankAccountNumber})):null;
+    await pool.execute('INSERT INTO member_profiles (member_id,bank_details_ciphertext) VALUES (?,?) ON DUPLICATE KEY UPDATE bank_details_ciphertext=VALUES(bank_details_ciphertext)',[req.session.memberId,ciphertext]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE'||e.status===503)return res.status(503).send(page('Profile setup required','<h1>Bank details are not configured</h1><p class="muted">Profile encryption and database migration must be configured by the site owner.</p>'));next(e);}
+});
+app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,res,async err=>{
+  if(err)return res.status(400).send(page('Photo upload failed','<h1>Choose a JPG, PNG or WebP image under 3 MB.</h1><a class="btn" href="/profile">Back to profile</a>'));
+  try{
+    csrfCheck(req,res,async csrfErr=>{
+      if(csrfErr)return;
+      if(!req.file)return res.status(400).send(page('Photo required','<h1>Choose a profile picture</h1><a class="btn" href="/profile">Back to profile</a>'));
+      const mime=req.file.mimetype,buf=req.file.buffer;
+      const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+      if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/profile">Back to profile</a>');
+      const dir=process.env.PROFILE_UPLOAD_DIR;
+      if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Profile photo storage is not configured</h1><p class="muted">The site owner must configure private upload storage.</p>'));
+      fs.mkdirSync(dir,{recursive:true,mode:0o700});
+      const key=crypto.randomBytes(24).toString('hex')+({ 'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime]);
+      fs.writeFileSync(path.join(dir,key),buf,{mode:0o600,flag:'wx'});
+      await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);
+      res.redirect('/profile');
+    });
+  }catch(e){next(e);}
+}));
+app.get('/member-avatar/:key', async(req,res,next)=>{
+  try{
+    const key=String(req.params.key||'');
+    if(!/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key))return res.sendStatus(404);
+    const [rows]=await pool.execute('SELECT id FROM member_profiles WHERE avatar_key=? LIMIT 1',[key]);
+    if(!rows.length)return res.sendStatus(404);
+    const dir=process.env.PROFILE_UPLOAD_DIR;
+    if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.sendStatus(404);
+    res.set('Cache-Control','public, max-age=3600');
+    res.sendFile(path.join(dir,key),{headers:{'X-Content-Type-Options':'nosniff'}},err=>{if(err&&!res.headersSent)res.sendStatus(404);});
+  }catch(e){next(e);}
+});
+app.get('/members/:username', async(req,res,next)=>{
+  try{
+    const username=String(req.params.username||'');
+    const [rows]=await pool.execute('SELECT id,full_name,username FROM members WHERE username=? LIMIT 1',[username]);
+    if(!rows.length)return res.status(404).send(page('Profile not found','<h1>Member not found</h1><a class="btn" href="/">Return home</a>'));
+    let avatar='/assets/images/monarch-codex-logo.svg';
+    try{const [p]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[rows[0].id]);if(p[0]&&p[0].avatar_key)avatar='/member-avatar/'+encodeURIComponent(p[0].avatar_key);}catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const body='<style>.public-profile{max-width:560px;margin:0 auto;text-align:center}.public-avatar{width:130px;height:130px;object-fit:cover;border-radius:50%;border:2px solid #f3cf3c;margin:10px auto 20px;display:block}</style><div class="public-profile"><img class="public-avatar" src="'+avatar+'" alt="Profile picture"><h1>'+esc(rows[0].full_name)+'</h1><p class="muted">@'+esc(rows[0].username)+'</p><p class="muted">Monarch Codex member</p><a class="btn" href="/">Return to Monarch Codex</a></div>';
+    res.send(page('Member profile',body));
+  }catch(e){next(e);}
+});
+
 
 const kycUploadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
 function getKycStorageConfig() {
