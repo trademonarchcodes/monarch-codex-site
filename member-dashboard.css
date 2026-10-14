@@ -59,3 +59,28 @@
 @media(max-width:850px){.dashboard-layout{grid-template-columns:1fr;gap:0;margin:8px auto 26px;padding:0 10px}.dashboard-sidebar{position:fixed;z-index:1200;top:0;bottom:0;left:0;width:min(300px,86vw);min-height:0;border-radius:0 20px 20px 0;transform:translateX(-105%);transition:transform .24s ease;overflow-y:auto}.dashboard-layout.sidebar-open .dashboard-sidebar{transform:translateX(0)}.dashboard-layout.sidebar-open .sidebar-scrim{display:block;position:fixed;z-index:1190;inset:0;background:#000a;border:0}.dashboard-layout .sidebar-scrim{display:none}.dashboard-layout.sidebar-open .sidebar-scrim{display:block}.mobile-dashboard-bar{display:flex;align-items:center;gap:12px;margin:0 0 10px;padding:5px 2px;color:#d7b92f;font-size:.75rem;font-weight:850;letter-spacing:.12em}.mobile-current-tab{margin-left:auto;color:#f3cf3c;letter-spacing:0;font-size:.85rem}.sidebar-close{display:grid}.sidebar-desktop-toggle{display:none}.dashboard-content>.panel{padding:clamp(16px,4vw,25px);border-radius:17px}.dashboard-topline{margin-bottom:23px}.quick-action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.member-pages{grid-template-columns:1fr}.member-pages nav{display:flex;overflow-x:auto}.member-pages nav a{white-space:nowrap}}
 @media(max-width:480px){.dashboard-layout{padding:0 8px}.dashboard-content>.panel{padding:16px 13px}.dashboard-content .stat,.dashboard-content .section-card{padding:14px}.dashboard-content .stat>strong{font-size:1.3rem}.dashboard-metrics{grid-template-columns:1fr 1fr}.quick-action-grid{gap:9px}.quick-action-grid a{padding:13px;min-height:120px}.dashboard-topline h1{font-size:1.7rem}.dashboard-section{margin-top:26px}}
 @media(prefers-reduced-motion:reduce){.dashboard-sidebar,.quick-action-grid a{transition:none}}
+
+/* Dashboard hierarchy refinements */
+.sidebar-uid{margin-top:18px;padding:13px 10px;border:1px solid #4a4022;border-radius:13px;background:linear-gradient(140deg,#211c10,#141416);min-width:0}
+.sidebar-uid>.muted{display:block;color:#b7a45a;font-size:.65rem;letter-spacing:.09em;font-weight:800;margin-bottom:9px}
+.sidebar-uid-value{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0}
+.sidebar-uid-value strong{font-size:.78rem;color:#f1eee5;overflow-wrap:anywhere;min-width:0}
+.sidebar-uid-value .copy-btn{padding:6px 8px;font-size:.72rem;flex:0 0 auto}
+.wallet-overview{margin-top:20px}
+.wallet-overview h2{margin-bottom:12px}
+.dashboard-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.dashboard-metrics .stat{padding:13px 12px;min-width:0}
+.dashboard-metrics .stat>strong{font-size:clamp(1rem,1.55vw,1.45rem);margin:8px 0 4px;line-height:1.2}
+.dashboard-metrics .stat p{font-size:.74rem;line-height:1.4;margin:5px 0 0}
+.dashboard-metrics .stat>.muted.small{font-size:.72rem;line-height:1.35}
+.quick-action-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+.quick-action-grid a{min-height:104px;padding:12px;gap:7px}
+.quick-action-grid a>span{width:30px;height:30px;font-size:1.05rem}
+.quick-action-grid a strong{font-size:.84rem}
+.quick-action-grid a small{font-size:.72rem}
+.quick-action-grid:not(.actions-expanded) a:nth-child(n+5){display:none}
+.show-more-actions{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:12px;padding:11px;border:1px solid #494022;border-radius:11px;background:#17160f;color:#f3cf3c;font:inherit;font-weight:750;cursor:pointer}
+.show-more-actions:hover{background:#28210d;border-color:#8a7422}
+@media(max-width:1000px){.quick-action-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:850px){.sidebar-uid{margin-top:16px}.dashboard-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.quick-action-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.quick-action-grid:not(.actions-expanded) a:nth-child(n+5){display:none}}
+@media(max-width:560px){.dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-metrics .stat{padding:12px 10px}.dashboard-metrics .stat>strong{font-size:1.15rem}.quick-action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.quick-action-grid a{min-height:100px}.sidebar-uid-value strong{font-size:.8rem}}
