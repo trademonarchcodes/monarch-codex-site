@@ -193,7 +193,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
-    const content = \`
+    const content = `
       <div class="kyc-intro">Complete your verification in a few steps. You can go back to check your answers before submitting.</div>
       <div class="kyc-security-note"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>Secure verification</strong><small>Submission is not live yet. Do not enter real identity details or upload real documents until the secure backend is enabled.</small></span></div>
       <div class="kyc-progress" role="list" aria-label="Verification progress">
@@ -203,12 +203,12 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
         <div class="kyc-progress-step" data-progress-step="3" role="listitem"><span class="kyc-step-dot">4</span><span class="kyc-step-name">Photos</span></div>
       </div>
       <form id="kycWizard" novalidate>
-        \${csrfField(req)}
+        ${csrfField(req)}
         <section class="kyc-stage is-current" data-stage="0">
           <p class="kyc-stage-kicker">STEP 01 OF 04</p><h2>Let's start with you</h2><p class="kyc-stage-copy">Enter your personal details exactly as they appear on your identity document.</p>
-          <label for="kycName">Full legal name</label><input id="kycName" name="legalFullName" value="\${esc(m.full_name)}" maxlength="160" autocomplete="name" required>
+          <label for="kycName">Full legal name</label><input id="kycName" name="legalFullName" value="${esc(m.full_name)}" maxlength="160" autocomplete="name" required>
           <div class="kyc-two-col"><div><label for="kycDob">Date of birth</label><input id="kycDob" name="dateOfBirth" type="date" required></div><div><label for="kycPhone">Phone number</label><input id="kycPhone" name="phoneNumber" type="tel" maxlength="32" autocomplete="tel" required></div></div>
-          <label for="kycEmail">Email address</label><input id="kycEmail" name="contactEmail" type="email" value="\${esc(m.email)}" maxlength="254" autocomplete="email" required>
+          <label for="kycEmail">Email address</label><input id="kycEmail" name="contactEmail" type="email" value="${esc(m.email)}" maxlength="254" autocomplete="email" required>
         </section>
         <section class="kyc-stage" data-stage="1" hidden>
           <p class="kyc-stage-kicker">STEP 02 OF 04</p><h2>Where do you live?</h2><p class="kyc-stage-copy">Use your current residential address. We may use it to confirm your identity.</p>
@@ -235,7 +235,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
         </section>
         <div class="kyc-actions"><button type="button" id="kycBack" class="kyc-btn kyc-btn-secondary" hidden>Back</button><span class="kyc-steps-count" id="kycStepCount">Step 1 of 4</span><button type="button" id="kycNext" class="kyc-btn kyc-btn-primary">Continue <span aria-hidden="true">→</span></button></div>
         <p class="kyc-form-message" id="kycMessage" aria-live="polite"></p>
-      </form>\`;
+      </form>`;
     res.send(wizardPage('KYC Verification', content, req));
   } catch (e) { next(e); }
 });
