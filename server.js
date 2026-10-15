@@ -171,7 +171,7 @@ app.post('/resend-verification', resetLimiter, csrfCheck, async (req, res, next)
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [member.id]);
         await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [member.id, tokenHash]);
-        const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '') + '/verify-email?token=' + token;
+        const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;
         await sendAppEmail({ to: member.email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + member.full_name + ',\\n\\nVerify your email address within 24 hours using this link: ' + verifyLink + '\\n\\nIf you did not create this account, you can ignore this email.' });
       }
     }
