@@ -185,17 +185,27 @@ async function requireAdmin(req, res, next) {
   }
 }
 function adminControlPage(title, active, content, req) {
-  const nav = [
-    ['/admin','Overview','◫'],['/admin/members','Members','♙'],['/admin/kyc','KYC review','◇'],
-    ['/admin#audit','Audit & access','▤'],['/dashboard','Member view','↗']
+  const deskOnly = req.adminRole === 'sovereign_desk_admin';
+  const nav = deskOnly ? [
+    ['/sovereign-admin','Desk overview','◫'],['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦'],['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/activity','My activity','▤'],['/dashboard','Member view','↗']
+  ] : [
+    ['/admin','Overview','◫'],['/admin/members','Monarchs','♙'],['/admin/kyc','KYC review','◇'],
+    ['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑'],['/admin/investments','Investments','◆'],
+    ['/admin/transactions','Transactions','◷'],['/admin/balances','Balance management','＋'],['/admin/earnings','Profits & bonuses','✦'],
+    ['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/sovereign-desk','Sovereign Desk','⌁'],
+    ['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Settings','⚙'],['/dashboard','Member view','↗']
   ];
-  const links = nav.map(([url,label,icon]) => '<a class="ac-nav '+(active===url?'is-active':'')+'" href="'+url+'"><span>'+icon+'</span><b>'+label+'</b></a>').join('');
+  const links = nav.map(([url,label,icon]) => '<a class="ac-nav '+((active===url || (url !== '/admin' && active.startsWith(url+'/')))?'is-active':'')+'" href="'+url+'"><span>'+icon+'</span><b>'+label+'</b></a>').join('');
   const role = esc((req.adminRole || 'admin').replace(/_/g,' ').toUpperCase());
   return page(title, `<style>
   .ac-layout{width:100%;max-width:1450px;margin:0 auto;display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start}
   .ac-side{position:sticky;top:14px;min-height:0;padding:16px 12px;border:1px solid #393522;border-radius:20px;background:linear-gradient(180deg,#17171b,#0d0d10)}
   .ac-brand{padding:8px 10px 18px;color:#f3cf3c;font-weight:900;letter-spacing:.12em;font-size:.86rem;line-height:1.5}
   .ac-side-label{padding:8px 10px;color:#777783;font-size:.7rem;letter-spacing:.13em;font-weight:800}
+  .ac-side{max-height:calc(100vh - 28px);overflow-y:auto;overscroll-behavior:contain}.ac-nav{min-height:42px}.ac-nav b{line-height:1.25}
+  .ac-nav-group{margin:12px 0 5px;padding:8px 10px 2px;color:#777783;font-size:.68rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+  .ac-coming{display:flex;gap:12px;align-items:flex-start;padding:16px;border:1px solid #37333b;border-radius:14px;background:#151519;margin-top:12px}.ac-coming strong{color:#f3cf3c;display:block}.ac-coming p{margin:5px 0 0;color:#aaa9b4}
+  .ac-page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}.ac-page-head .ac-pill{white-space:nowrap}
   .ac-nav{display:flex;gap:12px;align-items:center;padding:12px 13px;margin:4px 0;border-radius:12px;text-decoration:none;color:#b8b6c0;border:1px solid transparent}
   .ac-nav span{width:22px;text-align:center;font-size:1.1rem}.ac-nav b{font-size:.91rem}
   .ac-nav:hover,.ac-nav.is-active{background:#292411;border-color:#5b4c20;color:#f3cf3c}
@@ -226,6 +236,32 @@ app.get('/admin', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Overview','/admin',content,req));
   } catch(e) { next(e); }
 });
+
+// Administrative sections are intentionally explicit: unsupported workflows are labelled as not connected,
+// never filled with fake account or financial records. Main admin sections remain protected by requireAdmin.
+const adminSectionInfo = {
+  '/admin/deposits': ['Deposits','Review deposit requests and payment references.','A verified payment provider, deposit-request records, and an auditable ledger are not connected yet. No deposit can be approved or credited here.'],
+  '/admin/withdrawals': ['Withdrawals','Review payout requests, fees, and processing status.','Payout processing and the ledger are not connected yet. Withdrawals remain disabled to prevent duplicate or unsafe deductions.'],
+  '/admin/investments': ['Investments','Review investment packages and active investment records.','No verified investment records are connected to this control centre yet. No package returns or earnings are being fabricated.'],
+  '/admin/transactions': ['Transactions','Inspect recorded financial transactions.','A unified transaction ledger is not connected yet. This page will not invent transactions or balances.'],
+  '/admin/balances': ['Balance management','Record authorised credits, debits, bonuses, refunds, and adjustments.','Financial adjustments are unavailable until a transactional ledger and idempotent balance rules are implemented and verified.'],
+  '/admin/earnings': ['Profits & bonuses','Review separately recorded profit and bonus operations.','No verified profit/bonus ledger is connected. Do not use this page to promise or fabricate earnings.'],
+  '/admin/referrals': ['Referral monitoring','Review platform referral activity and eligible earnings.','Referral attribution exists in member registration, but platform-wide earnings and audit reporting are not yet connected here.'],
+  '/admin/academy': ['Academy management','Manage learning content and eligible access.','The existing Academy management data source has not yet been connected to this control centre.'],
+  '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],
+  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],
+  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
+  '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']
+};
+for (const [route, info] of Object.entries(adminSectionInfo)) {
+  app.get(route, requireAdmin, async (req,res,next) => {
+    if (req.adminRole === 'sovereign_desk_admin') return res.status(403).send(page('Access denied','<h1>Access denied</h1><p class="muted">This section is reserved for Main Admin.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
+    try {
+      const content = '<section class="ac-panel"><div class="ac-page-head"><div><h2>'+esc(info[0])+'</h2><p class="muted">'+esc(info[1])+'</p></div><span class="ac-pill">Not connected</span></div><div class="ac-coming"><span aria-hidden="true">◈</span><div><strong>Live backend connection required</strong><p>'+esc(info[2])+'</p></div></div><p class="muted small">This status is deliberate: no mock records, balances, payment approvals, or signal results are shown as real.</p></section>';
+      res.send(adminControlPage(info[0],route,content,req));
+    } catch(e) { next(e); }
+  });
+}
 app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   try {
     const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active FROM members m LEFT JOIN admin_users au ON au.member_id=m.id ORDER BY m.id DESC LIMIT 200');
