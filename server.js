@@ -95,6 +95,16 @@ function requireAuth(req, res, next) { if (!req.session.memberId) return res.red
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254; }
 function validUsername(username) { return /^[a-zA-Z0-9_]{6,30}$/.test(username); }
 function formError(title, message, back) { return page(title, '<h1>' + esc(title) + '</h1><div class="notice">' + esc(message) + '</div><a class="btn" href="' + esc(back || '/register') + '">Go back</a>'); }
+function dbSetupNotice(title, migrationPath) {
+  const safePath = String(migrationPath || '').replaceAll('..', '').replace(/^\/+/, '');
+  const migrationUrl = 'https://github.com/trademonarchcodes/monarch-codex-site/blob/main/' + safePath;
+  return page(title || 'Database setup required',
+    '<h1>Database setup required</h1>' +
+    '<div class="notice">A required database table or column is missing. Please ask the site administrator to apply the indicated database migration in the correct database, then restart the application.</div>' +
+    '<p class="muted">Required migration: <code>' + esc(safePath || 'not specified') + '</code></p>' +
+    '<p><a href="' + esc(migrationUrl) + '" target="_blank" rel="noopener noreferrer">View migration file on GitHub</a></p>' +
+    '<a class="btn" href="/admin">Return to admin</a>');
+}
 function registerForm(req, message) {
   const queryRef = String(req.query.ref || '').trim().toUpperCase();
   if (queryRef) req.session.registrationReferralCode = queryRef;
