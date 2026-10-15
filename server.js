@@ -158,7 +158,7 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
       req.session.memberId = member.id; req.session.csrf = crypto.randomBytes(32).toString('hex');
       pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
         .then(([admins]) => {
-          const destination = admins.length ? '/admin' : '/dashboard';
+          const destination = admins.length ? (admins[0].role === 'sovereign_desk_admin' ? '/sovereign-admin' : '/admin') : '/dashboard';
           req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect(destination));
         })
         .catch(next);
@@ -177,6 +177,14 @@ async function requireAdmin(req, res, next) {
     if (!rows.length) return res.status(403).send(page('Admin access required',
       '<h1>Admin access required</h1><p class="muted">This account has not been provisioned for administrator access. Sign in with an authorised admin account or contact the site owner.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
     req.adminRole = rows[0].role;
+    if (!['super_admin','main_admin','sovereign_desk_admin'].includes(req.adminRole)) {
+      return res.status(403).send(page('Administrator role unavailable',
+        '<h1>Administrator role unavailable</h1><p class="muted">This legacy administrator role is not authorised for the new control areas. Ask the Main Admin to review its permissions.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
+    }
+    if (req.adminRole === 'sovereign_desk_admin' && req.path.startsWith('/admin')) {
+      return res.status(403).send(page('Access denied',
+        '<h1>Access denied</h1><p class="muted">Sovereign Desk administrators cannot access Main Admin, KYC or financial controls.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
+    }
     next();
   } catch (e) {
     if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Admin setup required',
@@ -186,8 +194,9 @@ async function requireAdmin(req, res, next) {
 }
 function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin';
-  const nav = deskOnly ? [
-    ['/sovereign-admin','Desk overview','◫'],['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦'],['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/activity','My activity','▤'],['/dashboard','Member view','↗']
+  const deskWorkspace = deskOnly || active.startsWith('/sovereign-admin');
+  const nav = deskWorkspace ? [
+    ['/sovereign-admin','Desk overview','◫'],['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦'],['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/activity','My activity','▤'],...(deskOnly ? [] : [['/admin','Main Admin','⚙']]),['/dashboard','Member view','↗']
   ] : [
     ['/admin','Overview','◫'],['/admin/members','Monarchs','♙'],['/admin/kyc','KYC review','◇'],
     ['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑'],['/admin/investments','Investments','◆'],
@@ -298,6 +307,192 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
     } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
     return res.redirect('/admin/kyc');
   } catch(e) { next(e); }
+});
+
+
+function auditAdminAction(conn, req, action, targetType, targetId, details) {
+  return conn.execute(
+    'INSERT INTO admin_audit_log (admin_member_id, action, target_type, target_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.session.memberId, action, targetType || null, targetId == null ? null : String(targetId),
+      details == null ? null : JSON.stringify(details), String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().slice(0,45) || null]
+  );
+}
+function deskAdminPage(title, active, content, req) {
+  return adminControlPage(title, active, content, req);
+}
+function dbSetupNotice(title, migration) {
+  return page(title, '<h1>'+esc(title)+'</h1><p class="muted">The required database setup has not been applied. Apply <code>'+esc(migration)+'</code> to the existing database; do not reset or recreate tables.</p><a class="btn" href="/dashboard">Return to dashboard</a>');
+}
+function signalForm(req, signal) {
+  const v = signal || {};
+  return '<form method="post" action="'+(v.id ? '/sovereign-admin/signals/'+encodeURIComponent(v.id)+'/update' : '/sovereign-admin/signals/create')+'" class="ac-form">'+csrfField(req)+
+    '<label>Signal title<input name="title" required maxlength="180" value="'+esc(v.title||'')+'"></label>'+
+    '<label>Asset / pair<input name="assetPair" required maxlength="40" value="'+esc(v.asset_pair||'')+'"></label>'+
+    '<div class="ac-form-grid"><label>Direction<select name="direction" required><option value="buy"'+(v.direction==='buy'?' selected':'')+'>Buy / Long</option><option value="sell"'+(v.direction==='sell'?' selected':'')+'>Sell / Short</option><option value="neutral"'+(v.direction==='neutral'?' selected':'')+'>Neutral / Watch</option></select></label>'+
+    '<label>Timeframe<input name="timeframe" maxlength="40" value="'+esc(v.timeframe||'')+'" placeholder="e.g. 4H"></label></div>'+
+    '<label>Entry zone<input name="entryZone" maxlength="160" value="'+esc(v.entry_zone||'')+'"></label>'+
+    '<div class="ac-form-grid"><label>Stop loss<input name="stopLoss" maxlength="100" value="'+esc(v.stop_loss||'')+'"></label><label>Take profit 1<input name="takeProfit1" maxlength="100" value="'+esc(v.take_profit_1||'')+'"></label><label>Take profit 2<input name="takeProfit2" maxlength="100" value="'+esc(v.take_profit_2||'')+'"></label></div>'+
+    '<label>Explanation / risk notes<textarea name="explanation" required maxlength="8000" rows="4">'+esc(v.explanation||'')+'</textarea></label>'+
+    '<div class="ac-form-grid"><label>Status<select name="status"><option value="draft"'+(v.status!=='published'?' selected':'')+'>Draft</option><option value="published"'+(v.status==='published'?' selected':'')+'>Publish</option><option value="closed"'+(v.status==='closed'?' selected':'')+'>Closed</option></select></label><label>Expiry (optional)<input type="datetime-local" name="expiresAt" value="'+esc(v.expires_at ? String(v.expires_at).replace(' ','T').slice(0,16) : '')+'"></label></div>'+
+    '<button class="btn" type="submit">'+(v.id?'Save changes':'Save signal')+'</button></form>';
+}
+function deskAdminStyles() {
+  return '<style>.ac-form{display:grid;gap:12px;margin-top:16px}.ac-form label{display:grid;gap:6px;color:#d6d3c9;font-weight:700}.ac-form input,.ac-form select,.ac-form textarea{width:100%;min-width:0;padding:11px 12px;border:1px solid #49443a;border-radius:10px;background:#0d0d10;color:#fff;font:inherit}.ac-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ac-table td form{display:grid;gap:8px}.ac-inline-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ac-inline-form input{min-width:150px;max-width:240px;padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c}.ac-inline-form .btn{width:auto;margin:0;padding:9px 13px}.ac-badge{display:inline-block;border:1px solid #51482b;border-radius:999px;padding:4px 8px;font-size:.75rem;color:#f3cf3c}.ac-risk{color:#b8b6c0;font-size:.85rem}.ac-form textarea{resize:vertical}@media(max-width:540px){.ac-form-grid{grid-template-columns:1fr}}</style>';
+}
+app.get('/sovereign-admin', requireAdmin, async (req,res,next) => {
+  try {
+    const [[signals]] = await pool.query('SELECT COUNT(*) AS total FROM sovereign_signals');
+    const [[published]] = await pool.query("SELECT COUNT(*) AS total FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)");
+    const [[guidance]] = await pool.query("SELECT COUNT(*) AS total FROM sovereign_guidance WHERE status='published'");
+    const [[requests]] = await pool.query("SELECT COUNT(*) AS total FROM sovereign_access_requests WHERE status='pending'");
+    const content='<section class="ac-stats"><article class="ac-stat"><span>Total signals</span><strong>'+Number(signals.total||0)+'</strong><small>Stored signal records</small></article><article class="ac-stat"><span>Published signals</span><strong>'+Number(published.total||0)+'</strong><small>Not expired</small></article><article class="ac-stat"><span>Published guidance</span><strong>'+Number(guidance.total||0)+'</strong><small>Learning content</small></article><article class="ac-stat"><span>Access requests</span><strong>'+Number(requests.total||0)+'</strong><small>Awaiting Main Admin decision</small></article></section><section class="ac-panel"><h2>Sovereign Desk workspace</h2><p class="muted">Manage signals and guidance in the existing Monarch Codex design. Publication does not imply a guaranteed result; never enter invented live prices or performance figures.</p><div class="ac-tiles"><a class="ac-tile" href="/sovereign-admin/signals"><strong>Signals →</strong><small>Create drafts, publish updates, close or archive existing signals.</small></a><a class="ac-tile" href="/sovereign-admin/guidance"><strong>Guidance & content →</strong><small>Publish educational updates and trading guidance.</small></a><a class="ac-tile" href="/sovereign-admin/access"><strong>Desk access →</strong><small>Review access status and submit approval requests.</small></a><a class="ac-tile" href="/sovereign-admin/activity"><strong>My activity →</strong><small>Review your own recent administrative actions.</small></a></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Sovereign Desk overview','/sovereign-admin',content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql')); next(e); }
+});
+app.get('/sovereign-admin/signals', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT id,title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 200');
+    const items=rows.map(x=>'<tr><td><strong>'+esc(x.title)+'</strong><br><small>'+esc(x.asset_pair)+' · '+esc(x.direction)+'</small><br><small>'+esc(x.timeframe||'No timeframe')+'</small></td><td>'+esc(x.status)+'</td><td>'+esc(x.published_at||'Draft')+'</td><td>'+esc(x.expires_at||'No expiry')+'</td><td><form method="post" action="/sovereign-admin/signals/'+encodeURIComponent(x.id)+'/update">'+csrfField(req)+'<input type="hidden" name="title" value="'+esc(x.title)+'"><input type="hidden" name="assetPair" value="'+esc(x.asset_pair)+'"><input type="hidden" name="direction" value="'+esc(x.direction)+'"><input type="hidden" name="entryZone" value="'+esc(x.entry_zone||'')+'"><input type="hidden" name="stopLoss" value="'+esc(x.stop_loss||'')+'"><input type="hidden" name="takeProfit1" value="'+esc(x.take_profit_1||'')+'"><input type="hidden" name="takeProfit2" value="'+esc(x.take_profit_2||'')+'"><input type="hidden" name="timeframe" value="'+esc(x.timeframe||'')+'"><input type="hidden" name="explanation" value="'+esc(x.explanation)+'"><select name="status"><option value="draft">Draft</option><option value="published"'+(x.status==='published'?' selected':'')+'>Publish</option><option value="closed"'+(x.status==='closed'?' selected':'')+'>Close</option><option value="archived">Archive</option></select><button class="btn" type="submit">Update status</button></form></td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Create a signal</h2><p class="muted">Use only verified analysis and clearly label risk. Leave uncertain numeric fields blank rather than inventing prices.</p>'+signalForm(req,null)+'</section><section class="ac-panel"><h2>Signal records</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Signal</th><th>Status</th><th>Published</th><th>Expiry</th><th>Update</th></tr></thead><tbody>'+(items||'<tr><td colspan="5">No signals recorded yet.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Signals','/sovereign-admin/signals',content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql')); next(e); }
+});
+app.post('/sovereign-admin/signals/create', requireAdmin, express.urlencoded({extended:false,limit:'12kb'}), csrfCheck, async (req,res,next) => {
+  const title=String(req.body.title||'').trim(), pair=String(req.body.assetPair||'').trim().toUpperCase(), direction=String(req.body.direction||''), timeframe=String(req.body.timeframe||'').trim(), entry=String(req.body.entryZone||'').trim(), stop=String(req.body.stopLoss||'').trim(), tp1=String(req.body.takeProfit1||'').trim(), tp2=String(req.body.takeProfit2||'').trim(), explanation=String(req.body.explanation||'').trim(), status=String(req.body.status||'draft'), expiry=String(req.body.expiresAt||'').trim();
+  if(title.length<3||title.length>180||!pair||pair.length>40||!['buy','sell','neutral'].includes(direction)||!['draft','published','closed'].includes(status)||!explanation||explanation.length>8000) return res.status(400).send(page('Invalid signal','<h1>Check the signal details</h1><p class="muted">Provide a title, asset/pair, valid direction, explanation and supported status.</p><a class="btn" href="/sovereign-admin/signals">Return to signals</a>'));
+  if(expiry&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(expiry)) return res.status(400).send(page('Invalid expiry','<h1>Check the expiry date</h1>'));
+  const conn=await pool.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [result]=await conn.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,IF(?="published",CURRENT_TIMESTAMP,NULL),?, ?, ?)',[title,pair,direction,entry||null,stop||null,tp1||null,tp2||null,timeframe||null,explanation,status,status,expiry?expiry.replace('T',' ')+':00':null,req.session.memberId,req.session.memberId]);
+    await auditAdminAction(conn,req,'signal_created','sovereign_signal',result.insertId,{title,assetPair:pair,direction,status});
+    if(status==='published'){
+      await conn.execute("INSERT IGNORE INTO member_notifications (member_id, notification_type, title, body, target_url, dedupe_key) SELECT a.member_id,'sovereign_signal','New Sovereign Desk signal',?,'/sovereign-desk',CONCAT('signal:',? ,':',a.member_id) FROM sovereign_desk_access a WHERE a.status='approved' AND (a.expires_at IS NULL OR a.expires_at>CURRENT_TIMESTAMP)",[title,result.insertId]);
+    }
+    await conn.commit();
+    return res.redirect('/sovereign-admin/signals');
+  }catch(e){await conn.rollback();if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}finally{conn.release();}
+});
+app.post('/sovereign-admin/signals/:id/update', requireAdmin, express.urlencoded({extended:false,limit:'12kb'}), csrfCheck, async (req,res,next) => {
+  const id=String(req.params.id||''), title=String(req.body.title||'').trim(), pair=String(req.body.assetPair||'').trim().toUpperCase(), direction=String(req.body.direction||''), timeframe=String(req.body.timeframe||'').trim(), entry=String(req.body.entryZone||'').trim(), stop=String(req.body.stopLoss||'').trim(), tp1=String(req.body.takeProfit1||'').trim(), tp2=String(req.body.takeProfit2||'').trim(), explanation=String(req.body.explanation||'').trim(), status=String(req.body.status||''), expiry=String(req.body.expiresAt||'').trim();
+  if(!/^\d{1,20}$/.test(id)||title.length<3||title.length>180||!pair||pair.length>40||!['buy','sell','neutral'].includes(direction)||!['draft','published','closed','archived'].includes(status)||!explanation||explanation.length>8000) return res.status(400).send(page('Invalid signal','<h1>Check the signal details</h1><a class="btn" href="/sovereign-admin/signals">Return to signals</a>'));
+  const conn=await pool.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [found]=await conn.execute('SELECT status FROM sovereign_signals WHERE id=? FOR UPDATE',[id]);
+    if(!found.length){await conn.rollback();return res.status(404).send(page('Signal not found','<h1>Signal not found</h1>'));}
+    await conn.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,entry_zone=?,stop_loss=?,take_profit_1=?,take_profit_2=?,timeframe=?,explanation=?,status=?,published_at=CASE WHEN ?="published" AND published_at IS NULL THEN CURRENT_TIMESTAMP ELSE published_at END,expires_at=?,updated_by=? WHERE id=?',[title,pair,direction,entry||null,stop||null,tp1||null,tp2||null,timeframe||null,explanation,status,status,expiry?expiry.replace('T',' ')+':00':null,req.session.memberId,id]);
+    await auditAdminAction(conn,req,'signal_updated','sovereign_signal',id,{beforeStatus:found[0].status,afterStatus:status,title,assetPair:pair});
+    if(status==='published'&&found[0].status!=='published') await conn.execute("INSERT IGNORE INTO member_notifications (member_id, notification_type, title, body, target_url, dedupe_key) SELECT a.member_id,'sovereign_signal','New Sovereign Desk signal',?,'/sovereign-desk',CONCAT('signal:',? ,':',a.member_id) FROM sovereign_desk_access a WHERE a.status='approved' AND (a.expires_at IS NULL OR a.expires_at>CURRENT_TIMESTAMP)",[title,id]);
+    await conn.commit();return res.redirect('/sovereign-admin/signals');
+  }catch(e){await conn.rollback();next(e);}finally{conn.release();}
+});
+app.get('/sovereign-admin/guidance', requireAdmin, async (req,res,next) => {
+  try{
+    const [rows]=await pool.query('SELECT id,title,body,status,published_at,created_at FROM sovereign_guidance ORDER BY created_at DESC LIMIT 200');
+    const items=rows.map(x=>'<tr><td><strong>'+esc(x.title)+'</strong><br><small>'+esc(x.body.slice(0,180))+'</small></td><td>'+esc(x.status)+'</td><td>'+esc(x.published_at||'Draft')+'</td><td><form method="post" action="/sovereign-admin/guidance/'+encodeURIComponent(x.id)+'/update">'+csrfField(req)+'<select name="status"><option value="draft">Draft</option><option value="published"'+(x.status==='published'?' selected':'')+'>Publish</option><option value="archived">Archive</option></select><button class="btn" type="submit">Update status</button></form></td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Publish guidance</h2><form method="post" action="/sovereign-admin/guidance/create" class="ac-form">'+csrfField(req)+'<label>Title<input name="title" maxlength="180" required></label><label>Guidance / educational content<textarea name="body" rows="6" maxlength="12000" required></textarea></label><label>Status<select name="status"><option value="draft">Draft</option><option value="published">Publish</option></select></label><button class="btn" type="submit">Save guidance</button></form></section><section class="ac-panel"><h2>Guidance library</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Content</th><th>Status</th><th>Published</th><th>Update</th></tr></thead><tbody>'+(items||'<tr><td colspan="4">No guidance has been published.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Guidance & content','/sovereign-admin/guidance',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/sovereign-admin/guidance/create', requireAdmin, express.urlencoded({extended:false,limit:'16kb'}), csrfCheck, async(req,res,next)=>{
+  const title=String(req.body.title||'').trim(), body=String(req.body.body||'').trim(), status=String(req.body.status||'draft');
+  if(title.length<3||title.length>180||!body||body.length>12000||!['draft','published'].includes(status))return res.status(400).send(page('Invalid content','<h1>Check the content details</h1>'));
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();const [result]=await conn.execute('INSERT INTO sovereign_guidance (title,body,status,published_at,created_by,updated_by) VALUES (?,?,?,IF(?="published",CURRENT_TIMESTAMP,NULL),?,?)',[title,body,status,status,req.session.memberId,req.session.memberId]);await auditAdminAction(conn,req,'guidance_created','sovereign_guidance',result.insertId,{title,status});await conn.commit();return res.redirect('/sovereign-admin/guidance');}
+  catch(e){await conn.rollback();if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}finally{conn.release();}
+});
+app.post('/sovereign-admin/guidance/:id/update', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=String(req.params.id||''),status=String(req.body.status||'');
+  if(!/^\d{1,20}$/.test(id)||!['draft','published','archived'].includes(status))return res.status(400).send(page('Invalid update','<h1>Invalid guidance update</h1>'));
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();const [rows]=await conn.execute('SELECT status,title FROM sovereign_guidance WHERE id=? FOR UPDATE',[id]);if(!rows.length){await conn.rollback();return res.status(404).send(page('Not found','<h1>Guidance not found</h1>'));}await conn.execute('UPDATE sovereign_guidance SET status=?,published_at=CASE WHEN ?="published" AND published_at IS NULL THEN CURRENT_TIMESTAMP ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);await auditAdminAction(conn,req,'guidance_status_updated','sovereign_guidance',id,{beforeStatus:rows[0].status,afterStatus:status,title:rows[0].title});await conn.commit();return res.redirect('/sovereign-admin/guidance');}
+  catch(e){await conn.rollback();next(e);}finally{conn.release();}
+});
+app.get('/sovereign-admin/access', requireAdmin, async(req,res,next)=>{
+  try{
+    const [rows]=await pool.query("SELECT m.id,m.monarch_uid,m.full_name,m.email,a.status,a.reason,a.granted_at,a.expires_at FROM members m LEFT JOIN sovereign_desk_access a ON a.member_id=m.id ORDER BY a.granted_at DESC,m.id DESC LIMIT 200");
+    const [requests]=await pool.query("SELECT r.id,r.member_id,r.status,r.reason,r.created_at,m.monarch_uid,m.full_name,m.email FROM sovereign_access_requests r JOIN members m ON m.id=r.member_id ORDER BY r.created_at DESC LIMIT 100");
+    const members=rows.map(m=>'<tr><td>'+esc(m.monarch_uid||m.id)+'</td><td>'+esc(m.full_name)+'<br><small>'+esc(m.email)+'</small></td><td>'+esc(m.status||'Not approved')+'</td><td>'+esc(m.expires_at||'No expiry')+'</td></tr>').join('');
+    const reqs=requests.map(r=>'<tr><td>'+esc(r.monarch_uid||r.member_id)+'</td><td>'+esc(r.full_name)+'<br><small>'+esc(r.email)+'</small></td><td>'+esc(r.status)+'</td><td>'+esc(r.reason||'—')+'</td><td>'+esc(r.created_at)+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Desk access status</h2><p class="muted">This workspace can view access and submit requests. Only Main Admin can approve or revoke access.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Monarch</th><th>Account</th><th>Access</th><th>Expiry</th></tr></thead><tbody>'+(members||'<tr><td colspan="4">No Monarchs found.</td></tr>')+'</tbody></table></div></section><section class="ac-panel"><h2>Request an access decision</h2><form method="post" action="/sovereign-admin/access/request" class="ac-form">'+csrfField(req)+'<label>Monarch ID or numeric member ID<input name="memberId" required maxlength="40"></label><label>Reason<input name="reason" required maxlength="1000"></label><button class="btn" type="submit">Send to Main Admin</button></form><h3>Recent requests</h3><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Monarch</th><th>Account</th><th>Status</th><th>Reason</th><th>Submitted</th></tr></thead><tbody>'+(reqs||'<tr><td colspan="5">No access requests.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Desk access','/sovereign-admin/access',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/sovereign-admin/access/request', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const memberRef=String(req.body.memberId||'').trim(),reason=String(req.body.reason||'').trim();
+  if(!memberRef||memberRef.length>40||reason.length<3||reason.length>1000)return res.status(400).send(page('Invalid request','<h1>Check the access request details</h1>'));
+  try{
+    const [members]=await pool.execute('SELECT id FROM members WHERE monarch_uid=? OR CAST(id AS CHAR)=? LIMIT 1',[memberRef.toUpperCase(),memberRef]);
+    if(!members.length)return res.status(404).send(page('Monarch not found','<h1>No matching Monarch was found</h1>'));
+    const [pending]=await pool.execute("SELECT id FROM sovereign_access_requests WHERE member_id=? AND status='pending' LIMIT 1",[members[0].id]);
+    if(pending.length)return res.status(409).send(page('Request already pending','<h1>An access request is already pending for this Monarch</h1>'));
+    await pool.execute("INSERT INTO sovereign_access_requests (member_id,requested_by,status,reason) VALUES (?,?, 'pending',?)",[members[0].id,req.session.memberId,reason]);
+    return res.redirect('/sovereign-admin/access');
+  }catch(e){next(e);}
+});
+app.get('/sovereign-admin/activity', requireAdmin, async(req,res,next)=>{
+  try{
+    const [rows]=await pool.execute("SELECT id,action,target_type,target_id,details,created_at FROM admin_audit_log WHERE admin_member_id=? AND (action LIKE 'signal_%' OR action LIKE 'guidance_%' OR action LIKE 'desk_%') ORDER BY created_at DESC LIMIT 100",[req.session.memberId]);
+    const items=rows.map(r=>'<tr><td>'+esc(r.created_at)+'</td><td>'+esc(r.action)+'</td><td>'+esc(r.target_type||'—')+' '+esc(r.target_id||'')+'</td><td>'+esc(typeof r.details==='string'?r.details:JSON.stringify(r.details||{}))+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Your recent Desk activity</h2><p class="muted">Audit records are append-only through the application workflow; no delete interface is provided.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Time</th><th>Action</th><th>Record</th><th>Details</th></tr></thead><tbody>'+(items||'<tr><td colspan="4">No recorded activity yet.</td></tr>')+'</tbody></table></div></section>';
+    res.send(deskAdminPage('My activity','/sovereign-admin/activity',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Audit setup required','migrations/002_admin_access.sql'));next(e);}
+});
+app.get('/admin/sovereign-desk', requireAdmin, async(req,res,next)=>{
+  if(req.adminRole==='sovereign_desk_admin')return res.status(403).send(page('Access denied','<h1>Access denied</h1><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
+  try{
+    const [requests]=await pool.query("SELECT r.id,r.member_id,r.status,r.reason,r.created_at,m.monarch_uid,m.full_name,m.email FROM sovereign_access_requests r JOIN members m ON m.id=r.member_id ORDER BY r.created_at DESC LIMIT 200");
+    const items=requests.map(r=>'<tr><td>'+esc(r.monarch_uid||r.member_id)+'</td><td>'+esc(r.full_name)+'<br><small>'+esc(r.email)+'</small></td><td>'+esc(r.status)+'</td><td>'+esc(r.reason||'—')+'</td><td>'+esc(r.created_at)+'</td><td>'+(r.status==='pending'?'<form method="post" action="/admin/sovereign-desk/access/'+encodeURIComponent(r.id)+'/review">'+csrfField(req)+'<select name="decision"><option value="approve">Approve</option><option value="reject">Reject</option></select><input name="reason" maxlength="1000" placeholder="Decision reason" required><button class="btn" type="submit">Save decision</button></form>':'Reviewed')+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Sovereign Desk access approvals</h2><p class="muted">Review requests here. Approving access creates an explicit access grant; it does not imply a payment or trading outcome.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Monarch</th><th>Account</th><th>Status</th><th>Request reason</th><th>Submitted</th><th>Decision</th></tr></thead><tbody>'+(items||'<tr><td colspan="6">No access requests.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(adminControlPage('Sovereign Desk access','/admin/sovereign-desk',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/admin/sovereign-desk/access/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  if(req.adminRole==='sovereign_desk_admin')return res.status(403).send(page('Access denied','<h1>Access denied</h1>'));
+  const id=String(req.params.id||''),decision=String(req.body.decision||''),reason=String(req.body.reason||'').trim();
+  if(!/^\d{1,20}$/.test(id)||!['approve','reject'].includes(decision)||reason.length<3||reason.length>1000)return res.status(400).send(page('Invalid decision','<h1>Check the access decision</h1>'));
+  const conn=await pool.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [rows]=await conn.execute("SELECT id,member_id,status FROM sovereign_access_requests WHERE id=? FOR UPDATE",[id]);
+    if(!rows.length){await conn.rollback();return res.status(404).send(page('Request not found','<h1>Access request not found</h1>'));}
+    if(rows[0].status!=='pending'){await conn.rollback();return res.status(409).send(page('Already reviewed','<h1>This request has already been reviewed</h1>'));}
+    const status=decision==='approve'?'approved':'rejected';
+    await conn.execute("UPDATE sovereign_access_requests SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?",[status,req.session.memberId,reason,id]);
+    if(decision==='approve')await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_by,granted_at) VALUES (?,'approved',?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_by=VALUES(granted_by),granted_at=CURRENT_TIMESTAMP",[rows[0].member_id,reason,req.session.memberId]);
+    else await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=?,granted_by=? WHERE member_id=?",[reason,req.session.memberId,rows[0].member_id]);
+    await conn.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,'sovereign_access','Sovereign Desk access update',?,'/sovereign-desk',?)",[rows[0].member_id,'Your Sovereign Desk access request was '+status+'. '+reason,'desk-access-request:'+id]);
+    await auditAdminAction(conn,req,'desk_access_'+status,'sovereign_access_request',id,{memberId:rows[0].member_id,reason});
+    await conn.commit();return res.redirect('/admin/sovereign-desk');
+  }catch(e){await conn.rollback();next(e);}finally{conn.release();}
+});
+app.get('/sovereign-desk', requireAuth, async(req,res,next)=>{
+  try{
+    const [members]=await pool.execute('SELECT id,full_name,monarch_uid FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+    if(!members.length)return res.redirect('/login');
+    const [access]=await pool.execute("SELECT id FROM sovereign_desk_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1",[req.session.memberId]);
+    if(!access.length){
+      const content='<section class="ac-panel"><h2>Access required</h2><p class="muted">Sovereign Desk signals and premium guidance are available only to approved or otherwise eligible Monarchs. No restricted signal content is sent to this page before access is verified.</p><form method="post" action="/sovereign-desk/access-request" class="ac-form">'+csrfField(req)+'<label>Why are you requesting access?<textarea name="reason" maxlength="1000" rows="3" required></textarea></label><button class="btn" type="submit">Request access</button></form></section>'+deskAdminStyles();
+      return res.send(memberPage('Sovereign Desk','/sovereign-desk',members[0],content,req));
+    }
+    const [signals]=await pool.query("SELECT id,title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) ORDER BY published_at DESC LIMIT 100");
+    const [guidance]=await pool.query("SELECT id,title,body,published_at FROM sovereign_guidance WHERE status='published' ORDER BY published_at DESC LIMIT 50");
+    const signalCards=signals.map(x=>'<article class="member-card"><span class="member-overline">'+esc(x.asset_pair)+' · '+esc(x.direction)+'</span><h3>'+esc(x.title)+'</h3><p class="muted">'+esc(x.explanation)+'</p><p>Entry zone: '+esc(x.entry_zone||'Not specified')+' · Stop loss: '+esc(x.stop_loss||'Not specified')+'</p><p>Targets: '+esc(x.take_profit_1||'—')+' / '+esc(x.take_profit_2||'—')+' · Timeframe: '+esc(x.timeframe||'Not specified')+'</p><small class="muted">Published '+esc(x.published_at||'')+' · Expires '+esc(x.expires_at||'No expiry')+'</small><p class="ac-risk">Trading involves risk. This content is educational and does not guarantee outcomes.</p></article>').join('');
+    const guideCards=guidance.map(x=>'<article class="member-card"><h3>'+esc(x.title)+'</h3><p>'+esc(x.body)+'</p><small class="muted">'+esc(x.published_at||'')+'</small></article>').join('');
+    return res.send(memberPage('Sovereign Desk','/sovereign-desk',members[0],'<section><h2>Published signals</h2>'+(signalCards||'<p class="muted">No active signals are published.</p>')+'</section><section><h2>Guidance & education</h2>'+(guideCards||'<p class="muted">No guidance has been published.</p>')+'</section>'+deskAdminStyles(),req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/sovereign-desk/access-request', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const reason=String(req.body.reason||'').trim();
+  if(reason.length<3||reason.length>1000)return res.status(400).send(page('Invalid request','<h1>Please enter a short reason for your request</h1>'));
+  try{
+    const [pending]=await pool.execute("SELECT id FROM sovereign_access_requests WHERE member_id=? AND status='pending' LIMIT 1",[req.session.memberId]);
+    if(pending.length)return res.status(409).send(page('Request pending','<h1>Your access request is already pending</h1><a class="btn" href="/sovereign-desk">Return to Sovereign Desk</a>'));
+    await pool.execute("INSERT INTO sovereign_access_requests (member_id,requested_by,status,reason) VALUES (?,?, 'pending',?)",[req.session.memberId,req.session.memberId,reason]);
+    await pool.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) SELECT member_id,'admin_action','New Sovereign Desk access request',CONCAT('A Monarch has requested access. Request ID: ',LAST_INSERT_ID()),'/admin/sovereign-desk',CONCAT('desk-access-request-admin:',LAST_INSERT_ID(),':',member_id) FROM members WHERE LOWER(email)=LOWER(?)",[ 'trademonarchofficial@gmail.com' ]);
+    return res.redirect('/sovereign-desk');
+  }catch(e){next(e);}
 });
 
 app.get('/dashboard', requireAuth, async (req, res, next) => {
