@@ -184,29 +184,55 @@ async function requireAdmin(req, res, next) {
     next(e);
   }
 }
-app.get('/admin', requireAdmin, async (req, res, next) => {
+function adminControlPage(title, active, content, req) {
+  const nav = [
+    ['/admin','Overview','◫'],['/admin/members','Members','♙'],['/admin/kyc','KYC review','◇'],
+    ['/admin#audit','Audit & access','▤'],['/dashboard','Member view','↗']
+  ];
+  const links = nav.map(([url,label,icon]) => '<a class="ac-nav '+(active===url?'is-active':'')+'" href="'+url+'"><span>'+icon+'</span><b>'+label+'</b></a>').join('');
+  return page(title, '<style>
+  .ac-layout{max-width:1450px;margin:0 auto;display:grid;grid-template-columns:245px minmax(0,1fr);gap:22px;align-items:start}
+  .ac-side{position:sticky;top:14px;min-height:70vh;padding:20px 14px;border:1px solid #393522;border-radius:22px;background:linear-gradient(180deg,#17171b,#0d0d10)}
+  .ac-brand{padding:8px 10px 24px;color:#f3cf3c;font-weight:900;letter-spacing:.12em;font-size:.88rem}
+  .ac-side-label{padding:8px 10px;color:#777783;font-size:.7rem;letter-spacing:.13em;font-weight:800}
+  .ac-nav{display:flex;gap:12px;align-items:center;padding:12px 13px;margin:4px 0;border-radius:12px;text-decoration:none;color:#b8b6c0;border:1px solid transparent}
+  .ac-nav span{width:22px;text-align:center;font-size:1.1rem}.ac-nav b{font-size:.91rem}
+  .ac-nav:hover,.ac-nav.is-active{background:#292411;border-color:#5b4c20;color:#f3cf3c}
+  .ac-secure{margin-top:26px;padding:13px;border-radius:13px;background:#111115;border:1px solid #33313a;color:#b8b6c0;font-size:.78rem;line-height:1.5}
+  .ac-main{min-width:0}.ac-top{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap;margin:4px 0 22px}
+  .ac-kicker{color:#f3cf3c;letter-spacing:.13em;font-size:.73rem;font-weight:900}.ac-top h1{margin:8px 0;font-size:clamp(1.65rem,4vw,2.5rem)}
+  .ac-pill{border:1px solid #625322;background:#28210f;color:#f3cf3c;border-radius:999px;padding:9px 13px;font-size:.8rem;font-weight:800}
+  .ac-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.ac-stat,.ac-panel{background:linear-gradient(145deg,#19191e,#111114);border:1px solid #37332a;border-radius:18px;padding:19px;min-width:0}
+  .ac-stat span,.ac-stat small{display:block;color:#aaa9b4}.ac-stat strong{display:block;color:#f3cf3c;font-size:clamp(1.45rem,3vw,2.1rem);margin:12px 0;overflow-wrap:anywhere}.ac-stat small{font-size:.8rem}
+  .ac-panel{margin-top:16px}.ac-panel h2{margin-top:0}.ac-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .ac-tile{padding:16px;border-radius:14px;border:1px solid #36333b;background:#151519;text-decoration:none;color:#f5f4f0}.ac-tile:hover{border-color:#b99a2c}.ac-tile strong{display:block;color:#f3cf3c}.ac-tile small{display:block;color:#aaa9b4;margin-top:7px;line-height:1.5}
+  .ac-alert{margin-top:15px;padding:14px;border:1px solid #655221;background:#241e0e;color:#e7ddb4;border-radius:13px}
+  .ac-table-wrap{overflow:auto}.ac-table{width:100%;border-collapse:collapse;min-width:600px}.ac-table th,.ac-table td{text-align:left;padding:12px;border-bottom:1px solid #35323a}.ac-table th{color:#aaa9b4;font-size:.78rem}
+  @media(max-width:800px){.ac-layout{grid-template-columns:1fr;gap:12px}.ac-side{position:static;min-height:0;padding:10px}.ac-brand{padding:8px 8px 12px}.ac-side-label,.ac-secure{display:none}.ac-nav{display:inline-flex;padding:10px;margin:3px}.ac-nav b{font-size:.8rem}.ac-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:480px){.ac-nav{gap:6px;padding:9px 8px}.ac-nav b{font-size:.74rem}.ac-nav span{width:17px}.ac-tiles{grid-template-columns:1fr}.ac-stat,.ac-panel{padding:15px}}
+  </style><div class="ac-layout"><aside class="ac-side"><div class="ac-brand">MONARCH CODEX <span style="display:block;color:#aaa9b4;font-size:.7rem;letter-spacing:.06em;margin-top:6px">ADMIN CONTROL CENTRE</span></div><div class="ac-side-label">WORKSPACE</div>'+links+'<div class="ac-secure"><strong style="color:#f3cf3c">Secure session</strong><br>Administrator access is checked on the server for each protected page.</div><form method="post" action="/logout">'+csrfField(req)+'<button class="btn" style="width:100%;margin-top:14px" type="submit">Log out</button></form></aside><main class="ac-main"><header class="ac-top"><div><div class="ac-kicker">MONARCH CODEX / CONTROL CENTRE</div><h1>'+esc(title)+'</h1><p class="muted">Operations, member access and compliance oversight.</p></div><span class="ac-pill">● '+esc((req.adminRole||'admin').replace(/_/g,' ').toUpperCase())+'</span></header>'+content+'</main></div>');
+}
+app.get('/admin', requireAdmin, async (req,res,next) => {
   try {
     const [[members]] = await pool.query('SELECT COUNT(*) AS total FROM members');
-    const [[recent]] = await pool.query('SELECT COUNT(*) AS total FROM members WHERE created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)');
+    let recentTotal = '—';
+    try { const [[recent]] = await pool.query('SELECT COUNT(*) AS total FROM members WHERE created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 7 DAY)'); recentTotal = Number(recent.total)||0; } catch (e) { if (!['ER_BAD_FIELD_ERROR','ER_BAD_TABLE_ERROR'].includes(e.code)) throw e; }
     const [[admins]] = await pool.query('SELECT COUNT(*) AS total FROM admin_users WHERE is_active = 1');
     let kycCount = null;
-    try {
-      const [[kyc]] = await pool.query("SELECT COUNT(*) AS total FROM kyc_submissions WHERE status = 'pending'");
-      kycCount = Number(kyc.total) || 0;
-    } catch (e) { if (!e || e.code !== 'ER_NO_SUCH_TABLE') throw e; }
-    const stat = (label, value, hint) => '<article class="admin-stat"><span>' + esc(label) + '</span><strong>' + esc(value) + '</strong><small>' + esc(hint) + '</small></article>';
-    const body = '<style>.admin-shell{max-width:1200px;margin:0 auto}.admin-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.admin-tag{display:inline-flex;align-items:center;gap:8px;border:1px solid #5b4c20;border-radius:999px;padding:7px 12px;color:#f3cf3c;font-size:.78rem;font-weight:800;letter-spacing:.06em}.admin-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:24px 0}.admin-stat{padding:20px;border:1px solid #403a27;border-radius:16px;background:linear-gradient(145deg,#19191d,#101013);min-width:0}.admin-stat span,.admin-stat small{display:block;color:#b8b6c0}.admin-stat strong{display:block;font-size:clamp(1.5rem,4vw,2.2rem);color:#f3cf3c;margin:10px 0;overflow-wrap:anywhere}.admin-stat small{font-size:.82rem}.admin-panel{padding:22px;border:1px solid #403a27;border-radius:16px;background:#121215;margin-top:16px}.admin-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.admin-link{display:block;padding:16px;border:1px solid #39352a;border-radius:12px;color:#f7f5ef;text-decoration:none;background:#17171b}.admin-link:hover,.admin-link:focus-visible{border-color:#b99a2c;outline:2px solid #8e7628}.admin-link strong{display:block;color:#f3cf3c}.admin-link small{display:block;color:#b8b6c0;margin-top:5px}.admin-warning{padding:14px;border:1px solid #6b5520;background:#28210f;border-radius:12px;color:#e9dfb7;margin-top:16px}.admin-actions{display:flex;gap:10px;flex-wrap:wrap}.admin-actions a{width:auto;padding:10px 16px;margin:0}.admin-role{font-size:.82rem;color:#d4d0c5}@media(max-width:700px){.admin-grid{grid-template-columns:1fr 1fr}.admin-links{grid-template-columns:1fr}}@media(max-width:430px){.admin-grid{grid-template-columns:1fr}.admin-panel{padding:16px}}</style><div class="admin-shell"><div class="admin-head"><div><span class="muted small">MONARCH CODEX / CONTROL CENTER</span><h1>Admin dashboard</h1><p class="muted">Operational overview and account administration.</p></div><div><span class="admin-tag">● ADMIN ACCESS</span><p class="admin-role">Role: ' + esc(req.adminRole.replace(/_/g,' ')) + '</p></div></div><div class="admin-grid">' +
-      stat('Total members', Number(members.total)||0, 'Registered member accounts') +
-      stat('New members · 7 days', Number(recent.total)||0, 'Recent registrations') +
-      stat('Active administrators', Number(admins.total)||0, 'Explicitly provisioned accounts') +
-      stat('Pending KYC reviews', kycCount === null ? 'Not configured' : kycCount, kycCount === null ? 'KYC migration or table unavailable' : 'Submissions awaiting review') +
-      stat('Deposits', 'Disabled', 'No live payment processing connected') +
-      stat('Withdrawals', 'Disabled', 'No live payout processing connected') +
-      '</div><section class="admin-panel"><h2>Management</h2><p class="muted">Review and operational tools. Financial actions remain disabled until ledger, controls, and required compliance reviews are completed.</p><div class="admin-links"><a class="admin-link" href="/admin#members"><strong>Member accounts</strong><small>Member totals and account administration</small></a><a class="admin-link" href="/admin#verification"><strong>KYC verification</strong><small>' + (kycCount === null ? 'Not yet connected to review queue' : 'Pending submissions: ' + kycCount) + '</small></a><a class="admin-link" href="/admin#audit"><strong>Audit and access</strong><small>Admin roles are explicitly provisioned in the database</small></a><a class="admin-link" href="/dashboard"><strong>Member dashboard</strong><small>Return to your member account</small></a></div><div class="admin-warning"><strong>Setup still required:</strong> this dashboard does not automatically make any email an admin. Apply the migration and explicitly provision the intended member account before access is granted.</div></section><div class="admin-actions"><a class="btn" href="/dashboard">Member area</a></div></div>';
-    res.send(page('Admin dashboard', body));
-  } catch (e) { next(e); }
+    try { const [[kyc]] = await pool.query("SELECT COUNT(*) AS total FROM kyc_submissions WHERE status = 'pending'"); kycCount = Number(kyc.total)||0; } catch(e) { if(e.code!=='ER_NO_SUCH_TABLE') throw e; }
+    const stat = (label,value,hint) => '<article class="ac-stat"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong><small>'+esc(hint)+'</small></article>';
+    const content = '<section class="ac-stats">'+stat('Total members',Number(members.total)||0,'Registered accounts')+stat('New members · 7 days',recentTotal,'Recent registrations')+stat('Active administrators',Number(admins.total)||0,'Explicitly provisioned admins')+stat('Pending KYC',kycCount===null?'Not configured':kycCount,kycCount===null?'Apply the KYC migration':'Awaiting review')+stat('Deposits','Disabled','No verified payment workflow')+stat('Withdrawals','Disabled','No approved payout workflow')+'</section><section class="ac-panel"><h2>Management workspace</h2><p class="muted">Core control-centre areas. Deposits and withdrawals stay disabled until secure ledger and payout processing are connected.</p><div class="ac-tiles"><a class="ac-tile" href="/admin/members"><strong>Member management →</strong><small>Review member accounts and account status.</small></a><a class="ac-tile" href="/admin/kyc"><strong>KYC review queue →</strong><small>'+(kycCount===null?'Database migration required':kycCount+' submissions pending')+'</small></a><a class="ac-tile" href="/admin#audit"><strong>Admin access & audit →</strong><small>Review access controls and audit readiness.</small></a><a class="ac-tile" href="/dashboard"><strong>Member dashboard →</strong><small>Open the member experience separately.</small></a></div>'+(kycCount===null?'<div class="ac-alert"><strong>KYC needs setup.</strong> The KYC submission table is not available yet; submissions and review cannot work until the migration is applied.</div>':'')+'</section>';
+    res.send(adminControlPage('Overview','/admin',content,req));
+  } catch(e) { next(e); }
 });
-
+app.get('/admin/members', requireAdmin, async (req,res,next)=>{
+  try {
+    const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active FROM members m LEFT JOIN admin_users au ON au.member_id=m.id ORDER BY m.id DESC LIMIT 200');
+    const table=rows.map(m=>'<tr><td>'+esc(m.id)+'</td><td><strong>'+esc(m.username)+'</strong><br><small>'+esc(m.full_name||'')+'</small></td><td>'+esc(m.email)+'</td><td>'+esc(m.monarch_uid||'—')+'</td><td>'+esc(m.role?m.role.replace(/_/g,' '):'Member')+'</td><td>'+esc(m.role?(Number(m.is_active)?'Active admin':'Inactive admin'):'Member account')+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Member accounts</h2><p class="muted">Showing up to 200 most recently created accounts. Admin status is sourced from the admin access table.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>ID</th><th>Account</th><th>Email</th><th>Monarch ID</th><th>Role</th><th>Status</th></tr></thead><tbody>'+(table||'<tr><td colspan="6">No accounts found.</td></tr>')+'</tbody></table></div></section>';
+    res.send(adminControlPage('Members','/admin/members',content,req));
+  } catch(e){next(e);}
+});
 
 app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
   try {
@@ -307,7 +333,9 @@ app.get('/profile', requireAuth, async (req,res,next)=>{
       const [p]=await pool.execute('SELECT phone_number,bank_details_ciphertext,avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[m.id]);
       if(p.length){profile.phone=p[0].phone_number||'';profile.avatarKey=p[0].avatar_key; if(p[0].bank_details_ciphertext){const b=JSON.parse(decryptProfileValue(p[0].bank_details_ciphertext));profile.bankName=b.bankName||'';profile.bankAccountName=b.bankAccountName||'';profile.bankAccountNumber=b.bankAccountNumber||'';}}
     } catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
-    const [savedBankRows]=await pool.execute('SELECT id,details_ciphertext,created_at FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);
+    let savedBankRows=[];
+    try { [savedBankRows]=await pool.execute('SELECT id,details_ciphertext,created_at FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]); }
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
     const savedBanks=savedBankRows.map(row=>({id:row.id,...JSON.parse(decryptProfileValue(row.details_ciphertext))}));
     try {const [k]=await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved','rejected','needs_resubmission') LIMIT 1",[m.id]);profile.kycLocked=k.length>0;} catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
     const avatar=profile.avatarKey?'/member-avatar/'+encodeURIComponent(profile.avatarKey):'/assets/images/monarch-codex-logo.svg';
@@ -325,8 +353,10 @@ app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
   try{
     const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
     if(!/^[A-Za-z0-9_]{3,30}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||phone.length>32||fullName.length===0||fullName.length>160) return res.status(400).send(page('Invalid profile','<h1>Check your profile details</h1><a class="btn" href="/profile">Back to profile</a>'));
-    const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=?) AS has_kyc",[req.session.memberId]);
-    if(Number(status.has_kyc)>0){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">A KYC submission exists for this account. Contact support to request a correction.</p><a class="btn" href="/profile">Back to profile</a>'));}
+    let hasKyc=false;
+    try { const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=?) AS has_kyc",[req.session.memberId]); hasKyc=Number(status.has_kyc)>0; }
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    if(hasKyc){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">A KYC submission exists for this account. Contact support to request a correction.</p><a class="btn" href="/profile">Back to profile</a>'));}
     const [[dupe]]=await pool.execute('SELECT SUM(username = ?) AS username_used, SUM(email = ?) AS email_used FROM members WHERE id <> ?',[username,email,req.session.memberId]);
     if(Number(dupe.username_used)>0||Number(dupe.email_used)>0)return res.status(409).send(page('Profile conflict','<h1>Username or email is already in use</h1><a class="btn" href="/profile">Back to profile</a>'));
     await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
