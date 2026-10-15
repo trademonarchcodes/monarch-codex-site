@@ -303,6 +303,7 @@ const adminSectionInfo = {
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']
 };
 for (const [route, info] of Object.entries(adminSectionInfo)) {
+  if (['/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
   app.get(route, requireAdmin, async (req,res,next) => {
     if (req.adminRole === 'sovereign_desk_admin') return res.status(403).send(page('Access denied','<h1>Access denied</h1><p class="muted">This section is reserved for Main Admin.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
     try {
@@ -311,6 +312,86 @@ for (const [route, info] of Object.entries(adminSectionInfo)) {
     } catch(e) { next(e); }
   });
 }
+app.get('/admin/referrals', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT c.id,c.full_name,c.username,c.email,c.monarch_uid,c.created_at,r.full_name AS referrer_name,r.username AS referrer_username,r.monarch_uid AS referrer_uid FROM members c JOIN members r ON r.id=c.referred_by ORDER BY c.created_at DESC LIMIT 300');
+    const items = rows.map(r => '<tr><td><strong>' + esc(r.full_name || r.username) + '</strong><br><small>' + esc(r.email) + '</small><br>' + esc(r.monarch_uid || '—') + '</td><td><strong>' + esc(r.referrer_name || r.referrer_username) + '</strong><br><small>' + esc(r.referrer_username) + ' · ' + esc(r.referrer_uid || '—') + '</small></td><td>' + esc(r.created_at || '—') + '</td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Referral attribution</h2><p class="muted">These rows come from the members.referred_by relationship. Referral commissions and earnings are not displayed because no verified commission ledger is connected.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Referred member</th><th>Referrer</th><th>Registered</th></tr></thead><tbody>' + (items || '<tr><td colspan="3">No referred members found.</td></tr>') + '</tbody></table></div></section>';
+    res.send(adminControlPage('Referral monitoring','/admin/referrals',content,req));
+  } catch(e) { next(e); }
+});
+app.get('/admin/academy', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT l.id,l.title,l.description,l.access_level,l.status,l.sort_order,l.created_at,m.username AS creator FROM academy_lessons l LEFT JOIN members m ON m.id=l.created_by ORDER BY l.sort_order ASC,l.created_at DESC LIMIT 200');
+    const items = rows.map(l => '<tr><td><strong>' + esc(l.title) + '</strong><br><small>' + esc(l.description || '') + '</small></td><td>' + esc(l.access_level) + '</td><td>' + esc(l.status) + '</td><td>' + esc(l.creator || '—') + '</td><td><form method="post" action="/admin/academy/lessons/' + encodeURIComponent(l.id) + '/status">' + csrfField(req) + '<select name="status" aria-label="Lesson status"><option value="draft"' + (l.status === 'draft' ? ' selected' : '') + '>Draft</option><option value="published"' + (l.status === 'published' ? ' selected' : '') + '>Published</option><option value="archived"' + (l.status === 'archived' ? ' selected' : '') + '>Archived</option></select><button class="btn" type="submit">Save status</button></form></td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Create a lesson</h2><p class="muted">Create educational content. Premium access remains controlled by an explicit access grant; publishing a lesson does not grant premium access.</p><form method="post" action="/admin/academy/lessons" class="ac-form">' + csrfField(req) + '<label>Lesson title<input name="title" required maxlength="180"></label><label>Description<textarea name="description" rows="2" maxlength="1000"></textarea></label><label>Lesson content<textarea name="content" rows="8" required maxlength="50000"></textarea></label><label>Optional video URL<input name="video_url" type="url" maxlength="1000" placeholder="https://…"></label><label>Access level<select name="access_level"><option value="free">Free</option><option value="premium">Premium</option></select></label><label>Initial status<select name="status"><option value="draft">Draft</option><option value="published">Published</option></select></label><button class="btn" type="submit">Create lesson</button></form></section><section class="ac-panel"><h2>Lessons</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Lesson</th><th>Access</th><th>Status</th><th>Created by</th><th>Update</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No lessons created yet.</td></tr>') + '</tbody></table></div></section><style>.ac-form{display:grid;gap:12px;max-width:820px}.ac-form label{display:grid;gap:6px}.ac-form input,.ac-form textarea,.ac-form select,td select{width:100%;min-width:0;padding:10px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c;font:inherit}.ac-form textarea{resize:vertical}</style>';
+    res.send(adminControlPage('Academy management','/admin/academy',content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:false,limit:'60kb'}), csrfCheck, async (req,res,next) => {
+  try {
+    const title = String(req.body.title || '').trim().slice(0,180);
+    const description = String(req.body.description || '').trim().slice(0,1000);
+    const content = String(req.body.content || '').trim().slice(0,50000);
+    const accessLevel = ['free','premium'].includes(req.body.access_level) ? req.body.access_level : 'free';
+    const status = ['draft','published'].includes(req.body.status) ? req.body.status : 'draft';
+    const rawVideoUrl = String(req.body.video_url || '').trim().slice(0,1000);
+    let videoUrl = null;
+    if (rawVideoUrl) {
+      try { const parsed = new URL(rawVideoUrl); if (!['http:','https:'].includes(parsed.protocol)) throw new Error('Unsupported URL protocol'); videoUrl = parsed.toString(); }
+      catch (_) { return res.status(400).send(page('Invalid video URL','<h1>Enter a valid HTTPS or HTTP video URL</h1><a class="btn" href="/admin/academy">Return to Academy</a>')); }
+    }
+    if (!title || !content) return res.status(400).send(page('Lesson details required','<h1>Enter a lesson title and content</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
+    await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);
+    res.redirect('/admin/academy');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  const id = String(req.params.id || '');
+  const status = String(req.body.status || '');
+  if (!/^\d{1,20}$/.test(id) || !['draft','published','archived'].includes(status)) return res.status(400).send(page('Invalid lesson update','<h1>Invalid lesson status</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
+  try {
+    const [result] = await pool.execute('UPDATE academy_lessons SET status=? WHERE id=?',[status,id]);
+    if (!result.affectedRows) return res.status(404).send(page('Lesson not found','<h1>Lesson not found</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
+    res.redirect('/admin/academy');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.get('/admin/sovereign-desk', requireAdmin, (req,res) => {
+  if (req.adminRole === 'sovereign_desk_admin') return res.redirect('/sovereign-admin');
+  res.redirect('/sovereign-admin');
+});
+app.get('/admin/notifications', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT n.id,n.notification_type,n.title,n.body,n.target_url,n.read_at,n.created_at,m.full_name,m.username,m.email FROM member_notifications n JOIN members m ON m.id=n.member_id ORDER BY n.created_at DESC LIMIT 200');
+    const items = rows.map(n => '<tr><td><strong>' + esc(n.title) + '</strong><br><small>' + esc(n.notification_type) + '</small><p>' + esc(n.body) + '</p></td><td>' + esc(n.full_name || n.username) + '<br><small>' + esc(n.email) + '</small></td><td>' + esc(n.read_at ? 'Read' : 'Unread') + '</td><td>' + esc(n.created_at) + '</td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Member notification log</h2><p class="muted">This is the persisted in-app notification log for members. Email send attempts are logged separately by the application and are not represented as confirmed delivery here.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Notification</th><th>Member</th><th>Read status</th><th>Created</th></tr></thead><tbody>' + (items || '<tr><td colspan="4">No member notifications recorded yet.</td></tr>') + '</tbody></table></div></section>';
+    res.send(adminControlPage('Notifications','/admin/notifications',content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Notification setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.get('/admin/audit', requireAdmin, async (req,res,next) => {
+  try {
+    const [admins] = await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name,m.email FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
+    const [events] = await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 100');
+    const adminRows = admins.map(a => '<tr><td>' + esc(a.full_name || a.username) + '<br><small>' + esc(a.email) + '</small></td><td>' + esc(String(a.role).replace(/_/g,' ')) + '</td><td>' + esc(Number(a.is_active) ? 'Active' : 'Inactive') + '</td><td>' + esc(a.created_at) + '</td></tr>').join('');
+    const eventRows = events.map(e => '<tr><td>' + esc(e.action) + '</td><td>' + esc(e.target_type || '—') + ' ' + esc(e.target_id || '') + '</td><td>' + esc(e.username) + '</td><td>' + esc(typeof e.details === 'string' ? e.details : JSON.stringify(e.details || {})) + '</td><td>' + esc(e.created_at) + '</td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Provisioned administrators</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Account</th><th>Role</th><th>Status</th><th>Added</th></tr></thead><tbody>' + (adminRows || '<tr><td colspan="4">No administrator rows found.</td></tr>') + '</tbody></table></div></section><section class="ac-panel"><h2>Recent audit events</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Action</th><th>Target</th><th>Actor</th><th>Details</th><th>Date</th></tr></thead><tbody>' + (eventRows || '<tr><td colspan="5">No audit events recorded yet.</td></tr>') + '</tbody></table></div></section>';
+    res.send(adminControlPage('Audit & access','/admin/audit',content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Audit setup required','migrations/002_admin_access.sql')); next(e); }
+});
+app.get('/admin/settings', requireAdmin, (req,res) => {
+  const settings = [
+    ['Database connection variables', Boolean(process.env.DB_HOST && process.env.DB_USER && process.env.DB_PASSWORD && process.env.DB_NAME)],
+    ['Session secret', Boolean(process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32)],
+    ['SMTP host and account', Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD)],
+    ['Sender address', Boolean(process.env.MAIL_FROM)],
+    ['Public application URL', Boolean(process.env.APP_BASE_URL)],
+    ['KYC storage directory and encryption key', Boolean(process.env.KYC_STORAGE_DIR && process.env.KYC_ENCRYPTION_KEY)]
+  ];
+  const rows = settings.map(([label,ok]) => '<tr><td>' + esc(label) + '</td><td><span class="ac-pill">' + (ok ? 'Configured' : 'Needs configuration') + '</span></td></tr>').join('');
+  const content = '<section class="ac-panel"><h2>Configuration health</h2><p class="muted">This page reports whether required environment settings are present. It never displays passwords, secret keys, or private storage paths. Change secrets in Hostinger environment settings, not here.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Setting</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+  res.send(adminControlPage('Platform settings','/admin/settings',content,req));
+});
+
 app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   try {
     const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active FROM members m LEFT JOIN admin_users au ON au.member_id=m.id ORDER BY m.id DESC LIMIT 200');
@@ -318,6 +399,18 @@ app.get('/admin/members', requireAdmin, async (req,res,next)=>{
     const content='<section class="ac-panel"><h2>Member accounts</h2><p class="muted">Showing up to 200 most recently created accounts. Admin status is sourced from the admin access table.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>ID</th><th>Account</th><th>Email</th><th>Monarch ID</th><th>Role</th><th>Status</th></tr></thead><tbody>'+(table||'<tr><td colspan="6">No accounts found.</td></tr>')+'</tbody></table></div></section>';
     res.send(adminControlPage('Members','/admin/members',content,req));
   } catch(e){next(e);}
+});
+
+const KYC_REJECTION_REASONS = Object.freeze({
+  nin_mismatch: { label: 'NIN does not match the submitted details', message: 'The NIN or identity details do not match the information submitted. Please check your details and contact support if you believe this is an error.' },
+  details_mismatch: { label: 'Name or personal details do not match ID', message: 'The personal details provided do not match the identity document. Please correct the information and resubmit.' },
+  unclear_image: { label: 'ID image is blurry, cropped, or unreadable', message: 'The identity document image is not clear enough to verify. Please upload a clear, complete image with all required details visible.' },
+  fake_identity: { label: 'Document appears altered or cannot be authenticated', message: 'We could not authenticate the submitted identity document. Please contact support before submitting a valid, original document.' },
+  expired_document: { label: 'Identity document appears expired', message: 'The submitted identity document appears to be expired. Please provide a valid, current document accepted for verification.' },
+  wrong_document: { label: 'Unsupported or incorrect document type', message: 'The submitted document type cannot be accepted for this verification. Please check the accepted document types and submit the correct document.' },
+  missing_information: { label: 'Required information is missing', message: 'Some required identity information or document images are missing. Please complete all required fields and upload the requested images.' },
+  duplicate_submission: { label: 'Duplicate submission', message: 'This application appears to duplicate an existing verification submission. Please contact support if you believe this is incorrect.' },
+  other: { label: 'Other verification issue', message: 'We could not approve this verification submission. Please contact support for clarification before resubmitting.' }
 });
 
 app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
@@ -330,8 +423,8 @@ app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
     const fields=[['Member',k.username+' ('+k.monarch_uid+')'],['Full legal name',k.legal_full_name],['Date of birth',k.date_of_birth],['Email',k.contact_email],['Phone',k.phone_number],['Country',k.country_code],['State / region',k.state_region],['City / LGA',k.locality_lga],['Street address',k.street_address],['Document type',k.document_type],['Issuing country',k.document_issuer_country],['Document number',docNumber],['Submitted',k.submitted_at],['Status',k.status]];
     const details=fields.map(([a,b])=>'<div class="kyc-detail"><span>'+esc(a)+'</span><strong>'+esc(b==null?'—':b)+'</strong></div>').join('');
     const docs=[['front','Front of ID',k.document_front_private_key],['back','Back of ID',k.document_back_private_key],['selfie','Selfie',k.selfie_private_key]];
-    const images=docs.map(([kind,label,key])=>key?'<figure class="kyc-doc"><figcaption>'+esc(label)+'</figcaption><img src="/admin/kyc/'+encodeURIComponent(id)+'/document/'+kind+'" alt="'+esc(label)+'"></figure>':'<div class="kyc-doc"><strong>'+esc(label)+'</strong><p class="muted">No image supplied.</p></div>').join('');
-    const body='<style>.kyc-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kyc-detail{padding:9px;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:0;overflow-wrap:anywhere}.kyc-detail span{display:block;color:#aaa9b4;font-size:.78rem}.kyc-detail strong{display:block;margin-top:4px;font-size:.88rem;line-height:1.35}.kyc-doc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start}.kyc-doc{padding:9px;margin:0;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:0;overflow:hidden}.kyc-doc figcaption{font-weight:600;font-size:.85rem}.kyc-doc img{display:block;width:100%;height:clamp(150px,22vw,260px);object-fit:contain;background:#080809;border-radius:8px;margin-top:8px}.kyc-review-form{display:grid;gap:10px}.kyc-review-form select,.kyc-review-form textarea{width:100%;padding:12px;background:#0d0d10;color:#fff;border:1px solid #45434c;border-radius:9px;font:inherit}.kyc-back-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;padding:10px 15px;border:1px solid #6b5a1b;border-radius:10px;color:#f6d43c;background:#211d10;text-decoration:none;font-weight:700;line-height:1.25}.kyc-back-link:hover{background:#30280e;text-decoration:none}@media(max-width:760px){.kyc-details{grid-template-columns:repeat(2,minmax(0,1fr))}.kyc-doc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kyc-doc img{height:clamp(160px,40vw,240px)}}@media(max-width:420px){.kyc-details{grid-template-columns:1fr}.kyc-doc-grid{grid-template-columns:1fr}.kyc-doc img{height:240px}}</style><section class="ac-panel"><p class="muted">Private identity information is shown only to an authenticated administrator. Handle it as confidential data.</p><h2>Applicant information</h2><div class="kyc-details">'+details+'</div><h2 style="margin-top:24px">Identity images</h2><div class="kyc-doc-grid">'+images+'</div><h2 style="margin-top:24px">Review decision</h2><form class="kyc-review-form" method="post" action="/admin/kyc/'+esc(id)+'/review">'+csrfField(req)+'<label for="kycStatus">Decision</label><select id="kycStatus" name="status" required><option value="pending" '+(k.status==='pending'?'selected':'')+'>Keep pending</option><option value="approved">Approve</option><option value="rejected">Reject</option><option value="needs_resubmission">Request resubmission</option></select><label for="kycNote">Reviewer note / reason</label><textarea id="kycNote" name="note" rows="3" maxlength="1000">'+esc(k.reviewer_note||'')+'</textarea><button class="btn" type="submit">Save review decision</button></form><a class="btn" href="/admin/kyc">Back to review queue</a></section>';
+    const images=docs.map(([kind,label,key])=>key?'<figure class="kyc-doc"><figcaption>'+esc(label)+'</figcaption><button type="button" class="kyc-image-open" data-image-src="/admin/kyc/'+encodeURIComponent(id)+'/document/'+kind+'" data-image-label="'+esc(label)+'" aria-label="View '+esc(label)+' full size"><img src="/admin/kyc/'+encodeURIComponent(id)+'/document/'+kind+'" alt="'+esc(label)+'"></button><a class="kyc-image-full-link" href="/admin/kyc/'+encodeURIComponent(id)+'/document/'+kind+'" target="_blank" rel="noopener">Open full size ↗</a></figure>':'<div class="kyc-doc"><strong>'+esc(label)+'</strong><p class="muted">No image supplied.</p></div>').join('');
+    const body='<style>.kyc-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.kyc-detail{padding:9px;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:0;overflow-wrap:anywhere}.kyc-detail span{display:block;color:#aaa9b4;font-size:.78rem}.kyc-detail strong{display:block;margin-top:4px;font-size:.88rem;line-height:1.35}.kyc-doc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start}.kyc-doc{padding:9px;margin:0;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:0;overflow:hidden}.kyc-doc figcaption{font-weight:600;font-size:.85rem}.kyc-image-open{display:block;width:100%;padding:0;border:0;background:#080809;border-radius:8px;cursor:zoom-in;margin-top:8px}.kyc-doc img{display:block;width:100%;height:clamp(150px,22vw,260px);object-fit:contain;background:#080809;border-radius:8px}.kyc-image-full-link{display:inline-flex;margin-top:9px;font-size:.82rem;font-weight:700;color:#f6d43c;text-decoration:none}.kyc-image-full-link:hover{text-decoration:underline}.kyc-image-dialog{width:min(96vw,1400px);max-width:96vw;max-height:94dvh;padding:14px;border:1px solid #57515f;border-radius:16px;background:#101014;color:#fff;box-shadow:0 20px 80px #000b}.kyc-image-dialog::backdrop{background:#000d;backdrop-filter:blur(4px)}.kyc-image-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.kyc-image-dialog-title{font-weight:700;overflow-wrap:anywhere}.kyc-image-dialog-close{padding:9px 13px;border:1px solid #625c6b;border-radius:9px;background:#24232a;color:#fff;font:inherit;cursor:pointer}.kyc-image-dialog-image{display:block;max-width:100%;max-height:calc(94dvh - 90px);width:auto;height:auto;object-fit:contain;margin:auto;border-radius:8px}.kyc-review-form{display:grid;gap:10px}.kyc-review-form select,.kyc-review-form textarea{width:100%;padding:12px;background:#0d0d10;color:#fff;border:1px solid #45434c;border-radius:9px;font:inherit}.kyc-back-link{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;padding:10px 15px;border:1px solid #6b5a1b;border-radius:10px;color:#f6d43c;background:#211d10;text-decoration:none;font-weight:700;line-height:1.25}.kyc-back-link:hover{background:#30280e;text-decoration:none}@media(max-width:760px){.kyc-details{grid-template-columns:repeat(2,minmax(0,1fr))}.kyc-doc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kyc-doc img{height:clamp(160px,40vw,240px)}}@media(max-width:420px){.kyc-details{grid-template-columns:1fr}.kyc-doc-grid{grid-template-columns:1fr}.kyc-doc img{height:240px}}</style><section class="ac-panel"><p class="muted">Private identity information is shown only to an authenticated administrator. Handle it as confidential data.</p><h2>Applicant information</h2><div class="kyc-details">'+details+'</div><h2 style="margin-top:24px">Identity images</h2><div class="kyc-doc-grid">'+images+'</div><h2 style="margin-top:24px">Review decision</h2><form class="kyc-review-form" method="post" action="/admin/kyc/'+esc(id)+'/review">'+csrfField(req)+'<label for="kycStatus">Decision</label><select id="kycStatus" name="status" required><option value="pending" '+(k.status==='pending'?'selected':'')+'>Keep pending</option><option value="approved">Approve</option><option value="rejected">Reject</option><option value="needs_resubmission">Request resubmission</option></select><label for="kycReason">Rejection reason (required when rejecting)</label><select id="kycReason" name="reason_code"><option value="">Choose a reason</option>'+Object.entries(KYC_REJECTION_REASONS).map(([value,reason])=>'<option value="'+esc(value)+'">'+esc(reason.label)+'</option>').join('')+'</select><label for="kycNote">Additional reviewer note / instructions</label><textarea id="kycNote" name="note" rows="3" maxlength="1000">'+esc(k.reviewer_note||'')+'</textarea><button class="btn" type="submit">Save review decision</button></form><a class="btn" href="/admin/kyc">Back to review queue</a></section><dialog class="kyc-image-dialog" id="kycImageDialog" aria-label="Full-size identity image"><div class="kyc-image-dialog-head"><span class="kyc-image-dialog-title" id="kycImageDialogTitle">Identity image</span><button class="kyc-image-dialog-close" id="kycImageDialogClose" type="button">Close ✕</button></div><img class="kyc-image-dialog-image" id="kycImageDialogImage" alt="Full-size identity document or selfie"></dialog><script>(function(){var d=document.getElementById(\'kycImageDialog\'),img=document.getElementById(\'kycImageDialogImage\'),title=document.getElementById(\'kycImageDialogTitle\'),close=document.getElementById(\'kycImageDialogClose\');if(!d||!img||!title||!close)return;document.querySelectorAll(\'[data-image-src]\').forEach(function(b){b.addEventListener(\'click\',function(){img.src=b.getAttribute(\'data-image-src\');img.alt=b.getAttribute(\'data-image-label\')||\'Identity image\';title.textContent=b.getAttribute(\'data-image-label\')||\'Identity image\';if(typeof d.showModal===\'function\')d.showModal();else{d.setAttribute(\'open\',\'\');d.style.position=\'fixed\';d.style.inset=\'2vh 2vw\';d.style.zIndex=\'99999\'}})});function shut(){if(typeof d.close===\'function\'&&d.open)d.close();else d.removeAttribute(\'open\');img.removeAttribute(\'src\')}close.addEventListener(\'click\',shut);d.addEventListener(\'click\',function(e){if(e.target===d)shut()});d.addEventListener(\'close\',function(){img.removeAttribute(\'src\')})})();</script>';
     res.send(adminControlPage('KYC applicant review','/admin/kyc',body,req));
   } catch(e){next(e);}
 });
@@ -350,26 +443,43 @@ app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
 app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
   try {
     const [rows] = await pool.query("SELECT id,member_id,legal_full_name,contact_email,document_type,document_issuer_country,document_number_last4,status,submitted_at FROM kyc_submissions ORDER BY submitted_at DESC LIMIT 200");
-    const items = rows.map(row => '<tr><td>' + esc(row.id) + '</td><td><strong>' + esc(row.legal_full_name) + '</strong><br><small>' + esc(row.contact_email) + '</small><br><a href="/admin/kyc/' + encodeURIComponent(row.id) + '">View application &amp; images →</a></td><td>' + esc(row.document_type) + ' (' + esc(row.document_issuer_country) + ')<br><small>•••• ' + esc(row.document_number_last4) + '</small></td><td>' + esc(row.status) + '</td><td><a class="btn" href="/admin/kyc/' + encodeURIComponent(row.id) + '">Review application</a></td></tr>').join('');
-    const body = '<div class="wrap"><h1>KYC review queue</h1><p class="muted">Documents are encrypted outside the public web directory. Open an application to inspect submitted information and images before making a review decision.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c}td small{color:#aaa}</style>';
+    const rejectionOptions = Object.entries(KYC_REJECTION_REASONS).map(([value, reason]) => '<option value="' + esc(value) + '">' + esc(reason.label) + '</option>').join('');
+    const items = rows.map(row => {
+      const action = '/admin/kyc/' + encodeURIComponent(row.id) + '/review';
+      return '<tr><td>' + esc(row.id) + '</td><td><strong>' + esc(row.legal_full_name) + '</strong><br><small>' + esc(row.contact_email) + '</small><br><a href="/admin/kyc/' + encodeURIComponent(row.id) + '">View application &amp; images →</a></td><td>' + esc(row.document_type) + ' (' + esc(row.document_issuer_country) + ')<br><small>•••• ' + esc(row.document_number_last4) + '</small></td><td>' + esc(row.status) + '</td><td><div class="kyc-queue-actions"><a class="btn" href="/admin/kyc/' + encodeURIComponent(row.id) + '">Review</a>' +
+        (row.status === 'approved' ? '<span class="kyc-approved-label">Approved ✓</span>' :
+        '<form method="post" action="' + action + '" class="kyc-approve-form">' + csrfField(req) + '<input type="hidden" name="status" value="approved"><button class="btn kyc-approve" type="submit">Approve</button></form>' +
+        '<details class="kyc-reject-details"><summary class="btn kyc-reject">Reject</summary><form method="post" action="' + action + '" class="kyc-reject-form">' + csrfField(req) + '<input type="hidden" name="status" value="rejected"><label>Reason for rejection<select name="reason_code" required><option value="">Choose a reason</option>' + rejectionOptions + '</select></label><label>Additional message (optional)<textarea name="note" rows="2" maxlength="1000" placeholder="Add specific guidance for the member"></textarea></label><button class="btn kyc-confirm-reject" type="submit">Send rejection</button></form></details>') +
+        '</div></td></tr>';
+    }).join('');
+    const body = '<div class="wrap"><h1>KYC review queue</h1><p class="muted">Documents are encrypted outside the public web directory. Open an application to inspect submitted information and images before making a review decision.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select,td textarea{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c;font:inherit;max-width:100%}.kyc-queue-actions{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;min-width:190px}.kyc-queue-actions .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 12px;cursor:pointer;text-decoration:none}.kyc-approve{background:#2b2410;color:#f6d43c;border:1px solid #6b5a1b}.kyc-reject-details{min-width:180px}.kyc-reject-details summary{list-style:none}.kyc-reject-details summary::-webkit-details-marker{display:none}.kyc-reject{background:#251414;color:#ffb5b5;border:1px solid #744040}.kyc-reject-form{margin-top:8px;padding:12px;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:240px}.kyc-reject-form label{display:grid;gap:6px;font-size:.85rem}.kyc-confirm-reject{background:#5a2020;color:#fff;border:1px solid #8b3d3d}.kyc-approved-label{color:#8fddb2;font-weight:700;padding:8px}.ac-table-wrap{overflow-x:auto}td small{color:#aaa}@media(max-width:640px){.kyc-queue-actions{min-width:160px}.kyc-reject-form{min-width:220px}}</style>';
     res.send(adminControlPage('KYC review','/admin/kyc', '<section class="ac-panel">' + body + '</section>', req));
   } catch(e) { next(e); }
 });
 app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
   const id = String(req.params.id || '');
   const status = req.body.status;
-  const note = String(req.body.note || '').trim().slice(0,1000);
+  const reasonCode = String(req.body.reason_code || '').trim();
+  const submittedNote = String(req.body.note || '').trim().slice(0,1000);
+  const reason = Object.prototype.hasOwnProperty.call(KYC_REJECTION_REASONS, reasonCode) ? KYC_REJECTION_REASONS[reasonCode] : null;
+  const note = (status === 'rejected'
+    ? [reason ? reason.message : '', submittedNote ? 'Additional details: ' + submittedNote : ''].filter(Boolean).join('\n\n')
+    : submittedNote).slice(0, 1000);
   if (!/^\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
-  if (['rejected','needs_resubmission'].includes(status) && !note) return res.status(400).send(page('Review reason required','<h1>Please provide a reason</h1><p class="muted">A clear reason is required when rejecting KYC or requesting resubmission.</p><a class="btn" href="/admin/kyc/' + esc(id) + '">Return to review</a>'));
+  if (status === 'rejected' && !reason) return res.status(400).send(page('Rejection reason required','<h1>Please choose a rejection reason</h1><p class="muted">Choose a reason so the member receives clear instructions.</p><a class="btn" href="/admin/kyc/' + esc(id) + '">Return to review</a>'));
+  if (status === 'needs_resubmission' && !note) return res.status(400).send(page('Review reason required','<h1>Please provide resubmission instructions</h1><p class="muted">A clear reason is required when requesting resubmission.</p><a class="btn" href="/admin/kyc/' + esc(id) + '">Return to review</a>'));
   try {
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [found] = await conn.execute('SELECT id FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
+      const [found] = await conn.execute('SELECT id,status FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
       if (!found.length) { await conn.rollback(); return res.status(404).send(page('Not found','<h1>KYC submission not found</h1>')); }
+      if (found[0].status === status) { await conn.rollback(); return res.redirect('/admin/kyc'); }
+      if (found[0].status === 'approved' && status !== 'approved') { await conn.rollback(); return res.status(409).send(page('KYC already approved','<h1>This KYC application is already approved</h1><p class="muted">Approved verification cannot be reversed through this form.</p><a class="btn" href="/admin/kyc">Back to review queue</a>')); }
       await conn.execute('UPDATE kyc_submissions SET status = ?, reviewer_member_id = ?, reviewer_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',[status,req.session.memberId,note || null,id]);
       await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note || null]);
-      const [applicantRows] = await conn.execute('SELECT m.full_name, m.email FROM kyc_submissions k JOIN members m ON m.id = k.member_id WHERE k.id = ? LIMIT 1',[id]);
+      await conn.execute('INSERT INTO admin_audit_log (admin_member_id, action, target_type, target_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)',[req.session.memberId,'kyc.' + status,'kyc_submission',String(id),JSON.stringify({status,reason_code:status === 'rejected' ? reasonCode : null}),req.ip || null]);
+      const [applicantRows] = await conn.execute('SELECT m.id AS member_id, m.full_name, m.email FROM kyc_submissions k JOIN members m ON m.id = k.member_id WHERE k.id = ? LIMIT 1',[id]);
       var kycApplicant = applicantRows[0] || null;
       await conn.commit();
     } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
@@ -381,10 +491,51 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
         needs_resubmission: { subject: 'Action needed: resubmit your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', we need you to resubmit your identity verification. Reason and instructions: ' + (note || 'Please review your submitted details and documents, then submit again.') + '\n\nContinue here: ' + baseUrl + '/kyc' }
       };
       const notification = messages[status];
-      if (notification) sendAppEmail({ to: kycApplicant.email, ...notification }).catch(e => console.error('[mail] KYC notification failed:', e.message));
+      const inAppMessages = {
+        approved: { title: 'KYC approved', body: 'Congratulations ' + kycApplicant.full_name + '! Your identity verification has been approved. Your KYC status is now approved.', target: '/dashboard' },
+        rejected: { title: 'KYC review update', body: 'Your identity verification was not approved. Reason: ' + note + ' Please review the feedback and contact support if needed.', target: '/kyc' },
+        needs_resubmission: { title: 'KYC resubmission required', body: 'Please update your identity verification. Instructions: ' + note, target: '/kyc' }
+      };
+      const inApp = inAppMessages[status];
+      if (inApp) {
+        await pool.execute(
+          'INSERT INTO member_notifications (member_id, notification_type, title, body, target_url, dedupe_key) VALUES (?, ?, ?, ?, ?, ?)',
+          [kycApplicant.member_id, 'kyc_review', inApp.title, inApp.body.slice(0, 1000), inApp.target, 'kyc-review:' + id + ':' + status + ':' + Date.now()]
+        ).catch(e => console.error('[notification] KYC in-app notification failed:', e.message));
+      }
+      if (notification && kycApplicant.email) sendAppEmail({ to: kycApplicant.email, ...notification }).catch(e => console.error('[mail] KYC notification failed:', e.message));
     }
     return res.redirect('/admin/kyc');
   } catch(e) { next(e); }
+});
+
+app.get('/notifications', requireAuth, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const [rows] = await pool.execute('SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const unread = rows.filter(n => !n.read_at).length;
+    const items = rows.map(n => {
+      const safeTarget = typeof n.target_url === 'string' && /^\/(?!\/)/.test(n.target_url) ? n.target_url : null;
+      return '<article class="member-card notification-card ' + (n.read_at ? 'is-read' : 'is-unread') + '"><div class="notification-head"><div><small>' + esc(n.notification_type.replace(/_/g,' ')) + ' · ' + esc(n.created_at) + '</small><h3>' + esc(n.title) + '</h3></div><span class="ac-pill">' + (n.read_at ? 'Read' : 'New') + '</span></div><p>' + esc(n.body) + '</p><div class="notification-actions">' + (safeTarget ? '<a class="btn" href="' + esc(safeTarget) + '">Open</a>' : '') + (!n.read_at ? '<form method="post" action="/notifications/' + encodeURIComponent(n.id) + '/read">' + csrfField(req) + '<button class="btn" type="submit">Mark as read</button></form>' : '') + '</div></article>';
+    }).join('');
+    const content = '<section class="member-card"><div class="notification-head"><div><h2>Your notifications</h2><p class="muted">Updates about KYC and your Monarch Codex account.</p></div><strong>' + unread + ' unread</strong></div>' + (unread ? '<form method="post" action="/notifications/read-all">' + csrfField(req) + '<button class="btn" type="submit">Mark all as read</button></form>' : '') + '</section>' + (items || '<section class="member-card"><h3>You are all caught up</h3><p class="muted">New account updates will appear here.</p></section>') + '<style>.notification-card.is-unread{border-color:#8a7227}.notification-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.notification-head h3{margin:8px 0}.notification-head small{color:#aaa}.notification-actions{display:flex;flex-wrap:wrap;gap:8px}.notification-actions form{margin:0}@media(max-width:480px){.notification-head{display:block}.notification-head .ac-pill{display:inline-block;margin-top:8px}}</style>';
+    res.send(memberPage('Notifications','/notifications',m,content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Notifications unavailable','<h1>Notifications are not configured yet</h1><p class="muted">The site owner must apply migrations/005_member_dashboard_and_sovereign_desk.sql.</p>')); next(e); }
+});
+app.post('/notifications/read-all', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  try {
+    await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);
+    res.redirect('/notifications');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Notifications unavailable','<h1>Notifications are not configured yet</h1>')); next(e); }
+});
+app.post('/notifications/:id/read', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  const id = String(req.params.id || '');
+  if (!/^\d{1,20}$/.test(id)) return res.sendStatus(400);
+  try {
+    await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND member_id=?',[id,req.session.memberId]);
+    res.redirect('/notifications');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Notifications unavailable','<h1>Notifications are not configured yet</h1>')); next(e); }
 });
 
 app.get('/dashboard', requireAuth, async (req, res, next) => {
@@ -465,13 +616,13 @@ app.get('/profile', requireAuth, async (req,res,next)=>{
     try { [savedBankRows]=await pool.execute('SELECT id,details_ciphertext,created_at FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]); }
     catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
     const savedBanks=savedBankRows.map(row=>({id:row.id,...JSON.parse(decryptProfileValue(row.details_ciphertext))}));
-    try {const [k]=await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved','rejected','needs_resubmission') LIMIT 1",[m.id]);profile.kycLocked=k.length>0;} catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    try {const [k]=await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved') LIMIT 1",[m.id]);profile.kycLocked=k.length>0;} catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
     const avatar=profile.avatarKey?'/member-avatar/'+encodeURIComponent(profile.avatarKey):'/assets/images/monarch-codex-logo.svg';
     const lock=profile.kycLocked;
     const content='<style>.profile-head{display:flex;gap:18px;align-items:center;margin-bottom:24px}.profile-avatar{width:96px;height:96px;object-fit:cover;border-radius:50%;border:2px solid #f3cf3c;background:#17171c}.profile-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.profile-form-grid .full{grid-column:1/-1}.profile-card{padding:20px;border:1px solid #403a27;border-radius:16px;background:#111115;margin:16px 0}.profile-card h3{margin-top:0}.profile-save{width:auto;padding:12px 24px}.profile-hint{color:#b8b6c0;font-size:.86rem}.saved-bank-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-top:1px solid #403a27}.saved-bank-row form{margin:0}.profile-public{color:#f3cf3c}@media(max-width:520px){.profile-form-grid{grid-template-columns:1fr}.profile-form-grid .full{grid-column:auto}.profile-head{align-items:flex-start}.profile-avatar{width:76px;height:76px}}</style>'+
       '<div class="profile-head"><img class="profile-avatar" src="'+avatar+'" alt="Profile picture" id="profileAvatar"><div><h3>'+esc(m.full_name)+'</h3><p class="muted">@'+esc(m.username)+'</p><a class="profile-public" href="/members/'+encodeURIComponent(m.username)+'">View public profile ↗</a></div></div>'+
       '<div class="profile-card"><h3>Profile picture</h3><p class="profile-hint">JPG, PNG or WebP, up to 3 MB. Your picture is shown on your public profile.</p><form method="post" action="/profile/photo" enctype="multipart/form-data">'+csrfField(req)+'<label for="profilePhoto">Choose a picture</label><input id="profilePhoto" name="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" required><button class="btn profile-save" type="submit">Upload picture</button></form></div>'+
-      '<form method="post" action="/profile" class="profile-card">'+csrfField(req)+'<h3>Personal details</h3><div class="profile-form-grid"><div><label for="fullName">Full name</label><input id="fullName" name="fullName" value="'+esc(m.full_name)+'" maxlength="160" required '+(lock?'readonly':'')+'></div><div><label for="username">Username</label><input id="username" name="username" value="'+esc(m.username)+'" pattern="[A-Za-z0-9_]{3,30}" maxlength="30" required></div><div><label for="email">Email</label><input id="email" type="email" name="email" value="'+esc(m.email)+'" maxlength="254" required></div><div><label for="phone">Phone number</label><input id="phone" type="tel" name="phone" value="'+esc(profile.phone)+'" maxlength="32" autocomplete="tel"></div></div><p class="profile-hint">'+(lock?'Your legal name is locked because a KYC submission exists. Contact support if it needs correction.':'You can update your name until you submit KYC. Once KYC starts, your name is locked to protect verification integrity.')+'</p><button class="btn profile-save" type="submit">Save personal details</button></form>'+
+      '<form method="post" action="/profile" class="profile-card">'+csrfField(req)+'<h3>Personal details</h3><div class="profile-form-grid"><div><label for="fullName">Full name</label><input id="fullName" name="fullName" value="'+esc(m.full_name)+'" maxlength="160" required '+(lock?'readonly':'')+'></div><div><label for="username">Username</label><input id="username" name="username" value="'+esc(m.username)+'" pattern="[A-Za-z0-9_]{3,30}" maxlength="30" required></div><div><label for="email">Email</label><input id="email" type="email" name="email" value="'+esc(m.email)+'" maxlength="254" required></div><div><label for="phone">Phone number</label><input id="phone" type="tel" name="phone" value="'+esc(profile.phone)+'" maxlength="32" autocomplete="tel"></div></div><p class="profile-hint">'+(lock?'Your legal name is locked while KYC is pending or approved. If your application was rejected, correct your details and resubmit.':'You can update your name until you submit KYC. Once KYC starts, your name is locked to protect verification integrity.')+'</p><button class="btn profile-save" type="submit">Save personal details</button></form>'+
       '<section class="profile-card"><h3>Saved bank accounts</h3><p class="profile-hint">Your bank accounts are stored encrypted and remain private. You can add more than one and choose a saved account when withdrawals are enabled.</p>'+ (savedBanks.length?savedBanks.map(b=>'<div class="saved-bank-row"><div><strong>'+esc(b.bankName)+'</strong><div class="profile-hint">'+esc(b.bankAccountName)+' · account ending '+esc(String(b.bankAccountNumber||'').slice(-4))+'</div></div><form method="post" action="/profile/bank/'+encodeURIComponent(b.id)+'/delete">'+csrfField(req)+'<button class="btn profile-save" type="submit" aria-label="Remove bank account">Remove</button></form></div>').join(''):'<p class="profile-hint">No saved bank accounts yet.</p>')+'</section>'+
       '<form method="post" action="/profile/bank" class="profile-card">'+csrfField(req)+'<h3>Add a bank account</h3><p class="profile-hint">Enter the account details exactly as registered with your bank. Saving details does not initiate a payment.</p><div class="profile-form-grid"><div><label for="bankName">Bank name</label><input id="bankName" name="bankName" maxlength="120" required></div><div><label for="bankAccountName">Account name</label><input id="bankAccountName" name="bankAccountName" maxlength="160" required></div><div class="full"><label for="bankAccountNumber">Account number</label><input id="bankAccountNumber" name="bankAccountNumber" inputmode="numeric" maxlength="34" autocomplete="off" required></div></div><button class="btn profile-save" type="submit">Save bank account</button></form>';
     res.send(memberPage('Profile','/profile',m,content,req));
@@ -482,9 +633,9 @@ app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
     const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
     if(!/^[A-Za-z0-9_]{3,30}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||phone.length>32||fullName.length===0||fullName.length>160) return res.status(400).send(page('Invalid profile','<h1>Check your profile details</h1><a class="btn" href="/profile">Back to profile</a>'));
     let hasKyc=false;
-    try { const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=?) AS has_kyc",[req.session.memberId]); hasKyc=Number(status.has_kyc)>0; }
+    try { const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved')) AS has_kyc",[req.session.memberId]); hasKyc=Number(status.has_kyc)>0; }
     catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
-    if(hasKyc){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">A KYC submission exists for this account. Contact support to request a correction.</p><a class="btn" href="/profile">Back to profile</a>'));}
+    if(hasKyc){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">Your KYC is pending or approved. Your legal name cannot be changed during this status.</p><a class="btn" href="/profile">Back to profile</a>'));}
     const [[dupe]]=await pool.execute('SELECT SUM(username = ?) AS username_used, SUM(email = ?) AS email_used FROM members WHERE id <> ?',[username,email,req.session.memberId]);
     if(Number(dupe.username_used)>0||Number(dupe.email_used)>0)return res.status(409).send(page('Profile conflict','<h1>Username or email is already in use</h1><a class="btn" href="/profile">Back to profile</a>'));
     await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
@@ -597,6 +748,14 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
         let config;
         try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
         const b = req.body || {};
+        const [existingKycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
+        if (existingKycRows.length && ['pending','approved'].includes(existingKycRows[0].status)) {
+          const alreadyApproved = existingKycRows[0].status === 'approved';
+          return res.status(409).json({
+            error: alreadyApproved ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',
+            status: existingKycRows[0].status
+          });
+        }
         const files = req.files || {};
         const front = files.documentFront && files.documentFront[0];
         const back = files.documentBack && files.documentBack[0];
@@ -649,6 +808,15 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
+    let existingKycStatus = null;
+    let existingKycNote = '';
+    try {
+      const [existingKycRows] = await pool.execute('SELECT status, reviewer_note, submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[m.id]);
+      if (existingKycRows.length) {
+        existingKycStatus = existingKycRows[0].status;
+        existingKycNote = existingKycRows[0].reviewer_note || '';
+      }
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     let kycReady = false;
     let kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted.';
     try {
@@ -670,7 +838,21 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
         kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
       }
     }
+    if (existingKycStatus === 'approved') {
+      const approvedContent = '<section class="ac-panel"><p class="ac-pill">KYC approved</p><h1>Congratulations, your identity is verified!</h1><p>Your KYC status is approved. You do not need to submit identity documents again.</p><p><a class="btn" href="/dashboard">Return to dashboard</a></p></section>';
+      return res.send(memberPage('KYC verification','/kyc',m,approvedContent,req));
+    }
+    if (existingKycStatus === 'pending') {
+      const pendingContent = '<section class="ac-panel"><p class="ac-pill">Under review</p><h1>Your KYC submission is being reviewed</h1><p>Please wait for our review team to contact you by email and through your dashboard notifications. You do not need to submit another application.</p><p><a class="btn" href="/dashboard">Return to dashboard</a></p></section>';
+      return res.send(memberPage('KYC verification','/kyc',m,pendingContent,req));
+    }
+    const statusNotice = existingKycStatus === 'rejected'
+      ? '<section class="ac-panel"><h2>Changes needed before verification</h2><p>' + esc(existingKycNote || 'Your previous submission was not approved. Please review your details and submit again.') + '</p></section>'
+      : existingKycStatus === 'needs_resubmission'
+        ? '<section class="ac-panel"><h2>Please resubmit your verification</h2><p>' + esc(existingKycNote || 'Please review your submitted information and documents, then submit again.') + '</p></section>'
+        : '';
     const content = `
+      ${statusNotice}
       <div class="kyc-intro">Complete your verification in a few steps. You can go back to check your answers before submitting.</div>
       <div class="kyc-security-note ${kycReady ? 'is-ready' : 'is-unavailable'}" role="status" aria-live="polite"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>${kycReady ? 'Secure verification ready' : 'Secure verification unavailable'}</strong><small>${esc(kycReadinessMessage)}</small></span></div>
       <div class="kyc-progress" role="list" aria-label="Verification progress">
