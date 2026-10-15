@@ -380,10 +380,10 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
   const status = req.body.status;
   const reasonCode = String(req.body.reason_code || '').trim();
   const submittedNote = String(req.body.note || '').trim().slice(0,1000);
-  const reason = KYC_REJECTION_REASONS[reasonCode];
-  const note = status === 'rejected'
+  const reason = Object.prototype.hasOwnProperty.call(KYC_REJECTION_REASONS, reasonCode) ? KYC_REJECTION_REASONS[reasonCode] : null;
+  const note = (status === 'rejected'
     ? [reason ? reason.message : '', submittedNote ? 'Additional details: ' + submittedNote : ''].filter(Boolean).join('\n\n')
-    : submittedNote;
+    : submittedNote).slice(0, 1000);
   if (!/^\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
   if (status === 'rejected' && !reason) return res.status(400).send(page('Rejection reason required','<h1>Please choose a rejection reason</h1><p class="muted">Choose a reason so the member receives clear instructions.</p><a class="btn" href="/admin/kyc/' + esc(id) + '">Return to review</a>'));
   if (status === 'needs_resubmission' && !note) return res.status(400).send(page('Review reason required','<h1>Please provide resubmission instructions</h1><p class="muted">A clear reason is required when requesting resubmission.</p><a class="btn" href="/admin/kyc/' + esc(id) + '">Return to review</a>'));
