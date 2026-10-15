@@ -14,9 +14,10 @@ test('administrator role checks are based on the authenticated session member', 
 });
 
 test('KYC submission prevents duplicate pending or approved submissions', () => {
-  assert.match(server, /SELECT status FROM kyc_submissions WHERE member_id=\? ORDER BY submitted_at DESC LIMIT 1/);
-  assert.match(server, /\['pending','approved'\]\.includes\(previousKycStatus\)/);
-  assert.match(server, /previousKycStatus \? 'resubmitted' : 'submitted'/);
+  assert.match(server, /SELECT status FROM kyc_submissions WHERE member_id=\? ORDER BY submitted_at DESC,id DESC LIMIT 1/);
+  assert.match(server, /\['pending','approved'\]\.includes\(existingKycRows\[0\]\.status\)/);
+  assert.match(server, /Your KYC is already approved/);
+  assert.match(server, /existingKycStatus === 'approved'/);
 });
 
 test('notifications and Academy progress are scoped to the authenticated Monarch', () => {
