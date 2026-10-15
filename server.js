@@ -35,7 +35,7 @@ app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-    fontSrc: ["'self'", 'https://fonts.gstatic.com'], imgSrc: ["'self'", 'data:', 'https:'],
+    fontSrc: ["'self'", 'https://fonts.gstatic.com'], imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
     scriptSrc: ["'self'", "'unsafe-inline'"], connectSrc: ["'self'"], objectSrc: ["'none'"],
     frameAncestors: ["'none'"], upgradeInsecureRequests: []
   } }, crossOriginEmbedderPolicy: false
@@ -94,7 +94,7 @@ function loginForm(req, message) {
   '<button class="btn" type="submit">Log in</button></form><div class="links"><a href="/forgot-password">Forgot password?</a><a href="/register">Create account</a></div>');
 }
 app.get('/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'monarch-codex' }); } catch (_) { res.status(503).json({ ok: false, service: 'monarch-codex' }); } });
-app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
+app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
 app.get('/register', (req, res) => res.send(registerForm(req)));
 app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
   try {
@@ -115,7 +115,7 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
     let referrerId = null;
     const referralCode = String(req.session.registrationReferralCode || req.body.referralCode || req.query.ref || '').trim().toUpperCase();
     if (referralCode) {
-      if (!/^MONARCH\\d{6}$/.test(referralCode)) return res.status(400).send(formError('Invalid referral code', 'That referral code is not valid. Check it and try again.'));
+      if (!/^MONARCH\d{6}$/.test(referralCode)) return res.status(400).send(formError('Invalid referral code', 'That referral code is not valid. Check it and try again.'));
       const [referrers] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [referralCode]);
       if (!referrers.length) return res.status(400).send(formError('Referral code not found', 'That referral code does not exist. Please correct it or remove it.', '/register'));
       referrerId = referrers[0].id;
@@ -273,11 +273,38 @@ app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   } catch(e){next(e);}
 });
 
+app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
+  try {
+    const id=String(req.params.id||''); if(!/^\d{1,20}$/.test(id)) return res.sendStatus(400);
+    const [rows]=await pool.execute('SELECT k.*,m.username,m.monarch_uid FROM kyc_submissions k JOIN members m ON m.id=k.member_id WHERE k.id=? LIMIT 1',[id]);
+    if(!rows.length) return res.status(404).send(page('Not found','<h1>KYC submission not found</h1><a class="btn" href="/admin/kyc">Back to queue</a>'));
+    const k=rows[0]; let docNumber='Unable to decrypt with current key';
+    try { docNumber=decryptKycBuffer(Buffer.from(k.document_number_ciphertext||'','base64'),getKycStorageConfig().key).toString('utf8'); } catch (_) {}
+    const fields=[['Member',k.username+' ('+k.monarch_uid+')'],['Full legal name',k.legal_full_name],['Date of birth',k.date_of_birth],['Email',k.contact_email],['Phone',k.phone_number],['Country',k.country_code],['State / region',k.state_region],['City / LGA',k.locality_lga],['Street address',k.street_address],['Document type',k.document_type],['Issuing country',k.document_issuer_country],['Document number',docNumber],['Submitted',k.submitted_at],['Status',k.status]];
+    const details=fields.map(([a,b])=>'<div class="kyc-detail"><span>'+esc(a)+'</span><strong>'+esc(b==null?'—':b)+'</strong></div>').join('');
+    const docs=[['front','Front of ID',k.document_front_private_key],['back','Back of ID',k.document_back_private_key],['selfie','Selfie',k.selfie_private_key]];
+    const images=docs.map(([kind,label,key])=>key?'<figure class="kyc-doc"><figcaption>'+esc(label)+'</figcaption><img src="/admin/kyc/'+encodeURIComponent(id)+'/document/'+kind+'" alt="'+esc(label)+'"></figure>':'<div class="kyc-doc"><strong>'+esc(label)+'</strong><p class="muted">No image supplied.</p></div>').join('');
+    const body='<style>.kyc-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.kyc-detail,.kyc-doc{padding:12px;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:0;overflow-wrap:anywhere}.kyc-detail span{display:block;color:#aaa9b4;font-size:.8rem}.kyc-detail strong{display:block;margin-top:4px}.kyc-doc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.kyc-doc{margin:0}.kyc-doc img{display:block;width:100%;height:auto;max-height:520px;object-fit:contain;background:#080809;border-radius:8px;margin-top:8px}.kyc-review-form{display:grid;gap:10px}.kyc-review-form select,.kyc-review-form textarea{width:100%;padding:12px;background:#0d0d10;color:#fff;border:1px solid #45434c;border-radius:9px;font:inherit}@media(max-width:600px){.kyc-details,.kyc-doc-grid{grid-template-columns:1fr}}</style><section class="ac-panel"><p class="muted">Private identity information is shown only to an authenticated administrator. Handle it as confidential data.</p><h2>Applicant information</h2><div class="kyc-details">'+details+'</div><h2 style="margin-top:24px">Identity images</h2><div class="kyc-doc-grid">'+images+'</div><h2 style="margin-top:24px">Review decision</h2><form class="kyc-review-form" method="post" action="/admin/kyc/'+esc(id)+'/review">'+csrfField(req)+'<label for="kycStatus">Decision</label><select id="kycStatus" name="status" required><option value="pending" '+(k.status==='pending'?'selected':'')+'>Keep pending</option><option value="approved">Approve</option><option value="rejected">Reject</option><option value="needs_resubmission">Request resubmission</option></select><label for="kycNote">Reviewer note (optional)</label><textarea id="kycNote" name="note" rows="3" maxlength="1000">'+esc(k.reviewer_note||'')+'</textarea><button class="btn" type="submit">Save review decision</button></form><a class="btn" href="/admin/kyc">Back to review queue</a></section>';
+    res.send(adminControlPage('KYC applicant review','/admin/kyc',body,req));
+  } catch(e){next(e);}
+});
+app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
+  try {
+    const id=String(req.params.id||''),kind=String(req.params.kind||'');
+    const cols={front:'document_front_private_key',back:'document_back_private_key',selfie:'selfie_private_key'};
+    if(!/^\d{1,20}$/.test(id)||!Object.prototype.hasOwnProperty.call(cols,kind)) return res.sendStatus(404);
+    const [rows]=await pool.execute('SELECT '+cols[kind]+' AS private_key FROM kyc_submissions WHERE id=? LIMIT 1',[id]);
+    if(!rows.length||!rows[0].private_key||!/^[a-f0-9]{48}\.enc$/.test(rows[0].private_key)) return res.sendStatus(404);
+    const config=getKycStorageConfig(),encrypted=fs.readFileSync(path.join(config.directory,rows[0].private_key)),image=decryptKycBuffer(encrypted,config.key);
+    let mime=''; if(image.subarray(0,3).equals(Buffer.from([255,216,255])))mime='image/jpeg';else if(image.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))mime='image/png';else return res.sendStatus(415);
+    res.set({'Content-Type':mime,'Content-Disposition':'inline','Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff'});return res.send(image);
+  } catch(e){if(e.code==='ENOENT'||e.message==='Invalid encrypted KYC file.')return res.sendStatus(404);next(e);}
+});
 app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
   try {
     const [rows] = await pool.query("SELECT id,member_id,legal_full_name,contact_email,document_type,document_issuer_country,document_number_last4,status,submitted_at FROM kyc_submissions ORDER BY submitted_at DESC LIMIT 200");
-    const items = rows.map(row => '<tr><td>' + esc(row.id) + '</td><td>' + esc(row.legal_full_name) + '<br><small>' + esc(row.contact_email) + '</small></td><td>' + esc(row.document_type) + ' (' + esc(row.document_issuer_country) + ')<br><small>•••• ' + esc(row.document_number_last4) + '</small></td><td>' + esc(row.status) + '</td><td><form method="post" action="/admin/kyc/' + encodeURIComponent(row.id) + '/review">' + csrfField(req) + '<select name="status" required><option value="pending">Pending</option><option value="approved">Approve</option><option value="rejected">Reject</option><option value="needs_resubmission">Request resubmission</option></select><input name="note" maxlength="1000" placeholder="Reviewer note (optional)"><button class="btn" type="submit">Save</button></form></td></tr>').join('');
-    const body = '<div class="wrap"><h1>KYC review queue</h1><p class="muted">Sensitive documents are stored encrypted outside the public web directory. This list never displays full document numbers or document files.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c}td small{color:#aaa}</style>';
+    const items = rows.map(row => '<tr><td>' + esc(row.id) + '</td><td><strong>' + esc(row.legal_full_name) + '</strong><br><small>' + esc(row.contact_email) + '</small><br><a href="/admin/kyc/' + encodeURIComponent(row.id) + '">View application &amp; images →</a></td><td>' + esc(row.document_type) + ' (' + esc(row.document_issuer_country) + ')<br><small>•••• ' + esc(row.document_number_last4) + '</small></td><td>' + esc(row.status) + '</td><td><a class="btn" href="/admin/kyc/' + encodeURIComponent(row.id) + '">Review application</a></td></tr>').join('');
+    const body = '<div class="wrap"><h1>KYC review queue</h1><p class="muted">Documents are encrypted outside the public web directory. Open an application to inspect submitted information and images before making a review decision.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c}td small{color:#aaa}</style>';
     res.send(adminControlPage('KYC review','/admin/kyc', '<section class="ac-panel">' + body + '</section>', req));
   } catch(e) { next(e); }
 });
@@ -285,7 +312,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
   const id = String(req.params.id || '');
   const status = req.body.status;
   const note = String(req.body.note || '').trim().slice(0,1000);
-  if (!/^\\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
+  if (!/^\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
   try {
     const conn = await pool.getConnection();
     try {
@@ -306,6 +333,8 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
     const member = rows[0];
     if (!member) { req.session.destroy(() => res.redirect('/login')); return; }
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [member.id]);
+    let verificationStatus = 'Not submitted', verificationHint = 'Verify account';
+    try { const [kycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id = ? ORDER BY submitted_at DESC, id DESC LIMIT 1', [member.id]); if (kycRows.length) { const labels = {pending:'Pending review',approved:'Approved',rejected:'Rejected',needs_resubmission:'Resubmission required'}; verificationStatus = labels[kycRows[0].status] || 'Submitted'; verificationHint = ['rejected','needs_resubmission'].includes(kycRows[0].status) ? 'Review verification' : 'View verification'; } } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '');
     const referralLink = baseUrl + '/register?ref=' + encodeURIComponent(member.monarch_uid);
     const body = '<link rel="stylesheet" href="/member-dashboard.css"><div class="dashboard-layout">'+
@@ -313,7 +342,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
       '<a href="/dashboard" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="nav-text">Overview</span></a><a href="/profile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span class="nav-text">Profile</span></a><a href="/kyc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></svg><span class="nav-text">KYC Verification</span></a><a href="/referrals"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v1"/></svg><span class="nav-text">Referrals</span></a><a href="/deposit"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg><span class="nav-text">Deposit</span></a><a href="/withdraw"><span aria-hidden="true">↗</span><span class="nav-text">Withdraw</span></a><a href="/transactions"><span aria-hidden="true">◷</span><span class="nav-text">Transactions</span></a>' +'</nav><div class="sidebar-uid"><span class="muted small">YOUR MONARCH ID</span><div class="sidebar-uid-value"><strong id="memberUid">' + esc(member.monarch_uid) + '</strong><button class="copy-btn" type="button" data-copy-target="memberUid" aria-label="Copy Monarch ID">Copy</button></div></div><div class="sidebar-logout"><form method="post" action="/logout">' + csrfField(req) + '<button class="sidebar-logout-btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg><span class="nav-text">Log out</span></button></form></div></aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><div class="dashboard-content"><div class="mobile-dashboard-bar"><button class="icon-btn sidebar-open" type="button" data-sidebar-open aria-label="Open navigation" aria-controls="memberSidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span>MEMBER AREA</span><span class="mobile-current-tab">Overview</span></div><section class="panel">' +
       '<div class="dashboard-topline"><div><div class="muted small">MONARCH MEMBER AREA</div><h1>Welcome, ' + esc(member.full_name.split(' ')[0]) + '</h1><p class="muted">Your membership overview and account tools.</p></div></div>' +
       '<section id="overview" class="dashboard-section overview-intro"><div class="overview-title-row"><div><span class="muted small">YOUR ACCOUNT</span><h2>Overview</h2></div><span class="account-live"><i></i> Account active</span></div>' +
-      '<div class="grid dashboard-metrics"><div class="stat balance-primary"><span class="muted small">Total balance</span><strong>—</strong><p class="muted small">Wallet ledger not connected</p></div><div class="stat"><span class="muted small">Investment balance</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Earnings</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Verification</span><strong>Not submitted</strong><a class="metric-link" href="/kyc">Verify account <span aria-hidden="true">→</span></a></div></div>' +
+      '<div class="grid dashboard-metrics"><div class="stat balance-primary"><span class="muted small">Total balance</span><strong>—</strong><p class="muted small">Wallet ledger not connected</p></div><div class="stat"><span class="muted small">Investment balance</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Earnings</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Verification</span><strong>' + esc(verificationStatus) + '</strong><a class="metric-link" href="/kyc">' + esc(verificationHint) + ' <span aria-hidden="true">→</span></a></div></div>' +
       '<div class="dashboard-section referral-summary"><div><span class="muted small">SUCCESSFUL REFERRALS</span><strong>' + (Number(counts[0].total) || 0) + '</strong></div><a href="/referrals">View referrals <span aria-hidden="true">→</span></a></div></section>' +
       '<section class="dashboard-section action-section"><div class="section-heading-row"><div><h2>Quick actions</h2><p class="muted">Everything you need, one tap away.</p></div><a href="/transactions" class="muted small">Activity <span aria-hidden="true">↗</span></a></div><div class="quick-action-grid" id="quickActions"><a href="/deposit"><span>＋</span><strong>Deposit</strong><small>Add funds</small></a><a href="/withdraw"><span>↗</span><strong>Withdraw</strong><small>Cash out</small></a><a href="/kyc"><span>◇</span><strong>Verify</strong><small>Identity check</small></a><a href="/transactions"><span>↻</span><strong>History</strong><small>Transactions</small></a><a href="/referrals"><span>♧</span><strong>Referrals</strong><small>Invite friends</small></a><a href="/profile"><span>◉</span><strong>Profile</strong><small>Account details</small></a></div><button class="show-more-actions" type="button" id="toggleActions" aria-expanded="false" hidden>More actions</button></section>' +
       '<section class="dashboard-section"><div class="dashboard-topline"><div><h2>Account activity</h2><p class="muted">Your member ID and referral count are live account information. Financial activity will appear once the transaction ledger is connected.</p></div><a href="/transactions" class="copy-btn" style="text-decoration:none">View activity</a></div><div class="section-card"><strong>Membership active</strong><p class="muted small">Your Monarch ID is ready to use. No deposit, withdrawal, or earnings history is being fabricated or displayed as real.</p></div></section>' +
@@ -484,6 +513,12 @@ function encryptKycBuffer(buffer, key) {
   const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
   return Buffer.concat([Buffer.from('MC1'), iv, cipher.getAuthTag(), encrypted]);
 }
+function decryptKycBuffer(payload, key) {
+  if (!Buffer.isBuffer(payload) || payload.length < 31 || payload.subarray(0,3).toString('ascii') !== 'MC1') throw new Error('Invalid encrypted KYC file.');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, payload.subarray(3,15));
+  decipher.setAuthTag(payload.subarray(15,31));
+  return Buffer.concat([decipher.update(payload.subarray(31)), decipher.final()]);
+}
 const kycUpload = multer({
   storage: multer.memoryStorage(),
   limits: { files: 3, fileSize: 8 * 1024 * 1024, fields: 20, fieldSize: 4096 },
@@ -603,7 +638,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
           <label for="kycDocType">Identity document</label><select id="kycDocType" name="documentType" required><option value="">Select a document</option><option value="national_id">National identity card</option><option value="passport">International passport</option><option value="drivers_license">Driver's licence</option><option value="voters_card">Voter's card</option></select>
           <label for="kycDocCountry">Issuing country</label><select id="kycDocCountry" name="documentIssuerCountry" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option></select>
           <label for="kycDocNumber">Document number</label><input id="kycDocNumber" name="documentNumber" maxlength="80" autocomplete="off" aria-describedby="kycDocNumberError" required><p id="kycDocNumberError" class="kyc-field-error" role="alert" hidden></p>
-          <div class="kyc-hint">Identity verification is temporarily unavailable. Please try again later.</div>
+          <div class="kyc-hint">Your document details are encrypted before storage. Submit only genuine documents belonging to you.</div>
         </section>
         <section class="kyc-stage" data-stage="3" hidden>
           <p class="kyc-stage-kicker">STEP 04 OF 04</p><h2>Documents & selfie</h2><p class="kyc-stage-copy">Please provide clear images of your document and a selfie. Do not continue if verification is unavailable.</p>
@@ -613,7 +648,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
             <div class="kyc-upload-card kyc-selfie-card"><span class="kyc-upload-icon">◎</span><strong>Live selfie</strong><small>Use your front camera to take a selfie</small><video id="kycSelfieVideo" autoplay playsinline muted hidden></video><canvas id="kycSelfieCanvas" hidden></canvas><img id="kycSelfiePreview" alt="Captured selfie preview" hidden><div class="kyc-camera-actions"><button type="button" class="kyc-camera-btn" id="kycStartCamera">Open camera</button><button type="button" class="kyc-camera-btn" id="kycCaptureSelfie" hidden>Capture selfie</button><button type="button" class="kyc-camera-btn" id="kycRetakeSelfie" hidden>Retake</button></div><p class="kyc-camera-status" id="kycCameraStatus" aria-live="polite">Selfie is camera capture only; image file selection is disabled.</p></div>
           </div>
           <div class="kyc-consent"><label for="kycConfirm"><input type="checkbox" id="kycConfirm" required> I confirm that the information is accurate and the images belong to me.</label></div>
-          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Identity verification is temporarily unavailable. You can review your entries, but submission may not be possible right now. Please try again later.</div>
+          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Your documents are encrypted for private storage. Submission is checked securely when you send your application.</div>
         </section>
         <div class="kyc-actions"><button type="button" id="kycBack" class="kyc-btn kyc-btn-secondary" hidden>Back</button><span class="kyc-steps-count" id="kycStepCount">Step 1 of 4</span><button type="button" id="kycNext" class="kyc-btn kyc-btn-primary">Continue <span aria-hidden="true">→</span></button></div>
         <p class="kyc-form-message" id="kycMessage" aria-live="polite"></p>
