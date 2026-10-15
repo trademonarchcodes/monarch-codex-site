@@ -719,6 +719,14 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
         let config;
         try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
         const b = req.body || {};
+        const [existingKycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
+        if (existingKycRows.length && ['pending','approved'].includes(existingKycRows[0].status)) {
+          const alreadyApproved = existingKycRows[0].status === 'approved';
+          return res.status(409).json({
+            error: alreadyApproved ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',
+            status: existingKycRows[0].status
+          });
+        }
         const files = req.files || {};
         const front = files.documentFront && files.documentFront[0];
         const back = files.documentBack && files.documentBack[0];
@@ -771,6 +779,15 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
+    let existingKycStatus = null;
+    let existingKycNote = '';
+    try {
+      const [existingKycRows] = await pool.execute('SELECT status, reviewer_note, submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[m.id]);
+      if (existingKycRows.length) {
+        existingKycStatus = existingKycRows[0].status;
+        existingKycNote = existingKycRows[0].reviewer_note || '';
+      }
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     let kycReady = false;
     let kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted.';
     try {
@@ -792,7 +809,21 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
         kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
       }
     }
+    if (existingKycStatus === 'approved') {
+      const approvedContent = '<section class="ac-panel"><p class="ac-pill">KYC approved</p><h1>Congratulations, your identity is verified!</h1><p>Your KYC status is approved. You do not need to submit identity documents again.</p><p><a class="btn" href="/dashboard">Return to dashboard</a></p></section>';
+      return res.send(memberPage('KYC verification','/kyc',m,approvedContent,req));
+    }
+    if (existingKycStatus === 'pending') {
+      const pendingContent = '<section class="ac-panel"><p class="ac-pill">Under review</p><h1>Your KYC submission is being reviewed</h1><p>Please wait for our review team to contact you by email and through your dashboard notifications. You do not need to submit another application.</p><p><a class="btn" href="/dashboard">Return to dashboard</a></p></section>';
+      return res.send(memberPage('KYC verification','/kyc',m,pendingContent,req));
+    }
+    const statusNotice = existingKycStatus === 'rejected'
+      ? '<section class="ac-panel"><h2>Changes needed before verification</h2><p>' + esc(existingKycNote || 'Your previous submission was not approved. Please review your details and submit again.') + '</p></section>'
+      : existingKycStatus === 'needs_resubmission'
+        ? '<section class="ac-panel"><h2>Please resubmit your verification</h2><p>' + esc(existingKycNote || 'Please review your submitted information and documents, then submit again.') + '</p></section>'
+        : '';
     const content = `
+      ${statusNotice}
       <div class="kyc-intro">Complete your verification in a few steps. You can go back to check your answers before submitting.</div>
       <div class="kyc-security-note ${kycReady ? 'is-ready' : 'is-unavailable'}" role="status" aria-live="polite"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>${kycReady ? 'Secure verification ready' : 'Secure verification unavailable'}</strong><small>${esc(kycReadinessMessage)}</small></span></div>
       <div class="kyc-progress" role="list" aria-label="Verification progress">
