@@ -1,64 +1,54 @@
--- Additive Monarch dashboard and Sovereign Desk features.
--- Apply manually after reviewing the existing production schema and taking a verified backup.
--- No existing account, transaction, or application data is deleted or recreated.
+-- Additive Monarch dashboard support. Apply after reviewing schema and taking a verified backup.
+-- Existing account, profile, KYC, and financial records are preserved.
 
 ALTER TABLE admin_users
-  MODIFY COLUMN role ENUM('super_admin','limited_admin','sovereign_desk_admin') NOT NULL DEFAULT 'limited_admin';
+  MODIFY COLUMN role ENUM('super_admin','main_admin','limited_admin','sovereign_desk_admin') NOT NULL DEFAULT 'limited_admin';
 
 CREATE TABLE IF NOT EXISTS member_notifications (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   member_id BIGINT UNSIGNED NOT NULL,
-  event_key VARCHAR(190) NOT NULL,
-  category VARCHAR(60) NOT NULL,
+  notification_type VARCHAR(60) NOT NULL,
   title VARCHAR(160) NOT NULL,
-  message VARCHAR(1000) NOT NULL,
-  target_path VARCHAR(255) NULL,
+  body VARCHAR(1000) NOT NULL,
+  target_url VARCHAR(255) NULL,
+  dedupe_key VARCHAR(190) NOT NULL,
   read_at TIMESTAMP NULL DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_member_notification_event (member_id, event_key),
-  KEY idx_member_notifications_unread (member_id, read_at, created_at),
+  UNIQUE KEY uq_member_notification_dedupe (member_id,dedupe_key),
+  KEY idx_member_notifications_unread (member_id,read_at,created_at),
   CONSTRAINT fk_member_notifications_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS sovereign_signals (
+CREATE TABLE IF NOT EXISTS academy_lessons (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   title VARCHAR(180) NOT NULL,
-  asset_pair VARCHAR(60) NOT NULL,
-  direction ENUM('buy','sell','neutral') NOT NULL DEFAULT 'neutral',
-  entry_zone VARCHAR(160) NULL,
-  stop_loss VARCHAR(100) NULL,
-  take_profit JSON NULL,
-  timeframe VARCHAR(60) NULL,
-  explanation TEXT NULL,
-  status ENUM('draft','published','closed','archived') NOT NULL DEFAULT 'draft',
-  published_at TIMESTAMP NULL DEFAULT NULL,
-  expires_at TIMESTAMP NULL DEFAULT NULL,
-  created_by BIGINT UNSIGNED NOT NULL,
-  updated_by BIGINT UNSIGNED NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  description VARCHAR(1000) NOT NULL DEFAULT '',
+  content MEDIUMTEXT NOT NULL,
+  video_url VARCHAR(1000) NULL,
+  access_level ENUM('free','premium') NOT NULL DEFAULT 'free',
+  status ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+  sort_order INT NOT NULL DEFAULT 0,
+  created_by BIGINT UNSIGNED NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_sovereign_signal_status_date (status, published_at),
-  KEY idx_sovereign_signal_expiry (expires_at),
-  CONSTRAINT fk_sovereign_signal_creator FOREIGN KEY (created_by) REFERENCES members(id) ON DELETE RESTRICT,
-  CONSTRAINT fk_sovereign_signal_updater FOREIGN KEY (updated_by) REFERENCES members(id) ON DELETE RESTRICT
+  KEY idx_academy_lessons_status_order (status,sort_order,created_at),
+  CONSTRAINT fk_academy_lesson_creator FOREIGN KEY (created_by) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS sovereign_desk_access (
+CREATE TABLE IF NOT EXISTS academy_progress (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   member_id BIGINT UNSIGNED NOT NULL,
-  status ENUM('active','revoked') NOT NULL DEFAULT 'active',
-  granted_by BIGINT UNSIGNED NOT NULL,
-  reason VARCHAR(500) NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  lesson_id BIGINT UNSIGNED NOT NULL,
+  completed_at TIMESTAMP NULL DEFAULT NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_sovereign_access_member (member_id),
-  KEY idx_sovereign_access_status (status, updated_at),
-  CONSTRAINT fk_sovereign_access_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
-  CONSTRAINT fk_sovereign_access_granter FOREIGN KEY (granted_by) REFERENCES members(id) ON DELETE RESTRICT
+  UNIQUE KEY uq_academy_progress_member_lesson (member_id,lesson_id),
+  KEY idx_academy_progress_member (member_id,completed_at),
+  CONSTRAINT fk_academy_progress_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+  CONSTRAINT fk_academy_progress_lesson FOREIGN KEY (lesson_id) REFERENCES academy_lessons(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Do not automatically grant roles based on email: verify account ownership first, then
--- explicitly provision the intended member row in admin_users.
+-- Administrator rows are deliberately not provisioned by email alone. Verify account ownership
+-- and explicitly add the correct member_id to admin_users through a trusted operator workflow.
