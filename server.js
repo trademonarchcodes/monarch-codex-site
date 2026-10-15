@@ -337,7 +337,7 @@ app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,r
       if(!req.file)return res.status(400).send(page('Photo required','<h1>Choose a profile picture</h1><a class="btn" href="/profile">Back to profile</a>'));
       const mime=req.file.mimetype,buf=req.file.buffer;
       const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
-      if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/profile">Back to profile</a>');
+      if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/profile">Back to profile</a>'));
       const dir=process.env.PROFILE_UPLOAD_DIR;
       if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Profile photo storage is not configured</h1><p class="muted">The site owner must configure private upload storage.</p>'));
       fs.mkdirSync(dir,{recursive:true,mode:0o700});
