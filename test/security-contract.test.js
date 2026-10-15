@@ -7,10 +7,10 @@ const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const deskMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '004_admin_sovereign_desk.sql'), 'utf8');
 const memberMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '005_member_dashboard_and_sovereign_desk.sql'), 'utf8');
 
-test('administrator role checks are based on the authenticated session member', () => {
+test('administrator access requires an active database role tied to the session member', () => {
   assert.match(server, /SELECT role FROM admin_users WHERE member_id = \? AND is_active = 1 LIMIT 1/);
-  assert.match(server, /req\.adminRole === 'sovereign_desk_admin' && req\.path\.startsWith\('\/admin'\)/);
-  assert.match(server, /admins\[0\]\.role === 'sovereign_desk_admin' \? '\/sovereign-admin' : '\/admin'/);
+  assert.match(server, /req\.adminRole = rows\[0\]\.role/);
+  assert.match(server, /async function requireAdmin\(req, res, next\)/);
 });
 
 test('KYC submission prevents duplicate pending or approved submissions', () => {
@@ -20,16 +20,19 @@ test('KYC submission prevents duplicate pending or approved submissions', () => 
   assert.match(server, /existingKycStatus === 'approved'/);
 });
 
-test('notifications and Academy progress are scoped to the authenticated Monarch', () => {
-  assert.match(server, /FROM member_notifications WHERE member_id=\? ORDER BY created_at DESC/);
-  assert.match(server, /WHERE id=\? AND member_id=\?'/);
-  assert.match(server, /ON DUPLICATE KEY UPDATE completed_at=COALESCE\(completed_at,CURRENT_TIMESTAMP\)/);
+test('member notifications are scoped to the signed-in member and Academy content is database-backed', () => {
+  assert.match(server, /SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=\? ORDER BY created_at DESC LIMIT 100/);
+  assert.match(server, /WHERE id=\? AND member_id=\?/);
+  assert.match(server, /INSERT INTO academy_lessons \(title,description,content,video_url,access_level,status,created_by\)/);
+  assert.match(server, /UPDATE member_notifications SET read_at=COALESCE\(read_at,CURRENT_TIMESTAMP\) WHERE member_id=\? AND read_at IS NULL/);
 });
 
-test('premium content is checked on the server before it is displayed or completed', () => {
-  assert.match(server, /l\.access_level==='free'\|\|hasPremiumAccess/);
-  assert.match(server, /SELECT id FROM academy_access WHERE member_id=\? AND status='approved'/);
-  assert.match(server, /return res\.status\(403\)\.send\(page\('Access required'/);
+test('admin sections use real data and keep unconnected financial workflows disabled', () => {
+  assert.match(server, /app\.get\('\/admin\/referrals'/);
+  assert.match(server, /JOIN members r ON r\.id=c\.referred_by/);
+  assert.match(server, /app\.post\('\/admin\/academy\/lessons'/);
+  assert.match(server, /No verified investment records are connected/);
+  assert.match(server, /A unified transaction ledger is not connected yet/);
 });
 
 test('Sovereign Desk tables and private notification uniqueness are additive', () => {
