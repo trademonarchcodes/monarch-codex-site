@@ -509,6 +509,35 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
   } catch(e) { next(e); }
 });
 
+app.get('/notifications', requireAuth, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const [rows] = await pool.execute('SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const unread = rows.filter(n => !n.read_at).length;
+    const items = rows.map(n => {
+      const safeTarget = typeof n.target_url === 'string' && /^\/(?!\/)/.test(n.target_url) ? n.target_url : null;
+      return '<article class="member-card notification-card ' + (n.read_at ? 'is-read' : 'is-unread') + '"><div class="notification-head"><div><small>' + esc(n.notification_type.replace(/_/g,' ')) + ' · ' + esc(n.created_at) + '</small><h3>' + esc(n.title) + '</h3></div><span class="ac-pill">' + (n.read_at ? 'Read' : 'New') + '</span></div><p>' + esc(n.body) + '</p><div class="notification-actions">' + (safeTarget ? '<a class="btn" href="' + esc(safeTarget) + '">Open</a>' : '') + (!n.read_at ? '<form method="post" action="/notifications/' + encodeURIComponent(n.id) + '/read">' + csrfField(req) + '<button class="btn" type="submit">Mark as read</button></form>' : '') + '</div></article>';
+    }).join('');
+    const content = '<section class="member-card"><div class="notification-head"><div><h2>Your notifications</h2><p class="muted">Updates about KYC and your Monarch Codex account.</p></div><strong>' + unread + ' unread</strong></div>' + (unread ? '<form method="post" action="/notifications/read-all">' + csrfField(req) + '<button class="btn" type="submit">Mark all as read</button></form>' : '') + '</section>' + (items || '<section class="member-card"><h3>You are all caught up</h3><p class="muted">New account updates will appear here.</p></section>') + '<style>.notification-card.is-unread{border-color:#8a7227}.notification-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.notification-head h3{margin:8px 0}.notification-head small{color:#aaa}.notification-actions{display:flex;flex-wrap:wrap;gap:8px}.notification-actions form{margin:0}@media(max-width:480px){.notification-head{display:block}.notification-head .ac-pill{display:inline-block;margin-top:8px}}</style>';
+    res.send(memberPage('Notifications','/notifications',m,content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Notifications unavailable','<h1>Notifications are not configured yet</h1><p class="muted">The site owner must apply migrations/005_member_dashboard_and_sovereign_desk.sql.</p>')); next(e); }
+});
+app.post('/notifications/read-all', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  try {
+    await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);
+    res.redirect('/notifications');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Notifications unavailable','<h1>Notifications are not configured yet</h1>')); next(e); }
+});
+app.post('/notifications/:id/read', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  const id = String(req.params.id || '');
+  if (!/^\d{1,20}$/.test(id)) return res.sendStatus(400);
+  try {
+    await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND member_id=?',[id,req.session.memberId]);
+    res.redirect('/notifications');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Notifications unavailable','<h1>Notifications are not configured yet</h1>')); next(e); }
+});
+
 app.get('/dashboard', requireAuth, async (req, res, next) => {
   try {
     const [rows] = await pool.execute('SELECT id, monarch_uid, full_name, email, username FROM members WHERE id = ? LIMIT 1', [req.session.memberId]);
