@@ -98,7 +98,7 @@ function loginForm(req, message) {
   (message ? '<div class="notice">' + esc(message) + '</div>' : '') + '<form method="post" action="/login">' + csrfField(req) +
   '<label for="identity">Email or username</label><input id="identity" name="identity" autocomplete="username" required maxlength="254">' +
   '<label for="password">Password</label><div class="password-wrap"><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128"><button class="password-toggle" type="button" data-toggle-password="password" onclick="togglePassword(&quot;password&quot;,this)" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>' +
-  '<button class="btn" type="submit">Log in</button></form><div class="links"><a href="/forgot-password">Forgot password?</a><a href="/register">Create account</a></div>');
+  '<button class="btn" type="submit">Log in</button></form><div class="links"><a href="/forgot-password">Forgot password?</a><a href="/resend-verification">Resend verification email</a><a href="/register">Create account</a></div>');
 }
 app.get('/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'monarch-codex' }); } catch (_) { res.status(503).json({ ok: false, service: 'monarch-codex' }); } });
 app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
@@ -155,12 +155,27 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
       const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;
       await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
     })().catch(e => console.error('[mail] Verification email failed:', e.message));
-    req.session.regenerate(err => {
-      if (err) return next(err);
-      req.session.memberId = insertedId; req.session.csrf = crypto.randomBytes(32).toString('hex');
-      delete req.session.registrationReferralCode;
-      req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/dashboard'));
-    });
+    delete req.session.registrationReferralCode;
+    return res.redirect('/verification-pending');
+  } catch (e) { next(e); }
+});
+app.get('/verification-pending', (req, res) => res.send(page('Verify your email', '<h1>Check your inbox</h1><p class="muted">We sent a verification link to the email address you used to register. Open it within 24 hours before logging in.</p><a class="btn" href="/resend-verification">Resend verification email</a><div class="links"><a href="/login">Back to login</a></div>')));
+app.get('/resend-verification', (req, res) => res.send(page('Resend verification', '<h1>Resend verification email</h1><p class="muted">Enter the email address you used to register.</p><form method="post" action="/resend-verification">' + csrfField(req) + '<label for="email">Email address</label><input id="email" name="email" type="email" maxlength="254" required><button class="btn" type="submit">Send verification link</button></form><div class="links"><a href="/login">Back to login</a></div>')));
+app.post('/resend-verification', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (validEmail(email)) {
+      const [members] = await pool.execute('SELECT id, full_name, email, email_verified_at FROM members WHERE email = ? LIMIT 1', [email]);
+      if (members.length && !members[0].email_verified_at) {
+        const member = members[0], token = crypto.randomBytes(32).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [member.id]);
+        await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [member.id, tokenHash]);
+        const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '') + '/verify-email?token=' + token;
+        await sendAppEmail({ to: member.email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + member.full_name + ',\\n\\nVerify your email address within 24 hours using this link: ' + verifyLink + '\\n\\nIf you did not create this account, you can ignore this email.' });
+      }
+    }
+    return res.send(page('Check your email', '<h1>Check your email</h1><p class="muted">If an unverified account exists for that address, a new verification link will be sent shortly.</p><a class="btn" href="/login">Return to login</a>'));
   } catch (e) { next(e); }
 });
 app.get('/verify-email', async (req, res, next) => {
@@ -171,6 +186,7 @@ app.get('/verify-email', async (req, res, next) => {
     const [rows] = await pool.execute('SELECT id, member_id FROM email_verification_tokens WHERE token_hash = ? AND verified_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
     if (!rows.length) return res.status(400).send(page('Link expired', '<h1>This verification link is invalid or has expired</h1><p class="muted">Please contact support if you need a new verification link.</p><a class="btn" href="/login">Go to login</a>'));
     await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE id = ? AND verified_at IS NULL', [rows[0].id]);
+    await pool.execute('UPDATE members SET email_verified_at = NOW() WHERE id = ? AND email_verified_at IS NULL', [rows[0].member_id]);
     await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [rows[0].member_id]);
     return res.send(page('Email verified', '<h1>Email verified successfully</h1><p class="muted">Your Monarch Codex email address is now verified.</p><a class="btn" href="/login">Log in to your account</a>'));
   } catch (e) { next(e); }
@@ -179,10 +195,11 @@ app.get('/login', (req, res) => res.send(loginForm(req)));
 app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
   try {
     const identity = String(req.body.identity || '').trim(), password = String(req.body.password || '');
-    const [rows] = await pool.execute('SELECT id, password_hash FROM members WHERE email = ? OR username = ? LIMIT 1', [identity.toLowerCase(), identity]);
+    const [rows] = await pool.execute('SELECT id, password_hash, email_verified_at FROM members WHERE email = ? OR username = ? LIMIT 1', [identity.toLowerCase(), identity]);
     const member = rows[0];
     const match = member ? await bcrypt.compare(password, member.password_hash) : false;
     if (!member || !match) return res.status(401).send(loginForm(req, 'The email/username or password is incorrect.'));
+    if (!member.email_verified_at) return res.status(403).send(loginForm(req, 'Please verify your email using the link we sent you before logging in. If you cannot find it, use the resend verification option below.'));
     req.session.regenerate(err => {
       if (err) return next(err);
       req.session.memberId = member.id; req.session.csrf = crypto.randomBytes(32).toString('hex');
