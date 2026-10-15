@@ -559,8 +559,8 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
     try {
       const storage = getKycStorageConfig();
       fs.accessSync(storage.directory, fs.constants.W_OK);
-      await pool.execute('SELECT id FROM kyc_submissions LIMIT 0');
-      await pool.execute('SELECT id FROM kyc_review_events LIMIT 0');
+      await pool.execute('SELECT 1 FROM kyc_submissions LIMIT 0');
+      await pool.execute('SELECT 1 FROM kyc_review_events LIMIT 0');
       kycReady = true;
       kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';
     } catch (readinessError) {
