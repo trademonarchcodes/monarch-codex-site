@@ -554,9 +554,30 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
+    let kycReady = false;
+    let kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted.';
+    try {
+      const storage = getKycStorageConfig();
+      fs.accessSync(storage.directory, fs.constants.W_OK);
+      await pool.execute('SELECT 1 FROM kyc_submissions LIMIT 0');
+      await pool.execute('SELECT 1 FROM kyc_review_events LIMIT 0');
+      kycReady = true;
+      kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';
+    } catch (readinessError) {
+      if (readinessError && readinessError.code === 'ER_NO_SUCH_TABLE') {
+        kycReadinessMessage = 'Secure verification setup is incomplete because the KYC database migration has not been applied. Your information and documents will not be submitted.';
+      } else if (readinessError && ['ER_ACCESS_DENIED_ERROR','ECONNREFUSED','ETIMEDOUT','ENOTFOUND'].includes(readinessError.code)) {
+        kycReadinessMessage = 'Secure verification cannot connect to its database right now. Your information and documents will not be submitted.';
+      } else if (readinessError && readinessError.status === 503) {
+        kycReadinessMessage = 'Secure document storage is not configured yet. Your information and documents will not be submitted.';
+      } else {
+        console.error('[kyc readiness]', readinessError && readinessError.code ? readinessError.code : 'readiness_check_failed');
+        kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
+      }
+    }
     const content = `
       <div class="kyc-intro">Complete your verification in a few steps. You can go back to check your answers before submitting.</div>
-      <div class="kyc-security-note"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>Secure verification</strong><small>Identity verification is temporarily unavailable. Please try again later. Your information and documents will not be submitted unless verification is available.</small></span></div>
+      <div class="kyc-security-note ${kycReady ? 'is-ready' : 'is-unavailable'}" role="status" aria-live="polite"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>${kycReady ? 'Secure verification ready' : 'Secure verification unavailable'}</strong><small>${esc(kycReadinessMessage)}</small></span></div>
       <div class="kyc-progress" role="list" aria-label="Verification progress">
         <div class="kyc-progress-step is-active" data-progress-step="0" role="listitem"><span class="kyc-step-dot">1</span><span class="kyc-step-name">Personal</span></div><span class="kyc-progress-line"><i></i></span>
         <div class="kyc-progress-step" data-progress-step="1" role="listitem"><span class="kyc-step-dot">2</span><span class="kyc-step-name">Address</span></div><span class="kyc-progress-line"><i></i></span>
