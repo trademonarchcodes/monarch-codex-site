@@ -562,7 +562,15 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
     req.session.destroy(() => res.redirect('/login'));
   } catch (e) { next(e); }
 });
-app.use(express.static(path.join(__dirname), { index: 'index.html', dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
+// Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.js'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
 app.use((err, _req, res, _next) => {
   console.error('[app error]', err && err.message ? err.message : 'Unknown error');
