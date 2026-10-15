@@ -158,7 +158,7 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
       req.session.memberId = member.id; req.session.csrf = crypto.randomBytes(32).toString('hex');
       pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
         .then(([admins]) => {
-          const destination = admins.length ? '/admin' : '/dashboard';
+          const destination = admins.length ? (admins[0].role === 'sovereign_desk_admin' ? '/sovereign-admin' : '/admin') : '/dashboard';
           req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect(destination));
         })
         .catch(next);
@@ -177,6 +177,18 @@ async function requireAdmin(req, res, next) {
     if (!rows.length) return res.status(403).send(page('Admin access required',
       '<h1>Admin access required</h1><p class="muted">This account has not been provisioned for administrator access. Sign in with an authorised admin account or contact the site owner.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
     req.adminRole = rows[0].role;
+    if (!['super_admin','main_admin','limited_admin','sovereign_desk_admin'].includes(req.adminRole)) {
+      return res.status(403).send(page('Administrator role unavailable',
+        '<h1>Administrator role unavailable</h1><p class="muted">This administrator role is not authorised for the requested control area. Ask the Main Admin to review its permissions.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
+    }
+    if (req.adminRole === 'sovereign_desk_admin' && req.path.startsWith('/admin')) {
+      return res.status(403).send(page('Access denied',
+        '<h1>Access denied</h1><p class="muted">Sovereign Desk administrators cannot access Main Admin, KYC or financial controls.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
+    }
+    if (req.adminRole === 'limited_admin' && req.path.startsWith('/sovereign-admin')) {
+      return res.status(403).send(page('Access denied',
+        '<h1>Access denied</h1><p class="muted">This legacy administrator role does not include Sovereign Desk publishing access.</p><a class="btn" href="/admin">Return to Main Admin</a>'));
+    }
     next();
   } catch (e) {
     if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Admin setup required',
@@ -186,8 +198,9 @@ async function requireAdmin(req, res, next) {
 }
 function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin';
-  const nav = deskOnly ? [
-    ['/sovereign-admin','Desk overview','◫'],['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦'],['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/activity','My activity','▤'],['/dashboard','Member view','↗']
+  const deskWorkspace = deskOnly || active.startsWith('/sovereign-admin');
+  const nav = deskWorkspace ? [
+    ['/sovereign-admin','Desk overview','◫'],['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦'],['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/activity','My activity','▤'],...(deskOnly ? [] : [['/admin','Main Admin','⚙']]),['/dashboard','Member view','↗']
   ] : [
     ['/admin','Overview','◫'],['/admin/members','Monarchs','♙'],['/admin/kyc','KYC review','◇'],
     ['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑'],['/admin/investments','Investments','◆'],
@@ -290,14 +303,205 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [found] = await conn.execute('SELECT id FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
+      const [found] = await conn.execute('SELECT id,member_id,status FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
       if (!found.length) { await conn.rollback(); return res.status(404).send(page('Not found','<h1>KYC submission not found</h1>')); }
+      if (found[0].status === 'approved' && status !== 'approved') { await conn.rollback(); return res.status(409).send(page('Verification already approved','<h1>An approved verification cannot be downgraded through this review form.</h1><a class="btn" href="/admin/kyc">Return to KYC review</a>')); }
+      if (found[0].status === status && (status === 'pending' || status === 'approved')) { await conn.rollback(); return res.redirect('/admin/kyc'); }
       await conn.execute('UPDATE kyc_submissions SET status = ?, reviewer_member_id = ?, reviewer_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',[status,req.session.memberId,note || null,id]);
       await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note || null]);
+      try {
+        await conn.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,'kyc_status','KYC verification update',?,'/kyc',CONCAT('kyc-review:',? ,':',? ,':',UNIX_TIMESTAMP()))",[found[0].member_id,'Your verification status is now '+status+'.'+(note?' Reviewer note: '+note:''),id,status]);
+      } catch(notificationError) { if(notificationError.code!=='ER_NO_SUCH_TABLE') throw notificationError; }
       await conn.commit();
     } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
     return res.redirect('/admin/kyc');
   } catch(e) { next(e); }
+});
+
+
+function auditAdminAction(conn, req, action, targetType, targetId, details) {
+  return conn.execute(
+    'INSERT INTO admin_audit_log (admin_member_id, action, target_type, target_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.session.memberId, action, targetType || null, targetId == null ? null : String(targetId),
+      details == null ? null : JSON.stringify(details), String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().slice(0,45) || null]
+  );
+}
+function deskAdminPage(title, active, content, req) {
+  return adminControlPage(title, active, content, req);
+}
+function dbSetupNotice(title, migration) {
+  return page(title, '<h1>'+esc(title)+'</h1><p class="muted">The required database setup has not been applied. Apply <code>'+esc(migration)+'</code> to the existing database; do not reset or recreate tables.</p><a class="btn" href="/dashboard">Return to dashboard</a>');
+}
+function signalForm(req, signal) {
+  const v = signal || {};
+  return '<form method="post" action="'+(v.id ? '/sovereign-admin/signals/'+encodeURIComponent(v.id)+'/update' : '/sovereign-admin/signals/create')+'" class="ac-form">'+csrfField(req)+
+    '<label>Signal title<input name="title" required maxlength="180" value="'+esc(v.title||'')+'"></label>'+
+    '<label>Asset / pair<input name="assetPair" required maxlength="40" value="'+esc(v.asset_pair||'')+'"></label>'+
+    '<div class="ac-form-grid"><label>Direction<select name="direction" required><option value="buy"'+(v.direction==='buy'?' selected':'')+'>Buy / Long</option><option value="sell"'+(v.direction==='sell'?' selected':'')+'>Sell / Short</option><option value="neutral"'+(v.direction==='neutral'?' selected':'')+'>Neutral / Watch</option></select></label>'+
+    '<label>Timeframe<input name="timeframe" maxlength="40" value="'+esc(v.timeframe||'')+'" placeholder="e.g. 4H"></label></div>'+
+    '<label>Entry zone<input name="entryZone" maxlength="160" value="'+esc(v.entry_zone||'')+'"></label>'+
+    '<div class="ac-form-grid"><label>Stop loss<input name="stopLoss" maxlength="100" value="'+esc(v.stop_loss||'')+'"></label><label>Take profit 1<input name="takeProfit1" maxlength="100" value="'+esc(v.take_profit_1||'')+'"></label><label>Take profit 2<input name="takeProfit2" maxlength="100" value="'+esc(v.take_profit_2||'')+'"></label></div>'+
+    '<label>Explanation / risk notes<textarea name="explanation" required maxlength="8000" rows="4">'+esc(v.explanation||'')+'</textarea></label>'+
+    '<div class="ac-form-grid"><label>Status<select name="status"><option value="draft"'+(v.status!=='published'?' selected':'')+'>Draft</option><option value="published"'+(v.status==='published'?' selected':'')+'>Publish</option><option value="closed"'+(v.status==='closed'?' selected':'')+'>Closed</option></select></label><label>Expiry (optional)<input type="datetime-local" name="expiresAt" value="'+esc(v.expires_at ? String(v.expires_at).replace(' ','T').slice(0,16) : '')+'"></label></div>'+
+    '<button class="btn" type="submit">'+(v.id?'Save changes':'Save signal')+'</button></form>';
+}
+function deskAdminStyles() {
+  return '<style>.ac-form{display:grid;gap:12px;margin-top:16px}.ac-form label{display:grid;gap:6px;color:#d6d3c9;font-weight:700}.ac-form input,.ac-form select,.ac-form textarea{width:100%;min-width:0;padding:11px 12px;border:1px solid #49443a;border-radius:10px;background:#0d0d10;color:#fff;font:inherit}.ac-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ac-table td form{display:grid;gap:8px}.ac-inline-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ac-inline-form input{min-width:150px;max-width:240px;padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c}.ac-inline-form .btn{width:auto;margin:0;padding:9px 13px}.ac-badge{display:inline-block;border:1px solid #51482b;border-radius:999px;padding:4px 8px;font-size:.75rem;color:#f3cf3c}.ac-risk{color:#b8b6c0;font-size:.85rem}.ac-form textarea{resize:vertical}@media(max-width:540px){.ac-form-grid{grid-template-columns:1fr}}</style>';
+}
+app.get('/sovereign-admin', requireAdmin, async (req,res,next) => {
+  try {
+    const [[signals]] = await pool.query('SELECT COUNT(*) AS total FROM sovereign_signals');
+    const [[published]] = await pool.query("SELECT COUNT(*) AS total FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)");
+    const [[guidance]] = await pool.query("SELECT COUNT(*) AS total FROM sovereign_guidance WHERE status='published'");
+    const [[requests]] = await pool.query("SELECT COUNT(*) AS total FROM sovereign_access_requests WHERE status='pending'");
+    const content='<section class="ac-stats"><article class="ac-stat"><span>Total signals</span><strong>'+Number(signals.total||0)+'</strong><small>Stored signal records</small></article><article class="ac-stat"><span>Published signals</span><strong>'+Number(published.total||0)+'</strong><small>Not expired</small></article><article class="ac-stat"><span>Published guidance</span><strong>'+Number(guidance.total||0)+'</strong><small>Learning content</small></article><article class="ac-stat"><span>Access requests</span><strong>'+Number(requests.total||0)+'</strong><small>Awaiting Main Admin decision</small></article></section><section class="ac-panel"><h2>Sovereign Desk workspace</h2><p class="muted">Manage signals and guidance in the existing Monarch Codex design. Publication does not imply a guaranteed result; never enter invented live prices or performance figures.</p><div class="ac-tiles"><a class="ac-tile" href="/sovereign-admin/signals"><strong>Signals →</strong><small>Create drafts, publish updates, close or archive existing signals.</small></a><a class="ac-tile" href="/sovereign-admin/guidance"><strong>Guidance & content →</strong><small>Publish educational updates and trading guidance.</small></a><a class="ac-tile" href="/sovereign-admin/access"><strong>Desk access →</strong><small>Review access status and submit approval requests.</small></a><a class="ac-tile" href="/sovereign-admin/activity"><strong>My activity →</strong><small>Review your own recent administrative actions.</small></a></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Sovereign Desk overview','/sovereign-admin',content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql')); next(e); }
+});
+app.get('/sovereign-admin/signals', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT id,title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 200');
+    const items=rows.map(x=>'<tr><td><strong>'+esc(x.title)+'</strong><br><small>'+esc(x.asset_pair)+' · '+esc(x.direction)+'</small><br><small>'+esc(x.timeframe||'No timeframe')+'</small></td><td>'+esc(x.status)+'</td><td>'+esc(x.published_at||'Draft')+'</td><td>'+esc(x.expires_at||'No expiry')+'</td><td><form method="post" action="/sovereign-admin/signals/'+encodeURIComponent(x.id)+'/update">'+csrfField(req)+'<input type="hidden" name="title" value="'+esc(x.title)+'"><input type="hidden" name="assetPair" value="'+esc(x.asset_pair)+'"><input type="hidden" name="direction" value="'+esc(x.direction)+'"><input type="hidden" name="entryZone" value="'+esc(x.entry_zone||'')+'"><input type="hidden" name="stopLoss" value="'+esc(x.stop_loss||'')+'"><input type="hidden" name="takeProfit1" value="'+esc(x.take_profit_1||'')+'"><input type="hidden" name="takeProfit2" value="'+esc(x.take_profit_2||'')+'"><input type="hidden" name="timeframe" value="'+esc(x.timeframe||'')+'"><input type="hidden" name="explanation" value="'+esc(x.explanation)+'"><select name="status"><option value="draft">Draft</option><option value="published"'+(x.status==='published'?' selected':'')+'>Publish</option><option value="closed"'+(x.status==='closed'?' selected':'')+'>Close</option><option value="archived">Archive</option></select><button class="btn" type="submit">Update status</button></form></td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Create a signal</h2><p class="muted">Use only verified analysis and clearly label risk. Leave uncertain numeric fields blank rather than inventing prices.</p>'+signalForm(req,null)+'</section><section class="ac-panel"><h2>Signal records</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Signal</th><th>Status</th><th>Published</th><th>Expiry</th><th>Update</th></tr></thead><tbody>'+(items||'<tr><td colspan="5">No signals recorded yet.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Signals','/sovereign-admin/signals',content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql')); next(e); }
+});
+app.post('/sovereign-admin/signals/create', requireAdmin, express.urlencoded({extended:false,limit:'12kb'}), csrfCheck, async (req,res,next) => {
+  const title=String(req.body.title||'').trim(), pair=String(req.body.assetPair||'').trim().toUpperCase(), direction=String(req.body.direction||''), timeframe=String(req.body.timeframe||'').trim(), entry=String(req.body.entryZone||'').trim(), stop=String(req.body.stopLoss||'').trim(), tp1=String(req.body.takeProfit1||'').trim(), tp2=String(req.body.takeProfit2||'').trim(), explanation=String(req.body.explanation||'').trim(), status=String(req.body.status||'draft'), expiry=String(req.body.expiresAt||'').trim();
+  if(title.length<3||title.length>180||!pair||pair.length>40||!['buy','sell','neutral'].includes(direction)||!['draft','published','closed'].includes(status)||!explanation||explanation.length>8000) return res.status(400).send(page('Invalid signal','<h1>Check the signal details</h1><p class="muted">Provide a title, asset/pair, valid direction, explanation and supported status.</p><a class="btn" href="/sovereign-admin/signals">Return to signals</a>'));
+  if(expiry&&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(expiry)) return res.status(400).send(page('Invalid expiry','<h1>Check the expiry date</h1>'));
+  const conn=await pool.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [result]=await conn.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,IF(?="published",CURRENT_TIMESTAMP,NULL),?, ?, ?)',[title,pair,direction,entry||null,stop||null,tp1||null,tp2||null,timeframe||null,explanation,status,status,expiry?expiry.replace('T',' ')+':00':null,req.session.memberId,req.session.memberId]);
+    await auditAdminAction(conn,req,'signal_created','sovereign_signal',result.insertId,{title,assetPair:pair,direction,status});
+    if(status==='published'){
+      await conn.execute("INSERT IGNORE INTO member_notifications (member_id, notification_type, title, body, target_url, dedupe_key) SELECT a.member_id,'sovereign_signal','New Sovereign Desk signal',?,'/sovereign-desk',CONCAT('signal:',? ,':',a.member_id) FROM sovereign_desk_access a WHERE a.status='approved' AND (a.expires_at IS NULL OR a.expires_at>CURRENT_TIMESTAMP)",[title,result.insertId]);
+    }
+    await conn.commit();
+    return res.redirect('/sovereign-admin/signals');
+  }catch(e){await conn.rollback();if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}finally{conn.release();}
+});
+app.post('/sovereign-admin/signals/:id/update', requireAdmin, express.urlencoded({extended:false,limit:'12kb'}), csrfCheck, async (req,res,next) => {
+  const id=String(req.params.id||''), title=String(req.body.title||'').trim(), pair=String(req.body.assetPair||'').trim().toUpperCase(), direction=String(req.body.direction||''), timeframe=String(req.body.timeframe||'').trim(), entry=String(req.body.entryZone||'').trim(), stop=String(req.body.stopLoss||'').trim(), tp1=String(req.body.takeProfit1||'').trim(), tp2=String(req.body.takeProfit2||'').trim(), explanation=String(req.body.explanation||'').trim(), status=String(req.body.status||''), expiry=String(req.body.expiresAt||'').trim();
+  if(!/^\d{1,20}$/.test(id)||title.length<3||title.length>180||!pair||pair.length>40||!['buy','sell','neutral'].includes(direction)||!['draft','published','closed','archived'].includes(status)||!explanation||explanation.length>8000) return res.status(400).send(page('Invalid signal','<h1>Check the signal details</h1><a class="btn" href="/sovereign-admin/signals">Return to signals</a>'));
+  const conn=await pool.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [found]=await conn.execute('SELECT status FROM sovereign_signals WHERE id=? FOR UPDATE',[id]);
+    if(!found.length){await conn.rollback();return res.status(404).send(page('Signal not found','<h1>Signal not found</h1>'));}
+    await conn.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,entry_zone=?,stop_loss=?,take_profit_1=?,take_profit_2=?,timeframe=?,explanation=?,status=?,published_at=CASE WHEN ?="published" AND published_at IS NULL THEN CURRENT_TIMESTAMP ELSE published_at END,expires_at=?,updated_by=? WHERE id=?',[title,pair,direction,entry||null,stop||null,tp1||null,tp2||null,timeframe||null,explanation,status,status,expiry?expiry.replace('T',' ')+':00':null,req.session.memberId,id]);
+    await auditAdminAction(conn,req,'signal_updated','sovereign_signal',id,{beforeStatus:found[0].status,afterStatus:status,title,assetPair:pair});
+    if(status==='published'&&found[0].status!=='published') await conn.execute("INSERT IGNORE INTO member_notifications (member_id, notification_type, title, body, target_url, dedupe_key) SELECT a.member_id,'sovereign_signal','New Sovereign Desk signal',?,'/sovereign-desk',CONCAT('signal:',? ,':',a.member_id) FROM sovereign_desk_access a WHERE a.status='approved' AND (a.expires_at IS NULL OR a.expires_at>CURRENT_TIMESTAMP)",[title,id]);
+    await conn.commit();return res.redirect('/sovereign-admin/signals');
+  }catch(e){await conn.rollback();next(e);}finally{conn.release();}
+});
+app.get('/sovereign-admin/guidance', requireAdmin, async (req,res,next) => {
+  try{
+    const [rows]=await pool.query('SELECT id,title,body,status,published_at,created_at FROM sovereign_guidance ORDER BY created_at DESC LIMIT 200');
+    const items=rows.map(x=>'<tr><td><strong>'+esc(x.title)+'</strong><br><small>'+esc(x.body.slice(0,180))+'</small></td><td>'+esc(x.status)+'</td><td>'+esc(x.published_at||'Draft')+'</td><td><form method="post" action="/sovereign-admin/guidance/'+encodeURIComponent(x.id)+'/update">'+csrfField(req)+'<select name="status"><option value="draft">Draft</option><option value="published"'+(x.status==='published'?' selected':'')+'>Publish</option><option value="archived">Archive</option></select><button class="btn" type="submit">Update status</button></form></td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Publish guidance</h2><form method="post" action="/sovereign-admin/guidance/create" class="ac-form">'+csrfField(req)+'<label>Title<input name="title" maxlength="180" required></label><label>Guidance / educational content<textarea name="body" rows="6" maxlength="12000" required></textarea></label><label>Status<select name="status"><option value="draft">Draft</option><option value="published">Publish</option></select></label><button class="btn" type="submit">Save guidance</button></form></section><section class="ac-panel"><h2>Guidance library</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Content</th><th>Status</th><th>Published</th><th>Update</th></tr></thead><tbody>'+(items||'<tr><td colspan="4">No guidance has been published.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Guidance & content','/sovereign-admin/guidance',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/sovereign-admin/guidance/create', requireAdmin, express.urlencoded({extended:false,limit:'16kb'}), csrfCheck, async(req,res,next)=>{
+  const title=String(req.body.title||'').trim(), body=String(req.body.body||'').trim(), status=String(req.body.status||'draft');
+  if(title.length<3||title.length>180||!body||body.length>12000||!['draft','published'].includes(status))return res.status(400).send(page('Invalid content','<h1>Check the content details</h1>'));
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();const [result]=await conn.execute('INSERT INTO sovereign_guidance (title,body,status,published_at,created_by,updated_by) VALUES (?,?,?,IF(?="published",CURRENT_TIMESTAMP,NULL),?,?)',[title,body,status,status,req.session.memberId,req.session.memberId]);await auditAdminAction(conn,req,'guidance_created','sovereign_guidance',result.insertId,{title,status});await conn.commit();return res.redirect('/sovereign-admin/guidance');}
+  catch(e){await conn.rollback();if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}finally{conn.release();}
+});
+app.post('/sovereign-admin/guidance/:id/update', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=String(req.params.id||''),status=String(req.body.status||'');
+  if(!/^\d{1,20}$/.test(id)||!['draft','published','archived'].includes(status))return res.status(400).send(page('Invalid update','<h1>Invalid guidance update</h1>'));
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();const [rows]=await conn.execute('SELECT status,title FROM sovereign_guidance WHERE id=? FOR UPDATE',[id]);if(!rows.length){await conn.rollback();return res.status(404).send(page('Not found','<h1>Guidance not found</h1>'));}await conn.execute('UPDATE sovereign_guidance SET status=?,published_at=CASE WHEN ?="published" AND published_at IS NULL THEN CURRENT_TIMESTAMP ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);await auditAdminAction(conn,req,'guidance_status_updated','sovereign_guidance',id,{beforeStatus:rows[0].status,afterStatus:status,title:rows[0].title});await conn.commit();return res.redirect('/sovereign-admin/guidance');}
+  catch(e){await conn.rollback();next(e);}finally{conn.release();}
+});
+app.get('/sovereign-admin/access', requireAdmin, async(req,res,next)=>{
+  try{
+    const [rows]=await pool.query("SELECT m.id,m.monarch_uid,m.full_name,m.email,a.status,a.reason,a.granted_at,a.expires_at FROM members m LEFT JOIN sovereign_desk_access a ON a.member_id=m.id ORDER BY a.granted_at DESC,m.id DESC LIMIT 200");
+    const [requests]=await pool.query("SELECT r.id,r.member_id,r.status,r.reason,r.created_at,m.monarch_uid,m.full_name,m.email FROM sovereign_access_requests r JOIN members m ON m.id=r.member_id ORDER BY r.created_at DESC LIMIT 100");
+    const members=rows.map(m=>'<tr><td>'+esc(m.monarch_uid||m.id)+'</td><td>'+esc(m.full_name)+'<br><small>'+esc(m.email)+'</small></td><td>'+esc(m.status||'Not approved')+'</td><td>'+esc(m.expires_at||'No expiry')+'</td></tr>').join('');
+    const reqs=requests.map(r=>'<tr><td>'+esc(r.monarch_uid||r.member_id)+'</td><td>'+esc(r.full_name)+'<br><small>'+esc(r.email)+'</small></td><td>'+esc(r.status)+'</td><td>'+esc(r.reason||'—')+'</td><td>'+esc(r.created_at)+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Desk access status</h2><p class="muted">This workspace can view access and submit requests. Only Main Admin can approve or revoke access.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Monarch</th><th>Account</th><th>Access</th><th>Expiry</th></tr></thead><tbody>'+(members||'<tr><td colspan="4">No Monarchs found.</td></tr>')+'</tbody></table></div></section><section class="ac-panel"><h2>Request an access decision</h2><form method="post" action="/sovereign-admin/access/request" class="ac-form">'+csrfField(req)+'<label>Monarch ID or numeric member ID<input name="memberId" required maxlength="40"></label><label>Reason<input name="reason" required maxlength="1000"></label><button class="btn" type="submit">Send to Main Admin</button></form><h3>Recent requests</h3><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Monarch</th><th>Account</th><th>Status</th><th>Reason</th><th>Submitted</th></tr></thead><tbody>'+(reqs||'<tr><td colspan="5">No access requests.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(deskAdminPage('Desk access','/sovereign-admin/access',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/sovereign-admin/access/request', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const memberRef=String(req.body.memberId||'').trim(),reason=String(req.body.reason||'').trim();
+  if(!memberRef||memberRef.length>40||reason.length<3||reason.length>1000)return res.status(400).send(page('Invalid request','<h1>Check the access request details</h1>'));
+  try{
+    const [members]=await pool.execute('SELECT id FROM members WHERE monarch_uid=? OR CAST(id AS CHAR)=? LIMIT 1',[memberRef.toUpperCase(),memberRef]);
+    if(!members.length)return res.status(404).send(page('Monarch not found','<h1>No matching Monarch was found</h1>'));
+    const [pending]=await pool.execute("SELECT id FROM sovereign_access_requests WHERE member_id=? AND status='pending' LIMIT 1",[members[0].id]);
+    if(pending.length)return res.status(409).send(page('Request already pending','<h1>An access request is already pending for this Monarch</h1>'));
+    await pool.execute("INSERT INTO sovereign_access_requests (member_id,requested_by,status,reason) VALUES (?,?, 'pending',?)",[members[0].id,req.session.memberId,reason]);
+    return res.redirect('/sovereign-admin/access');
+  }catch(e){next(e);}
+});
+app.get('/sovereign-admin/activity', requireAdmin, async(req,res,next)=>{
+  try{
+    const [rows]=await pool.execute("SELECT id,action,target_type,target_id,details,created_at FROM admin_audit_log WHERE admin_member_id=? AND (action LIKE 'signal_%' OR action LIKE 'guidance_%' OR action LIKE 'desk_%') ORDER BY created_at DESC LIMIT 100",[req.session.memberId]);
+    const items=rows.map(r=>'<tr><td>'+esc(r.created_at)+'</td><td>'+esc(r.action)+'</td><td>'+esc(r.target_type||'—')+' '+esc(r.target_id||'')+'</td><td>'+esc(typeof r.details==='string'?r.details:JSON.stringify(r.details||{}))+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Your recent Desk activity</h2><p class="muted">Audit records are append-only through the application workflow; no delete interface is provided.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Time</th><th>Action</th><th>Record</th><th>Details</th></tr></thead><tbody>'+(items||'<tr><td colspan="4">No recorded activity yet.</td></tr>')+'</tbody></table></div></section>';
+    res.send(deskAdminPage('My activity','/sovereign-admin/activity',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Audit setup required','migrations/002_admin_access.sql'));next(e);}
+});
+app.get('/admin/sovereign-desk', requireAdmin, async(req,res,next)=>{
+  if(req.adminRole==='sovereign_desk_admin')return res.status(403).send(page('Access denied','<h1>Access denied</h1><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
+  try{
+    const [requests]=await pool.query("SELECT r.id,r.member_id,r.status,r.reason,r.created_at,m.monarch_uid,m.full_name,m.email FROM sovereign_access_requests r JOIN members m ON m.id=r.member_id ORDER BY r.created_at DESC LIMIT 200");
+    const items=requests.map(r=>'<tr><td>'+esc(r.monarch_uid||r.member_id)+'</td><td>'+esc(r.full_name)+'<br><small>'+esc(r.email)+'</small></td><td>'+esc(r.status)+'</td><td>'+esc(r.reason||'—')+'</td><td>'+esc(r.created_at)+'</td><td>'+(r.status==='pending'?'<form method="post" action="/admin/sovereign-desk/access/'+encodeURIComponent(r.id)+'/review">'+csrfField(req)+'<select name="decision"><option value="approve">Approve</option><option value="reject">Reject</option></select><input name="reason" maxlength="1000" placeholder="Decision reason" required><button class="btn" type="submit">Save decision</button></form>':'Reviewed')+'</td></tr>').join('');
+    const content='<section class="ac-panel"><h2>Sovereign Desk access approvals</h2><p class="muted">Review requests here. Approving access creates an explicit access grant; it does not imply a payment or trading outcome.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Monarch</th><th>Account</th><th>Status</th><th>Request reason</th><th>Submitted</th><th>Decision</th></tr></thead><tbody>'+(items||'<tr><td colspan="6">No access requests.</td></tr>')+'</tbody></table></div></section>'+deskAdminStyles();
+    res.send(adminControlPage('Sovereign Desk access','/admin/sovereign-desk',content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/admin/sovereign-desk/access/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  if(req.adminRole==='sovereign_desk_admin')return res.status(403).send(page('Access denied','<h1>Access denied</h1>'));
+  const id=String(req.params.id||''),decision=String(req.body.decision||''),reason=String(req.body.reason||'').trim();
+  if(!/^\d{1,20}$/.test(id)||!['approve','reject'].includes(decision)||reason.length<3||reason.length>1000)return res.status(400).send(page('Invalid decision','<h1>Check the access decision</h1>'));
+  const conn=await pool.getConnection();
+  try{
+    await conn.beginTransaction();
+    const [rows]=await conn.execute("SELECT id,member_id,status FROM sovereign_access_requests WHERE id=? FOR UPDATE",[id]);
+    if(!rows.length){await conn.rollback();return res.status(404).send(page('Request not found','<h1>Access request not found</h1>'));}
+    if(rows[0].status!=='pending'){await conn.rollback();return res.status(409).send(page('Already reviewed','<h1>This request has already been reviewed</h1>'));}
+    const status=decision==='approve'?'approved':'rejected';
+    await conn.execute("UPDATE sovereign_access_requests SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?",[status,req.session.memberId,reason,id]);
+    if(decision==='approve')await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_by,granted_at) VALUES (?,'approved',?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_by=VALUES(granted_by),granted_at=CURRENT_TIMESTAMP",[rows[0].member_id,reason,req.session.memberId]);
+    else await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=?,granted_by=? WHERE member_id=?",[reason,req.session.memberId,rows[0].member_id]);
+    await conn.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,'sovereign_access','Sovereign Desk access update',?,'/sovereign-desk',?)",[rows[0].member_id,'Your Sovereign Desk access request was '+status+'. '+reason,'desk-access-request:'+id]);
+    await auditAdminAction(conn,req,'desk_access_'+status,'sovereign_access_request',id,{memberId:rows[0].member_id,reason});
+    await conn.commit();return res.redirect('/admin/sovereign-desk');
+  }catch(e){await conn.rollback();next(e);}finally{conn.release();}
+});
+app.get('/sovereign-desk', requireAuth, async(req,res,next)=>{
+  try{
+    const [members]=await pool.execute('SELECT id,full_name,monarch_uid FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+    if(!members.length)return res.redirect('/login');
+    const [access]=await pool.execute("SELECT id FROM sovereign_desk_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1",[req.session.memberId]);
+    if(!access.length){
+      const content='<section class="ac-panel"><h2>Access required</h2><p class="muted">Sovereign Desk signals and premium guidance are available only to approved or otherwise eligible Monarchs. No restricted signal content is sent to this page before access is verified.</p><form method="post" action="/sovereign-desk/access-request" class="ac-form">'+csrfField(req)+'<label>Why are you requesting access?<textarea name="reason" maxlength="1000" rows="3" required></textarea></label><button class="btn" type="submit">Request access</button></form></section>'+deskAdminStyles();
+      return res.send(memberPage('Sovereign Desk','/sovereign-desk',members[0],content,req));
+    }
+    const [signals]=await pool.query("SELECT id,title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) ORDER BY published_at DESC LIMIT 100");
+    const [guidance]=await pool.query("SELECT id,title,body,published_at FROM sovereign_guidance WHERE status='published' ORDER BY published_at DESC LIMIT 50");
+    const signalCards=signals.map(x=>'<article class="member-card"><span class="member-overline">'+esc(x.asset_pair)+' · '+esc(x.direction)+'</span><h3>'+esc(x.title)+'</h3><p class="muted">'+esc(x.explanation)+'</p><p>Entry zone: '+esc(x.entry_zone||'Not specified')+' · Stop loss: '+esc(x.stop_loss||'Not specified')+'</p><p>Targets: '+esc(x.take_profit_1||'—')+' / '+esc(x.take_profit_2||'—')+' · Timeframe: '+esc(x.timeframe||'Not specified')+'</p><small class="muted">Published '+esc(x.published_at||'')+' · Expires '+esc(x.expires_at||'No expiry')+'</small><p class="ac-risk">Trading involves risk. This content is educational and does not guarantee outcomes.</p></article>').join('');
+    const guideCards=guidance.map(x=>'<article class="member-card"><h3>'+esc(x.title)+'</h3><p>'+esc(x.body)+'</p><small class="muted">'+esc(x.published_at||'')+'</small></article>').join('');
+    return res.send(memberPage('Sovereign Desk','/sovereign-desk',members[0],'<section><h2>Published signals</h2>'+(signalCards||'<p class="muted">No active signals are published.</p>')+'</section><section><h2>Guidance & education</h2>'+(guideCards||'<p class="muted">No guidance has been published.</p>')+'</section>'+deskAdminStyles(),req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Sovereign Desk setup required','migrations/004_admin_sovereign_desk.sql'));next(e);}
+});
+app.post('/sovereign-desk/access-request', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const reason=String(req.body.reason||'').trim();
+  if(reason.length<3||reason.length>1000)return res.status(400).send(page('Invalid request','<h1>Please enter a short reason for your request</h1>'));
+  try{
+    const [pending]=await pool.execute("SELECT id FROM sovereign_access_requests WHERE member_id=? AND status='pending' LIMIT 1",[req.session.memberId]);
+    if(pending.length)return res.status(409).send(page('Request pending','<h1>Your access request is already pending</h1><a class="btn" href="/sovereign-desk">Return to Sovereign Desk</a>'));
+    await pool.execute("INSERT INTO sovereign_access_requests (member_id,requested_by,status,reason) VALUES (?,?, 'pending',?)",[req.session.memberId,req.session.memberId,reason]);
+    await pool.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) SELECT member_id,'admin_action','New Sovereign Desk access request',CONCAT('A Monarch has requested access. Request ID: ',LAST_INSERT_ID()),'/admin/sovereign-desk',CONCAT('desk-access-request-admin:',LAST_INSERT_ID(),':',member_id) FROM members WHERE LOWER(email)=LOWER(?)",[ 'trademonarchofficial@gmail.com' ]);
+    return res.redirect('/sovereign-desk');
+  }catch(e){next(e);}
 });
 
 app.get('/dashboard', requireAuth, async (req, res, next) => {
@@ -306,14 +510,22 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
     const member = rows[0];
     if (!member) { req.session.destroy(() => res.redirect('/login')); return; }
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [member.id]);
+    let kycStatus = 'Not submitted';
+    try {
+      const [kycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id = ? ORDER BY submitted_at DESC LIMIT 1', [member.id]);
+      if (kycRows.length) kycStatus = ({pending:'Under review',approved:'Verified',rejected:'Rejected',needs_resubmission:'Resubmission required'})[kycRows[0].status] || 'Under review';
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; kycStatus = 'Not configured'; }
+    let unreadNotifications = 0;
+    try { const [[n]] = await pool.execute('SELECT COUNT(*) AS total FROM member_notifications WHERE member_id = ? AND read_at IS NULL', [member.id]); unreadNotifications = Number(n.total) || 0; }
+    catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
     const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '');
     const referralLink = baseUrl + '/register?ref=' + encodeURIComponent(member.monarch_uid);
     const body = '<link rel="stylesheet" href="/member-dashboard.css"><div class="dashboard-layout">'+
       '<button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><aside class="dashboard-sidebar" id="memberSidebar"><div class="sidebar-brand-row"><div class="side-title">MEMBER MENU</div><button class="icon-btn sidebar-close sidebar-desktop-toggle" type="button" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6M4 4v16"/></svg></button><button class="icon-btn sidebar-close" type="button" data-sidebar-close aria-label="Close menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><nav aria-label="Member dashboard navigation">' +
-      '<a href="/dashboard" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="nav-text">Overview</span></a><a href="/profile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span class="nav-text">Profile</span></a><a href="/kyc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></svg><span class="nav-text">KYC Verification</span></a><a href="/referrals"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v1"/></svg><span class="nav-text">Referrals</span></a><a href="/deposit"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg><span class="nav-text">Deposit</span></a><a href="/withdraw"><span aria-hidden="true">↗</span><span class="nav-text">Withdraw</span></a><a href="/transactions"><span aria-hidden="true">◷</span><span class="nav-text">Transactions</span></a>' +'</nav><div class="sidebar-uid"><span class="muted small">YOUR MONARCH ID</span><div class="sidebar-uid-value"><strong id="memberUid">' + esc(member.monarch_uid) + '</strong><button class="copy-btn" type="button" data-copy-target="memberUid" aria-label="Copy Monarch ID">Copy</button></div></div><div class="sidebar-logout"><form method="post" action="/logout">' + csrfField(req) + '<button class="sidebar-logout-btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg><span class="nav-text">Log out</span></button></form></div></aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><div class="dashboard-content"><div class="mobile-dashboard-bar"><button class="icon-btn sidebar-open" type="button" data-sidebar-open aria-label="Open navigation" aria-controls="memberSidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span>MEMBER AREA</span><span class="mobile-current-tab">Overview</span></div><section class="panel">' +
+      '<a href="/dashboard" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="nav-text">Overview</span></a><a href="/profile"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span class="nav-text">Profile</span></a><a href="/kyc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></svg><span class="nav-text">KYC Verification</span></a><a href="/referrals"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 12 0v1M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v1"/></svg><span class="nav-text">Referrals</span></a><a href="/deposit"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg><span class="nav-text">Deposit</span></a><a href="/withdraw"><span aria-hidden="true">↗</span><span class="nav-text">Withdraw</span></a><a href="/transactions"><span aria-hidden="true">◷</span><span class="nav-text">Transactions</span></a>' +'<a href="/academy"><span aria-hidden="true">▣</span><span class="nav-text">Academy</span></a><a href="/sovereign-desk"><span aria-hidden="true">⌁</span><span class="nav-text">Sovereign Desk</span></a><a href="/notifications"><span aria-hidden="true">♧</span><span class="nav-text">Notifications' + (unreadNotifications ? ' (' + unreadNotifications + ')' : '') + '</span></a><a href="/investments"><span aria-hidden="true">◆</span><span class="nav-text">Investments</span></a></nav><div class="sidebar-uid"><span class="muted small">YOUR MONARCH ID</span><div class="sidebar-uid-value"><strong id="memberUid">' + esc(member.monarch_uid) + '</strong><button class="copy-btn" type="button" data-copy-target="memberUid" aria-label="Copy Monarch ID">Copy</button></div></div><div class="sidebar-logout"><form method="post" action="/logout">' + csrfField(req) + '<button class="sidebar-logout-btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg><span class="nav-text">Log out</span></button></form></div></aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><div class="dashboard-content"><div class="mobile-dashboard-bar"><button class="icon-btn sidebar-open" type="button" data-sidebar-open aria-label="Open navigation" aria-controls="memberSidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span>MEMBER AREA</span><span class="mobile-current-tab">Overview</span></div><section class="panel">' +
       '<div class="dashboard-topline"><div><div class="muted small">MONARCH MEMBER AREA</div><h1>Welcome, ' + esc(member.full_name.split(' ')[0]) + '</h1><p class="muted">Your membership overview and account tools.</p></div></div>' +
       '<section id="overview" class="dashboard-section overview-intro"><div class="overview-title-row"><div><span class="muted small">YOUR ACCOUNT</span><h2>Overview</h2></div><span class="account-live"><i></i> Account active</span></div>' +
-      '<div class="grid dashboard-metrics"><div class="stat balance-primary"><span class="muted small">Total balance</span><strong>—</strong><p class="muted small">Wallet ledger not connected</p></div><div class="stat"><span class="muted small">Investment balance</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Earnings</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Verification</span><strong>Not submitted</strong><a class="metric-link" href="/kyc">Verify account <span aria-hidden="true">→</span></a></div></div>' +
+      '<div class="grid dashboard-metrics"><div class="stat balance-primary"><span class="muted small">Total balance</span><strong>—</strong><p class="muted small">Wallet ledger not connected</p></div><div class="stat"><span class="muted small">Investment balance</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Earnings</span><strong>—</strong><p class="muted small">Awaiting verified records</p></div><div class="stat"><span class="muted small">Verification</span><strong>' + esc(kycStatus) + '</strong><a class="metric-link" href="/kyc">View verification <span aria-hidden="true">→</span></a></div></div>' +
       '<div class="dashboard-section referral-summary"><div><span class="muted small">SUCCESSFUL REFERRALS</span><strong>' + (Number(counts[0].total) || 0) + '</strong></div><a href="/referrals">View referrals <span aria-hidden="true">→</span></a></div></section>' +
       '<section class="dashboard-section action-section"><div class="section-heading-row"><div><h2>Quick actions</h2><p class="muted">Everything you need, one tap away.</p></div><a href="/transactions" class="muted small">Activity <span aria-hidden="true">↗</span></a></div><div class="quick-action-grid" id="quickActions"><a href="/deposit"><span>＋</span><strong>Deposit</strong><small>Add funds</small></a><a href="/withdraw"><span>↗</span><strong>Withdraw</strong><small>Cash out</small></a><a href="/kyc"><span>◇</span><strong>Verify</strong><small>Identity check</small></a><a href="/transactions"><span>↻</span><strong>History</strong><small>Transactions</small></a><a href="/referrals"><span>♧</span><strong>Referrals</strong><small>Invite friends</small></a><a href="/profile"><span>◉</span><strong>Profile</strong><small>Account details</small></a></div><button class="show-more-actions" type="button" id="toggleActions" aria-expanded="false" hidden>More actions</button></section>' +
       '<section class="dashboard-section"><div class="dashboard-topline"><div><h2>Account activity</h2><p class="muted">Your member ID and referral count are live account information. Financial activity will appear once the transaction ledger is connected.</p></div><a href="/transactions" class="copy-btn" style="text-decoration:none">View activity</a></div><div class="section-card"><strong>Membership active</strong><p class="muted small">Your Monarch ID is ready to use. No deposit, withdrawal, or earnings history is being fabricated or displayed as real.</p></div></section>' +
@@ -323,11 +535,11 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
 });
 
 function memberPage(title, active, member, content, req) {
-  const items = [['/dashboard','Overview','◫'],['/profile','Profile','◎'],['/kyc','Verification','◇'],['/deposit','Deposit','＋'],['/withdraw','Withdraw','↗'],['/transactions','Transactions','↔'],['/referrals','Referrals','♧']];
+  const items = [['/dashboard','Overview','◫'],['/profile','Profile','◎'],['/kyc','Verification','◇'],['/deposit','Deposit','＋'],['/withdraw','Withdraw','↗'],['/investments','Investments','◆'],['/transactions','Transactions','↔'],['/academy','Academy','▣'],['/sovereign-desk','Sovereign Desk','⌁'],['/referrals','Referrals','♧'],['/notifications','Notifications','♧']];
   const nav = items.map(([href,label,mark]) => '<a href="' + href + '"' + (href===active?' aria-current="page"':'') + '><span class="member-nav-icon" aria-hidden="true">' + mark + '</span><span>' + label + '</span></a>').join('');
   const firstName = esc((member.full_name || 'Member').split(' ')[0]);
   const uid = esc(member.monarch_uid || 'Pending');
-  const body = '<link rel="stylesheet" href="/member-dashboard.css"><div class="member-experience"><aside class="member-rail" id="memberRail"><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/assets/images/monarch-codex-logo.svg" alt="Monarch Codex" style="width:100%;height:100%;object-fit:contain"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><div class="member-rail-label">YOUR ACCOUNT</div><nav aria-label="Member navigation">' + nav + '</nav><div class="member-rail-account"><span class="member-rail-label">MEMBER ID</span><div class="member-rail-uid"><strong id="memberUid">' + uid + '</strong><button type="button" class="member-copy-uid" data-copy-uid aria-label="Copy member ID">Copy</button></div><small>Keep your account details private.</small></div><div class="member-rail-logout"><form method="post" action="/logout">' + csrfField(req) + '<button type="submit">↪ <span>Log out</span></button></form></div></aside><div class="member-workspace"><header class="member-mobile-head"><button type="button" class="member-menu-toggle" aria-label="Open navigation" aria-expanded="false" data-member-menu>☰</button><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/assets/images/monarch-codex-logo.svg" alt="Monarch Codex" style="width:100%;height:100%;object-fit:contain"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><span class="member-live-dot" aria-label="Secure account"></span></header><div class="member-page-heading"><div><p class="member-overline">MONARCH CODEX / MEMBER AREA</p><h1>' + firstName + ', welcome back.</h1><p>Manage your account, verification and funds in one place.</p></div><div class="member-heading-status"><span></span> Account workspace</div></div><main class="member-main"><div class="member-content-heading"><div><span class="member-overline">ACCOUNT MANAGEMENT</span><h2>' + esc(title) + '</h2></div><span class="member-secure-label">⌑ Secure session</span></div>' + content + '</main><footer class="member-footer"><span>MONARCH CODEX</span><span>Move with clarity. Build with purpose.</span></footer></div></div><div class="member-mobile-scrim" data-member-close></div><div class="page-loading" id="pageLoading" aria-live="polite"><span class="page-spinner"></span><strong>Opening page…</strong></div><script>(function(){var rail=document.getElementById("memberRail"),toggle=document.querySelector("[data-member-menu]"),scrim=document.querySelector("[data-member-close]");function close(){rail.classList.remove("is-open");scrim.classList.remove("is-visible");if(toggle)toggle.setAttribute("aria-expanded","false")}if(toggle)toggle.addEventListener("click",function(){rail.classList.toggle("is-open");scrim.classList.toggle("is-visible");toggle.setAttribute("aria-expanded",rail.classList.contains("is-open")?"true":"false")});if(scrim)scrim.addEventListener("click",close);document.querySelectorAll(".member-experience nav a").forEach(function(a){a.addEventListener("click",function(){var loader=document.getElementById("pageLoading");if(loader)loader.classList.add("show")})});var copy=document.querySelector("[data-copy-uid]");if(copy)copy.addEventListener("click",async function(){try{await navigator.clipboard.writeText(document.getElementById("memberUid").textContent);copy.textContent="Copied";setTimeout(function(){copy.textContent="Copy"},1400)}catch(e){copy.textContent="Select ID"}})})();</script>';
+  const body = '<link rel="stylesheet" href="/member-dashboard.css"><div class="member-experience"><aside class="member-rail" id="memberRail"><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/assets/images/monarch-codex-logo.svg" alt="Monarch Codex" style="width:100%;height:100%;object-fit:contain"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><div class="member-rail-label">YOUR ACCOUNT</div><nav aria-label="Member navigation">' + nav + '</nav><div class="member-rail-account"><span class="member-rail-label">MEMBER ID</span><div class="member-rail-uid"><strong id="memberUid">' + uid + '</strong><button type="button" class="member-copy-uid" data-copy-uid aria-label="Copy member ID">Copy</button></div><small>Keep your account details private.</small></div><div class="member-rail-logout"><form method="post" action="/logout">' + csrfField(req) + '<button type="submit">↪ <span>Log out</span></button></form></div></aside><div class="member-workspace"><header class="member-mobile-head"><button type="button" class="member-menu-toggle" aria-label="Open navigation" aria-expanded="false" data-member-menu>☰</button><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/assets/images/monarch-codex-logo.svg" alt="Monarch Codex" style="width:100%;height:100%;object-fit:contain"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><a href="/notifications" aria-label="Notifications" title="Notifications" style="display:grid;place-items:center;width:38px;height:38px;border:1px solid #494022;border-radius:11px;color:#f3cf3c;text-decoration:none;background:#151518">♧</a><span class="member-live-dot" aria-label="Secure account"></span></header><div class="member-page-heading"><div><p class="member-overline">MONARCH CODEX / MEMBER AREA</p><h1>' + firstName + ', welcome back.</h1><p>Manage your account, verification and funds in one place.</p></div><div class="member-heading-status"><span></span> Account workspace</div></div><main class="member-main"><div class="member-content-heading"><div><span class="member-overline">ACCOUNT MANAGEMENT</span><h2>' + esc(title) + '</h2></div><span class="member-secure-label">⌑ Secure session</span></div>' + content + '</main><footer class="member-footer"><span>MONARCH CODEX</span><span>Move with clarity. Build with purpose.</span></footer></div></div><div class="member-mobile-scrim" data-member-close></div><div class="page-loading" id="pageLoading" aria-live="polite"><span class="page-spinner"></span><strong>Opening page…</strong></div><script>(function(){var rail=document.getElementById("memberRail"),toggle=document.querySelector("[data-member-menu]"),scrim=document.querySelector("[data-member-close]");function close(){rail.classList.remove("is-open");scrim.classList.remove("is-visible");if(toggle)toggle.setAttribute("aria-expanded","false")}if(toggle)toggle.addEventListener("click",function(){rail.classList.toggle("is-open");scrim.classList.toggle("is-visible");toggle.setAttribute("aria-expanded",rail.classList.contains("is-open")?"true":"false")});if(scrim)scrim.addEventListener("click",close);document.querySelectorAll(".member-experience nav a").forEach(function(a){a.addEventListener("click",function(){var loader=document.getElementById("pageLoading");if(loader)loader.classList.add("show")})});var copy=document.querySelector("[data-copy-uid]");if(copy)copy.addEventListener("click",async function(){try{await navigator.clipboard.writeText(document.getElementById("memberUid").textContent);copy.textContent="Copied";setTimeout(function(){copy.textContent="Copy"},1400)}catch(e){copy.textContent="Select ID"}})})();</script>';
   return page('Member dashboard', body);
 }
 function wizardPage(title, content, req) {
@@ -499,6 +711,12 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
     try {
       csrfCheck(req, res, async csrfErr => {
         if (csrfErr) return;
+        let previousKycStatus = null;
+        try {
+          const [existingKyc] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC LIMIT 1',[req.session.memberId]);
+          previousKycStatus = existingKyc[0] ? existingKyc[0].status : null;
+          if (['pending','approved'].includes(previousKycStatus)) return res.status(409).json({error: previousKycStatus === 'approved' ? 'Your identity is already verified.' : 'Your verification is already under review.'});
+        } catch(e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
         let config;
         try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
         const b = req.body || {};
@@ -535,7 +753,10 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
               "INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
               [req.session.memberId,b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]]);
             submissionId = result.insertId;
-            await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,?)',[submissionId,req.session.memberId,previousKycStatus ? 'resubmitted' : 'submitted']);
+            try {
+              await conn.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) SELECT au.member_id,'admin_action','New KYC submission',CONCAT('KYC submission ',?,' is awaiting review.'),'/admin/kyc',CONCAT('kyc-submission:',?,':',au.member_id) FROM admin_users au WHERE au.is_active=1 AND au.role IN ('super_admin','main_admin')",[submissionId,submissionId]);
+            } catch(notificationError) { if(notificationError.code!=='ER_NO_SUCH_TABLE') throw notificationError; }
             await conn.commit();
           } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
           return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
@@ -554,9 +775,21 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
-    const content = `
+    let latestKyc = null;
+    try {
+      const [kycRows] = await pool.execute('SELECT status,reviewer_note,submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC LIMIT 1',[m.id]);
+      latestKyc = kycRows[0] || null;
+    } catch(e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    const statusLabels = {pending:'Under review',approved:'Verified',rejected:'Rejected',needs_resubmission:'Resubmission required'};
+    if (latestKyc && ['pending','approved'].includes(latestKyc.status)) {
+      const label = statusLabels[latestKyc.status] || latestKyc.status;
+      const note = latestKyc.reviewer_note ? '<p class="muted">'+esc(latestKyc.reviewer_note)+'</p>' : '';
+      return res.send(memberPage('KYC Verification','/kyc',m,'<section class="member-card"><span class="member-overline">IDENTITY VERIFICATION</span><h2>'+esc(label)+'</h2><p>Your latest verification submission was received on '+esc(latestKyc.submitted_at)+'.</p>'+note+(latestKyc.status==='approved'?'<p>Your identity has been verified.</p>':'<p>Your submission is waiting for an authorised review. You do not need to submit it again.</p>')+'</section>',req));
+    }
+    const kycStatusNotice = latestKyc ? '<section class="member-card"><h2>'+esc(statusLabels[latestKyc.status] || latestKyc.status)+'</h2><p>'+(latestKyc.status==='rejected'?'Your previous submission was rejected. Review the reason below and correct the information before resubmitting.':'Please review the administrator note and update your submission where needed.')+'</p>'+(latestKyc.reviewer_note?'<p class="muted">'+esc(latestKyc.reviewer_note)+'</p>':'')+'</section>' : '';
+    const content = `${kycStatusNotice}
       <div class="kyc-intro">Complete your verification in a few steps. You can go back to check your answers before submitting.</div>
-      <div class="kyc-security-note"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>Secure verification</strong><small>Identity verification is temporarily unavailable. Please try again later. Your information and documents will not be submitted unless verification is available.</small></span></div>
+      <div class="kyc-security-note"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>Secure verification</strong><small>Identity files are encrypted at rest when private KYC storage is configured. The server will report if setup is incomplete.</small></span></div>
       <div class="kyc-progress" role="list" aria-label="Verification progress">
         <div class="kyc-progress-step is-active" data-progress-step="0" role="listitem"><span class="kyc-step-dot">1</span><span class="kyc-step-name">Personal</span></div><span class="kyc-progress-line"><i></i></span>
         <div class="kyc-progress-step" data-progress-step="1" role="listitem"><span class="kyc-step-dot">2</span><span class="kyc-step-name">Address</span></div><span class="kyc-progress-line"><i></i></span>
@@ -582,17 +815,17 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
           <label for="kycDocType">Identity document</label><select id="kycDocType" name="documentType" required><option value="">Select a document</option><option value="national_id">National identity card</option><option value="passport">International passport</option><option value="drivers_license">Driver's licence</option><option value="voters_card">Voter's card</option></select>
           <label for="kycDocCountry">Issuing country</label><select id="kycDocCountry" name="documentIssuerCountry" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option></select>
           <label for="kycDocNumber">Document number</label><input id="kycDocNumber" name="documentNumber" maxlength="80" autocomplete="off" aria-describedby="kycDocNumberError" required><p id="kycDocNumberError" class="kyc-field-error" role="alert" hidden></p>
-          <div class="kyc-hint">Identity verification is temporarily unavailable. Please try again later.</div>
+          <div class="kyc-hint">The server will confirm secure storage is configured before accepting your application.</div>
         </section>
         <section class="kyc-stage" data-stage="3" hidden>
-          <p class="kyc-stage-kicker">STEP 04 OF 04</p><h2>Documents & selfie</h2><p class="kyc-stage-copy">Please provide clear images of your document and a selfie. Do not continue if verification is unavailable.</p>
+          <p class="kyc-stage-kicker">STEP 04 OF 04</p><h2>Documents & selfie</h2><p class="kyc-stage-copy">Provide clear images of your identity document and capture a live selfie. The server will confirm whether secure submission is configured.</p>
           <div class="kyc-upload-grid">
             <label class="kyc-upload-card" for="kycFront"><span class="kyc-upload-icon">＋</span><strong>Front of ID</strong><small>Upload an image from your device</small><input id="kycFront" name="documentFront" type="file" accept="image/jpeg,image/png" data-preview="kycFrontPreview"><img id="kycFrontPreview" alt="Front of ID preview" hidden></label>
             <label class="kyc-upload-card" for="kycBackImage"><span class="kyc-upload-icon">＋</span><strong>Back of ID</strong><small>Upload the back image from your device</small><input id="kycBackImage" name="documentBack" type="file" accept="image/jpeg,image/png" data-preview="kycBackPreview"><img id="kycBackPreview" alt="Back of ID preview" hidden></label>
             <div class="kyc-upload-card kyc-selfie-card"><span class="kyc-upload-icon">◎</span><strong>Live selfie</strong><small>Use your front camera to take a selfie</small><video id="kycSelfieVideo" autoplay playsinline muted hidden></video><canvas id="kycSelfieCanvas" hidden></canvas><img id="kycSelfiePreview" alt="Captured selfie preview" hidden><div class="kyc-camera-actions"><button type="button" class="kyc-camera-btn" id="kycStartCamera">Open camera</button><button type="button" class="kyc-camera-btn" id="kycCaptureSelfie" hidden>Capture selfie</button><button type="button" class="kyc-camera-btn" id="kycRetakeSelfie" hidden>Retake</button></div><p class="kyc-camera-status" id="kycCameraStatus" aria-live="polite">Selfie is camera capture only; image file selection is disabled.</p></div>
           </div>
           <div class="kyc-consent"><label for="kycConfirm"><input type="checkbox" id="kycConfirm" required> I confirm that the information is accurate and the images belong to me.</label></div>
-          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Identity verification is temporarily unavailable. You can review your entries, but submission may not be possible right now. Please try again later.</div>
+          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Your application is saved only after the server confirms secure submission. If storage or database setup is missing, the page will show an error and no success will be claimed.</div>
         </section>
         <div class="kyc-actions"><button type="button" id="kycBack" class="kyc-btn kyc-btn-secondary" hidden>Back</button><span class="kyc-steps-count" id="kycStepCount">Step 1 of 4</span><button type="button" id="kycNext" class="kyc-btn kyc-btn-primary">Continue <span aria-hidden="true">→</span></button></div>
         <p class="kyc-form-message" id="kycMessage" aria-live="polite"></p>
@@ -602,8 +835,75 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
 });
 app.get('/deposit', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const content='<div class="member-card"><div class="member-steps" id="depositProgress"><span>1 · Amount</span><span>2 · Payment</span><span>3 · Review</span></div><form id="depositWizard"><section class="deposit-step" data-step="0"><h3>Choose deposit amount</h3><label for="depositAmount">Amount (NGN)</label><input id="depositAmount" type="number" min="100" max="10000000" step="1" inputmode="numeric" required><p class="muted small">Enter the amount you intend to deposit.</p></section><section class="deposit-step" data-step="1" hidden><h3>Payment instructions</h3><div class="notice">Official payment instructions are not configured yet. Do not transfer money or send funds to an account shared in chat. This step is a preview only.</div><p class="muted">Once an administrator configures and verifies the payment destination, the official instructions will appear here.</p></section><section class="deposit-step" data-step="2" hidden><h3>Review deposit request</h3><p>Amount: <strong id="depositSummary"></strong></p><div class="notice">Deposits cannot be submitted yet because verified payment instructions and transaction records have not been activated. No payment will be recorded and no wallet will be credited.</div></section><div class="links"><button class="copy-btn" id="depositBack" type="button" hidden>Back</button><button class="btn" id="depositNext" type="button">Continue</button></div><p id="depositMessage" class="muted small" aria-live="polite">Step 1 of 3</p></form></div><style>.deposit-step[hidden]{display:none}.deposit-step label{display:block;margin:14px 0 6px}.deposit-step input{width:100%;padding:12px;border:1px solid #484650;border-radius:10px;background:#0d0d10;color:#fff;font:inherit}</style><script>(function(){var f=document.getElementById("depositWizard");if(!f)return;var s=[].slice.call(f.querySelectorAll(".deposit-step")),n=document.getElementById("depositNext"),b=document.getElementById("depositBack"),m=document.getElementById("depositMessage"),p=document.getElementById("depositProgress").querySelectorAll("span"),i=0;function render(){s.forEach(function(x,j){x.hidden=j!==i});[].forEach.call(p,function(x,j){x.style.opacity=j===i?"1":".55"});b.hidden=i===0;n.textContent=i===s.length-1?"Submit request":"Continue";m.textContent="Step "+(i+1)+" of "+s.length;if(i===2)document.getElementById("depositSummary").textContent="₦"+Number(document.getElementById("depositAmount").value||0).toLocaleString("en-NG")}n.addEventListener("click",function(){if(i===0&&!document.getElementById("depositAmount").checkValidity()){document.getElementById("depositAmount").reportValidity();return}if(i<s.length-1){i++;render()}else{m.textContent="Deposits are not active yet. No request was submitted and no funds were moved."}});b.addEventListener("click",function(){if(i>0)i--;render()});render()})();</script><div class="member-card"><strong>Deposit history</strong><p class="muted small">Your actual deposit history will appear here after the secure transaction workflow is enabled. Uploading a receipt alone will never credit a wallet.</p></div>';res.send(wizardPage('Deposit',content,req));}catch(e){next(e)}});
 app.get('/withdraw', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [rows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);const banks=rows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));const body='<div class="member-card"><h2>Withdrawal requests</h2><p class="muted">Choose a saved payout account for a future withdrawal request. Withdrawals remain disabled until KYC approval, payout processing, and the transaction ledger are operational.</p>'+(banks.length?'<form><label for="withdrawBank">Saved bank account</label><select id="withdrawBank" name="bankAccountId" disabled required>'+banks.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.bankName)+' — '+esc(b.bankAccountName)+' (••••'+esc(String(b.bankAccountNumber||'').slice(-4))+')</option>').join('')+'</select><p class="muted">Account selection will be enabled when withdrawal requests go live.</p></form>':'<p>No bank accounts saved yet. <a href="/profile">Add a bank account in your profile</a>.</p>')+'<p><a class="btn" href="/profile">Manage bank accounts</a></p><strong>Withdrawals are currently locked</strong></div>';res.send(memberPage('Withdraw','/withdraw',m,body,req));}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'Withdrawals are unavailable until the bank-account database migration is applied.',req));next(e)}});
+app.get('/investments', requireAuth, async(req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res);if(!m)return;
+    res.send(memberPage('Investments','/investments',m,'<section class="member-card"><h2>Investment records</h2><p class="muted">This website does not yet have a verified investment-record or profit ledger connected to the member area. No packages, returns, invested totals, or earnings are shown as active or real.</p><p>Investment features will appear here after the platform has configured its authorised terms, ledger, and transactional purchase workflow.</p></section>',req));
+  } catch(e){next(e);}
+});
 app.get('/transactions', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;res.send(memberPage('Transaction history','/transactions',m,'<div class="member-card"><strong>No transaction history available yet</strong><p class="muted">Once deposits and withdrawals are securely activated, each transaction will show its amount, currency, reference, date and status.</p></div>',req));}catch(e){next(e)}});
-app.get('/referrals', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [counts]=await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?',[m.id]);const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\/+$/,'');const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);const content='<div class="member-card"><p class="muted small">YOUR MONARCH UID</p><div class="copy-value"><strong id="pageUid">'+esc(m.monarch_uid)+'</strong><button class="copy-btn" type="button" data-copy-target="pageUid">Copy UID</button></div><p class="muted small">YOUR PERSONAL REFERRAL LINK</p><div class="copy-value"><input id="pageReferralLink" value="'+esc(link)+'" readonly><button class="copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="muted small">Referral attribution is recorded when a new account successfully registers using your code.</p></div><div class="grid"><div class="stat"><span class="muted small">Registered referrals</span><strong>'+Number(counts[0].total||0)+'</strong></div></div>';res.send(memberPage('Referrals','/referrals',m,content,req));}catch(e){next(e)}});
+app.get('/referrals', requireAuth, async(req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [referrals]=await pool.execute('SELECT monarch_uid,full_name,username FROM members WHERE referred_by=? ORDER BY id DESC LIMIT 100',[m.id]);
+    const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\/+$/,'');
+    const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);
+    const referred=referrals.map(r=>'<tr><td>'+esc(r.monarch_uid||'—')+'</td><td>'+esc(r.full_name||'Member')+'</td><td>'+esc(r.username||'—')+'</td></tr>').join('');
+    const content='<div class="member-card"><p class="muted small">YOUR MONARCH UID</p><div class="copy-value"><strong id="pageUid">'+esc(m.monarch_uid)+'</strong><button class="copy-btn" type="button" data-copy-target="pageUid">Copy UID</button></div><p class="muted small">YOUR PERSONAL REFERRAL LINK</p><div class="copy-value"><input id="pageReferralLink" value="'+esc(link)+'" readonly><button class="copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="muted small">Referral attribution is recorded when a new account successfully registers using your code. Rewards are not shown until a verified rewards ledger exists.</p></div><div class="grid"><div class="stat"><span class="muted small">Registered referrals</span><strong>'+referrals.length+'</strong></div></div><section class="member-card"><h3>Referred Monarchs</h3><div style="overflow:auto"><table style="width:100%;border-collapse:collapse;min-width:420px"><thead><tr><th style="text-align:left;padding:10px">Monarch ID</th><th style="text-align:left;padding:10px">Name</th><th style="text-align:left;padding:10px">Username</th></tr></thead><tbody>'+(referred||'<tr><td colspan="3">No referred Monarchs yet.</td></tr>')+'</tbody></table></div></section>';
+    res.send(memberPage('Referrals','/referrals',m,content,req));
+  }catch(e){next(e);}
+});
+app.get('/notifications', requireAuth, async(req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [rows]=await pool.execute('SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[m.id]);
+    const items=rows.map(n=>{
+      const target=typeof n.target_url==='string'&&/^\/(?!\/)/.test(n.target_url)?n.target_url:'/notifications';
+      return '<article class="member-card" style="border-color:'+(n.read_at?'#302f2b':'#5a4b1d')+'"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong>'+esc(n.title)+'</strong><span class="member-overline">'+(n.read_at?'Read':'Unread')+'</span></div><p>'+esc(n.body)+'</p><small class="muted">'+esc(n.created_at)+'</small><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'+(target!=='/notifications'?'<a class="btn" href="'+esc(target)+'">Open</a>':'')+(!n.read_at?'<form method="post" action="/notifications/'+encodeURIComponent(n.id)+'/read">'+csrfField(req)+'<button class="btn" type="submit">Mark as read</button></form>':'')+'</div></article>';
+    }).join('');
+    const content='<section><div class="section-heading-row"><div><h2>Your notifications</h2><p class="muted">Only messages addressed to your Monarch account are shown here.</p></div>'+(rows.some(n=>!n.read_at)?'<form method="post" action="/notifications/read-all">'+csrfField(req)+'<button class="copy-btn" type="submit">Mark all read</button></form>':'')+'</div>'+(items||'<div class="member-card"><strong>You are all caught up.</strong><p class="muted">New account and Sovereign Desk updates will appear here.</p></div>')+'</section>';
+    res.send(memberPage('Notifications','/notifications',m,content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') { const m=await getMemberForPage(req,res); if(m) return res.send(memberPage('Notifications','/notifications',m,'<div class="member-card"><strong>Notifications are being configured</strong><p class="muted">The notification migration must be applied before messages can be stored.</p></div>',req)); return; } next(e); }
+});
+app.post('/notifications/:id/read', requireAuth, express.urlencoded({extended:false,limit:'2kb'}), csrfCheck, async(req,res,next)=>{
+  try {
+    if(!/^\d{1,20}$/.test(String(req.params.id||'')))return res.status(400).send(page('Invalid notification','<h1>Invalid notification</h1>'));
+    const [result]=await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND member_id=?',[req.params.id,req.session.memberId]);
+    if(!result.affectedRows)return res.status(404).send(page('Notification not found','<h1>Notification not found</h1><a class="btn" href="/notifications">Back to notifications</a>'));
+    res.redirect('/notifications');
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Notifications unavailable','migrations/005_member_dashboard_and_sovereign_desk.sql'));next(e); }
+});
+app.post('/notifications/read-all', requireAuth, express.urlencoded({extended:false,limit:'2kb'}), csrfCheck, async(req,res,next)=>{
+  try { await pool.execute('UPDATE member_notifications SET read_at=CURRENT_TIMESTAMP WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);res.redirect('/notifications'); }
+  catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Notifications unavailable','migrations/005_member_dashboard_and_sovereign_desk.sql'));next(e); }
+});
+app.get('/academy', requireAuth, async(req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [grant]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1",[m.id]);
+    const hasPremiumAccess=grant.length>0;
+    const [lessons]=await pool.execute("SELECT l.id,l.title,l.description,l.content,l.video_url,l.access_level,l.sort_order,p.completed_at FROM academy_lessons l LEFT JOIN academy_progress p ON p.lesson_id=l.id AND p.member_id=? WHERE l.status='published' ORDER BY l.sort_order,l.created_at",[m.id]);
+    const items=lessons.map(l=>{
+      const unlocked=l.access_level==='free'||hasPremiumAccess;
+      const video=unlocked&&l.video_url&&/^https:\/\//i.test(l.video_url)?'<p><a class="btn" href="'+esc(l.video_url)+'" target="_blank" rel="noopener noreferrer">Open lesson video</a></p>':'';
+      return '<article class="member-card"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><h3>'+esc(l.title)+'</h3><span class="member-overline">'+(unlocked?'Available':'Premium · Locked')+'</span></div><p class="muted">'+esc(l.description||'')+'</p>'+(unlocked?'<div style="white-space:pre-wrap;line-height:1.7">'+esc(l.content)+'</div>'+video+(l.completed_at?'<p class="member-overline">Completed '+esc(l.completed_at)+'</p>':'<form method="post" action="/academy/lessons/'+encodeURIComponent(l.id)+'/complete">'+csrfField(req)+'<button class="btn" type="submit">Mark completed</button></form>'):'<p class="muted">Premium lesson content is hidden until an authorised Academy access grant is active.</p>')+'</article>';
+    }).join('');
+    res.send(memberPage('Academy','/academy',m,'<section><h2>Your learning</h2><p class="muted">Published lessons and completion progress are loaded from the Academy database.</p>'+(items||'<div class="member-card"><strong>No lessons are published yet.</strong><p class="muted">Your learning content will appear here when it is published by an authorised administrator.</p></div>')+'</section>',req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') { const m=await getMemberForPage(req,res); if(m)return res.send(memberPage('Academy','/academy',m,'<div class="member-card"><strong>Academy is being configured</strong><p class="muted">The additive Academy migration must be applied before lessons and progress can be displayed.</p></div>',req));return; } next(e); }
+});
+app.post('/academy/lessons/:id/complete', requireAuth, express.urlencoded({extended:false,limit:'2kb'}), csrfCheck, async(req,res,next)=>{
+  const id=String(req.params.id||'');if(!/^\d{1,20}$/.test(id))return res.status(400).send(page('Invalid lesson','<h1>Invalid lesson</h1>'));
+  try {
+    const [lessons]=await pool.execute("SELECT id,access_level FROM academy_lessons WHERE id=? AND status='published' LIMIT 1",[id]);
+    if(!lessons.length)return res.status(404).send(page('Lesson unavailable','<h1>Lesson unavailable</h1>'));
+    if(lessons[0].access_level==='premium'){
+      const [grant]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1",[req.session.memberId]);
+      if(!grant.length)return res.status(403).send(page('Access required','<h1>Academy access required</h1><a class="btn" href="/academy">Back to Academy</a>'));
+    }
+    await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
+    res.redirect('/academy');
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Academy unavailable','migrations/005_member_dashboard_and_sovereign_desk.sql'));next(e); }
+});
 app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
   if (err) return next(err);
   res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });

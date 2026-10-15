@@ -50,3 +50,50 @@ The KYC submission route is implemented, but it remains unavailable until the fo
 - Restrict server and database backups, set a documented retention/deletion policy, publish a reviewed privacy notice, and confirm applicable privacy/legal requirements before production KYC collection.
 
 Uploaded files are encrypted at rest with AES-256-GCM. The admin queue currently exposes submission metadata and status review only; a separately authenticated, audited document-view/download workflow and deletion/retention tooling must be completed before staff can inspect submitted images. Do not treat the KYC system as production-ready until those controls and live tests are complete.
+
+
+## Monarch dashboard and Sovereign Desk implementation
+
+The member area reuses the existing black-and-gold Monarch Codex layout and session authentication. New dashboard navigation links to Notifications, Academy, and Sovereign Desk; the overview reports the member's actual KYC status. Notification reads and Academy progress are scoped to the authenticated member. Premium Academy lesson content is withheld unless an explicit active Academy access grant exists. Sovereign Desk signals and guidance are returned only after an explicit approved access grant.
+
+### Additive database migrations
+
+After taking and verifying a production backup, review and apply these migrations to the existing database in order. Do not drop, reset, or re-import the database:
+
+1. `migrations/002_admin_access.sql` if the existing `admin_users` and `admin_audit_log` tables are not already present.
+2. The existing KYC migrations required by the deployment (`001_kyc_submissions.sql` and `003_kyc_submission_storage.sql`) only if not already applied.
+3. `migrations/004_admin_sovereign_desk.sql` for signal, guidance, access-grant, and access-request records.
+4. `migrations/005_member_dashboard_and_sovereign_desk.sql` for role values, private member notifications, Academy lessons/access, and lesson progress.
+
+These are additive schema changes. Check the live schema before applying migrations, because a migration may already have been applied manually.
+
+### Explicit administrator provisioning
+
+Administrator access is determined from `admin_users` and the authenticated database member ID, not from an email supplied by the browser. Do not automatically provision roles merely because an email address exists. First verify that the intended account belongs to the authorised person and that the account has a secure password; then run the appropriate statement as a trusted database operator:
+
+```sql
+-- Main Admin: can access both the Main Admin and Sovereign Desk workspaces.
+INSERT INTO admin_users (member_id, role, is_active)
+SELECT id, 'main_admin', 1
+FROM members
+WHERE LOWER(email) = LOWER('trademonarchofficial@gmail.com')
+ON DUPLICATE KEY UPDATE role = VALUES(role), is_active = VALUES(is_active);
+
+-- Sovereign Desk-only Admin: no Main Admin access.
+INSERT INTO admin_users (member_id, role, is_active)
+SELECT id, 'sovereign_desk_admin', 1
+FROM members
+WHERE LOWER(email) = LOWER('handsomeprovidence38@gmail.com')
+ON DUPLICATE KEY UPDATE role = VALUES(role), is_active = VALUES(is_active);
+```
+
+Check that each statement matched exactly the intended account. If it matched zero rows, create/verify the account first. Never share database passwords or encryption keys.
+
+### Honest activation status and limitations
+
+- KYC submission uses encrypted private file storage and the existing KYC schema. It requires the documented private storage directory, encryption key, and migrations. Duplicate pending/approved submissions are blocked, and the member page shows the actual review status and rejection/resubmission note.
+- Notifications are persisted per member and can be marked read only by that member. KYC decisions and Sovereign Desk events create notifications when the notification migration is applied.
+- Academy lesson display and progress tracking are database-backed. Lesson authoring and premium access grants still require a trusted operator/admin workflow.
+- Sovereign Desk signal/guidance authoring, access requests, approvals, and audit writes use the database tables from migration 004. The role column must be extended by migration 005 before using the new role values.
+- Deposit, withdrawal, wallet balance, investment purchase, and unified transaction-ledger workflows remain intentionally disabled because this repository does not contain a verified financial ledger or active payment/payout integration. Do not accept transfers or claim balances/earnings are live until those workflows are designed, implemented transactionally, and tested against the actual payment configuration.
+- No production database was changed by the code changes alone. Apply migrations and deploy only after reviewing the pull request and verifying the hosting environment.
