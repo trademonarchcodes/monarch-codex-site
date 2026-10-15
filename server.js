@@ -303,6 +303,7 @@ const adminSectionInfo = {
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']
 };
 for (const [route, info] of Object.entries(adminSectionInfo)) {
+  if (['/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
   app.get(route, requireAdmin, async (req,res,next) => {
     if (req.adminRole === 'sovereign_desk_admin') return res.status(403).send(page('Access denied','<h1>Access denied</h1><p class="muted">This section is reserved for Main Admin.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
     try {
@@ -311,6 +312,86 @@ for (const [route, info] of Object.entries(adminSectionInfo)) {
     } catch(e) { next(e); }
   });
 }
+app.get('/admin/referrals', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT c.id,c.full_name,c.username,c.email,c.monarch_uid,c.created_at,r.full_name AS referrer_name,r.username AS referrer_username,r.monarch_uid AS referrer_uid FROM members c JOIN members r ON r.id=c.referred_by ORDER BY c.created_at DESC LIMIT 300');
+    const items = rows.map(r => '<tr><td><strong>' + esc(r.full_name || r.username) + '</strong><br><small>' + esc(r.email) + '</small><br>' + esc(r.monarch_uid || '—') + '</td><td><strong>' + esc(r.referrer_name || r.referrer_username) + '</strong><br><small>' + esc(r.referrer_username) + ' · ' + esc(r.referrer_uid || '—') + '</small></td><td>' + esc(r.created_at || '—') + '</td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Referral attribution</h2><p class="muted">These rows come from the members.referred_by relationship. Referral commissions and earnings are not displayed because no verified commission ledger is connected.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Referred member</th><th>Referrer</th><th>Registered</th></tr></thead><tbody>' + (items || '<tr><td colspan="3">No referred members found.</td></tr>') + '</tbody></table></div></section>';
+    res.send(adminControlPage('Referral monitoring','/admin/referrals',content,req));
+  } catch(e) { next(e); }
+});
+app.get('/admin/academy', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT l.id,l.title,l.description,l.access_level,l.status,l.sort_order,l.created_at,m.username AS creator FROM academy_lessons l LEFT JOIN members m ON m.id=l.created_by ORDER BY l.sort_order ASC,l.created_at DESC LIMIT 200');
+    const items = rows.map(l => '<tr><td><strong>' + esc(l.title) + '</strong><br><small>' + esc(l.description || '') + '</small></td><td>' + esc(l.access_level) + '</td><td>' + esc(l.status) + '</td><td>' + esc(l.creator || '—') + '</td><td><form method="post" action="/admin/academy/lessons/' + encodeURIComponent(l.id) + '/status">' + csrfField(req) + '<select name="status" aria-label="Lesson status"><option value="draft"' + (l.status === 'draft' ? ' selected' : '') + '>Draft</option><option value="published"' + (l.status === 'published' ? ' selected' : '') + '>Published</option><option value="archived"' + (l.status === 'archived' ? ' selected' : '') + '>Archived</option></select><button class="btn" type="submit">Save status</button></form></td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Create a lesson</h2><p class="muted">Create educational content. Premium access remains controlled by an explicit access grant; publishing a lesson does not grant premium access.</p><form method="post" action="/admin/academy/lessons" class="ac-form">' + csrfField(req) + '<label>Lesson title<input name="title" required maxlength="180"></label><label>Description<textarea name="description" rows="2" maxlength="1000"></textarea></label><label>Lesson content<textarea name="content" rows="8" required maxlength="50000"></textarea></label><label>Optional video URL<input name="video_url" type="url" maxlength="1000" placeholder="https://…"></label><label>Access level<select name="access_level"><option value="free">Free</option><option value="premium">Premium</option></select></label><label>Initial status<select name="status"><option value="draft">Draft</option><option value="published">Published</option></select></label><button class="btn" type="submit">Create lesson</button></form></section><section class="ac-panel"><h2>Lessons</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Lesson</th><th>Access</th><th>Status</th><th>Created by</th><th>Update</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No lessons created yet.</td></tr>') + '</tbody></table></div></section><style>.ac-form{display:grid;gap:12px;max-width:820px}.ac-form label{display:grid;gap:6px}.ac-form input,.ac-form textarea,.ac-form select,td select{width:100%;min-width:0;padding:10px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c;font:inherit}.ac-form textarea{resize:vertical}</style>';
+    res.send(adminControlPage('Academy management','/admin/academy',content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:false,limit:'60kb'}), csrfCheck, async (req,res,next) => {
+  try {
+    const title = String(req.body.title || '').trim().slice(0,180);
+    const description = String(req.body.description || '').trim().slice(0,1000);
+    const content = String(req.body.content || '').trim().slice(0,50000);
+    const accessLevel = ['free','premium'].includes(req.body.access_level) ? req.body.access_level : 'free';
+    const status = ['draft','published'].includes(req.body.status) ? req.body.status : 'draft';
+    const rawVideoUrl = String(req.body.video_url || '').trim().slice(0,1000);
+    let videoUrl = null;
+    if (rawVideoUrl) {
+      try { const parsed = new URL(rawVideoUrl); if (!['http:','https:'].includes(parsed.protocol)) throw new Error('Unsupported URL protocol'); videoUrl = parsed.toString(); }
+      catch (_) { return res.status(400).send(page('Invalid video URL','<h1>Enter a valid HTTPS or HTTP video URL</h1><a class="btn" href="/admin/academy">Return to Academy</a>')); }
+    }
+    if (!title || !content) return res.status(400).send(page('Lesson details required','<h1>Enter a lesson title and content</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
+    await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);
+    res.redirect('/admin/academy');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+  const id = String(req.params.id || '');
+  const status = String(req.body.status || '');
+  if (!/^\d{1,20}$/.test(id) || !['draft','published','archived'].includes(status)) return res.status(400).send(page('Invalid lesson update','<h1>Invalid lesson status</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
+  try {
+    const [result] = await pool.execute('UPDATE academy_lessons SET status=? WHERE id=?',[status,id]);
+    if (!result.affectedRows) return res.status(404).send(page('Lesson not found','<h1>Lesson not found</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
+    res.redirect('/admin/academy');
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.get('/admin/sovereign-desk', requireAdmin, (req,res) => {
+  if (req.adminRole === 'sovereign_desk_admin') return res.redirect('/sovereign-admin');
+  res.redirect('/sovereign-admin');
+});
+app.get('/admin/notifications', requireAdmin, async (req,res,next) => {
+  try {
+    const [rows] = await pool.query('SELECT n.id,n.notification_type,n.title,n.body,n.target_url,n.read_at,n.created_at,m.full_name,m.username,m.email FROM member_notifications n JOIN members m ON m.id=n.member_id ORDER BY n.created_at DESC LIMIT 200');
+    const items = rows.map(n => '<tr><td><strong>' + esc(n.title) + '</strong><br><small>' + esc(n.notification_type) + '</small><p>' + esc(n.body) + '</p></td><td>' + esc(n.full_name || n.username) + '<br><small>' + esc(n.email) + '</small></td><td>' + esc(n.read_at ? 'Read' : 'Unread') + '</td><td>' + esc(n.created_at) + '</td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Member notification log</h2><p class="muted">This is the persisted in-app notification log for members. Email send attempts are logged separately by the application and are not represented as confirmed delivery here.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Notification</th><th>Member</th><th>Read status</th><th>Created</th></tr></thead><tbody>' + (items || '<tr><td colspan="4">No member notifications recorded yet.</td></tr>') + '</tbody></table></div></section>';
+    res.send(adminControlPage('Notifications','/admin/notifications',content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Notification setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+app.get('/admin/audit', requireAdmin, async (req,res,next) => {
+  try {
+    const [admins] = await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name,m.email FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
+    const [events] = await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 100');
+    const adminRows = admins.map(a => '<tr><td>' + esc(a.full_name || a.username) + '<br><small>' + esc(a.email) + '</small></td><td>' + esc(String(a.role).replace(/_/g,' ')) + '</td><td>' + esc(Number(a.is_active) ? 'Active' : 'Inactive') + '</td><td>' + esc(a.created_at) + '</td></tr>').join('');
+    const eventRows = events.map(e => '<tr><td>' + esc(e.action) + '</td><td>' + esc(e.target_type || '—') + ' ' + esc(e.target_id || '') + '</td><td>' + esc(e.username) + '</td><td>' + esc(typeof e.details === 'string' ? e.details : JSON.stringify(e.details || {})) + '</td><td>' + esc(e.created_at) + '</td></tr>').join('');
+    const content = '<section class="ac-panel"><h2>Provisioned administrators</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Account</th><th>Role</th><th>Status</th><th>Added</th></tr></thead><tbody>' + (adminRows || '<tr><td colspan="4">No administrator rows found.</td></tr>') + '</tbody></table></div></section><section class="ac-panel"><h2>Recent audit events</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Action</th><th>Target</th><th>Actor</th><th>Details</th><th>Date</th></tr></thead><tbody>' + (eventRows || '<tr><td colspan="5">No audit events recorded yet.</td></tr>') + '</tbody></table></div></section>';
+    res.send(adminControlPage('Audit & access','/admin/audit',content,req));
+  } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Audit setup required','migrations/002_admin_access.sql')); next(e); }
+});
+app.get('/admin/settings', requireAdmin, (req,res) => {
+  const settings = [
+    ['Database connection variables', Boolean(process.env.DB_HOST && process.env.DB_USER && process.env.DB_PASSWORD && process.env.DB_NAME)],
+    ['Session secret', Boolean(process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32)],
+    ['SMTP host and account', Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD)],
+    ['Sender address', Boolean(process.env.MAIL_FROM)],
+    ['Public application URL', Boolean(process.env.APP_BASE_URL)],
+    ['KYC storage directory and encryption key', Boolean(process.env.KYC_STORAGE_DIR && process.env.KYC_ENCRYPTION_KEY)]
+  ];
+  const rows = settings.map(([label,ok]) => '<tr><td>' + esc(label) + '</td><td><span class="ac-pill">' + (ok ? 'Configured' : 'Needs configuration') + '</span></td></tr>').join('');
+  const content = '<section class="ac-panel"><h2>Configuration health</h2><p class="muted">This page reports whether required environment settings are present. It never displays passwords, secret keys, or private storage paths. Change secrets in Hostinger environment settings, not here.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Setting</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table></div></section>';
+  res.send(adminControlPage('Platform settings','/admin/settings',content,req));
+});
+
 app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   try {
     const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active FROM members m LEFT JOIN admin_users au ON au.member_id=m.id ORDER BY m.id DESC LIMIT 200');
@@ -397,6 +478,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
       if (found[0].status === 'approved' && status !== 'approved') { await conn.rollback(); return res.status(409).send(page('KYC already approved','<h1>This KYC application is already approved</h1><p class="muted">Approved verification cannot be reversed through this form.</p><a class="btn" href="/admin/kyc">Back to review queue</a>')); }
       await conn.execute('UPDATE kyc_submissions SET status = ?, reviewer_member_id = ?, reviewer_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',[status,req.session.memberId,note || null,id]);
       await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note || null]);
+      await conn.execute('INSERT INTO admin_audit_log (admin_member_id, action, target_type, target_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)',[req.session.memberId,'kyc.' + status,'kyc_submission',String(id),JSON.stringify({status,reason_code:status === 'rejected' ? reasonCode : null}),req.ip || null]);
       const [applicantRows] = await conn.execute('SELECT m.id AS member_id, m.full_name, m.email FROM kyc_submissions k JOIN members m ON m.id = k.member_id WHERE k.id = ? LIMIT 1',[id]);
       var kycApplicant = applicantRows[0] || null;
       await conn.commit();
