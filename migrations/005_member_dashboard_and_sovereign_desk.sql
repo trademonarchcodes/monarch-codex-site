@@ -37,6 +37,22 @@ CREATE TABLE IF NOT EXISTS academy_lessons (
   CONSTRAINT fk_academy_lesson_creator FOREIGN KEY (created_by) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS academy_access (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  member_id BIGINT UNSIGNED NOT NULL,
+  status ENUM('approved','revoked') NOT NULL DEFAULT 'approved',
+  granted_by BIGINT UNSIGNED NOT NULL,
+  reason VARCHAR(500) NULL,
+  expires_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_academy_access_member (member_id),
+  KEY idx_academy_access_status (status,expires_at),
+  CONSTRAINT fk_academy_access_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+  CONSTRAINT fk_academy_access_granter FOREIGN KEY (granted_by) REFERENCES members(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS academy_progress (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   member_id BIGINT UNSIGNED NOT NULL,
