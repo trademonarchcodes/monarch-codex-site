@@ -44,6 +44,15 @@ test('Sovereign Desk tables and private notification uniqueness are additive', (
   assert.doesNotMatch(deskMigration + memberMigration, /DROP TABLE|TRUNCATE TABLE|CREATE TABLE members\b/i);
 });
 
+test('admins can inspect KYC document images and selfie at full size', () => {
+  assert.match(server, /data-image-src="\/admin\/kyc\/\x27\+encodeURIComponent\(id\)\+\x27\/document\/\x27\+kind/);
+  assert.match(server, /class="kyc-image-dialog"/);
+  assert.match(server, /class="kyc-image-dialog-image"/);
+  assert.match(server, /Open full size/);
+  assert.match(server, /app\.get\('\/admin\/kyc\/:id\/document\/:kind', requireAdmin/);
+  assert.match(server, /Cache-Control': 'no-store, private/);
+});
+
 test('KYC decisions use explicit rejection reasons and notify the member', () => {
   assert.match(server, /const KYC_REJECTION_REASONS = Object\.freeze/);
   assert.match(server, /name="reason_code" required/);
