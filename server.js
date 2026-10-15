@@ -358,7 +358,7 @@ app.get('/member-avatar/:key', async(req,res,next)=>{
   try{
     const key=String(req.params.key||'');
     if(!/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key))return res.sendStatus(404);
-    const [rows]=await pool.execute('SELECT id FROM member_profiles WHERE avatar_key=? LIMIT 1',[key]);
+    const [rows]=await pool.execute('SELECT member_id FROM member_profiles WHERE avatar_key=? LIMIT 1',[key]);
     if(!rows.length)return res.sendStatus(404);
     const dir=process.env.PROFILE_UPLOAD_DIR;
     if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.sendStatus(404);
