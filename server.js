@@ -750,6 +750,9 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
               [req.session.memberId,b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]]);
             submissionId = result.insertId;
             await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,?)',[submissionId,req.session.memberId,previousKycStatus ? 'resubmitted' : 'submitted']);
+            try {
+              await conn.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) SELECT au.member_id,'admin_action','New KYC submission',CONCAT('KYC submission ',?,' is awaiting review.'),'/admin/kyc',CONCAT('kyc-submission:',?,':',au.member_id) FROM admin_users au WHERE au.is_active=1 AND au.role IN ('super_admin','main_admin')",[submissionId,submissionId]);
+            } catch(notificationError) { if(notificationError.code!=='ER_NO_SUCH_TABLE') throw notificationError; }
             await conn.commit();
           } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
           return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
