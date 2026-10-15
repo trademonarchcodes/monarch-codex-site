@@ -422,13 +422,13 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
         const back = files.documentBack && files.documentBack[0];
         const selfie = files.selfie && files.selfie[0];
         const docNumber = String(b.documentNumber || '').trim();
-        if (!validKycText(b.legalFullName,160) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(b.dateOfBirth || '') ||
-            !validKycText(b.phoneNumber,32) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(b.contactEmail || '') ||
+        if (!validKycText(b.legalFullName,160) || !/^\d{4}-\d{2}-\d{2}$/.test(b.dateOfBirth || '') ||
+            !validKycText(b.phoneNumber,32) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.contactEmail || '') ||
             !['NG','GH','KE','ZA'].includes(b.countryCode) || !validKycText(b.stateRegion,120) ||
             !validKycText(b.localityLga,120) || !validKycText(b.streetAddress,240) ||
             !['national_id','passport','drivers_license','voters_card'].includes(b.documentType) ||
             !['NG','GH','KE','ZA'].includes(b.documentIssuerCountry) || !validKycText(docNumber,80) ||
-            (b.documentType === 'national_id' && b.documentIssuerCountry === 'NG' && !/^\\d{11}$/.test(docNumber)) ||
+            (b.documentType === 'national_id' && b.documentIssuerCountry === 'NG' && !/^\d{11}$/.test(docNumber)) ||
             !front || !selfie || b.confirmOwnership !== 'yes') {
           return res.status(400).json({ error: 'Check all required fields, the NIN length, consent, and required images.' });
         }
