@@ -1,5 +1,9 @@
 -- Monarch Codex email verification migration.
 -- Apply once to the existing production database before deploying the email-verification-enabled server.
+-- Existing accounts are grandfathered as verified; newly registered accounts must verify their email.
+ALTER TABLE members ADD COLUMN email_verified_at DATETIME NULL AFTER email;
+UPDATE members SET email_verified_at = created_at WHERE email_verified_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   member_id BIGINT UNSIGNED NOT NULL,
