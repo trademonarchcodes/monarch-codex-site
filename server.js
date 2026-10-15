@@ -94,7 +94,7 @@ function loginForm(req, message) {
   '<button class="btn" type="submit">Log in</button></form><div class="links"><a href="/forgot-password">Forgot password?</a><a href="/register">Create account</a></div>');
 }
 app.get('/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'monarch-codex' }); } catch (_) { res.status(503).json({ ok: false, service: 'monarch-codex' }); } });
-app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
+app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
 app.get('/register', (req, res) => res.send(registerForm(req)));
 app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
   try {
@@ -115,7 +115,7 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
     let referrerId = null;
     const referralCode = String(req.session.registrationReferralCode || req.body.referralCode || req.query.ref || '').trim().toUpperCase();
     if (referralCode) {
-      if (!/^MONARCH\\d{6}$/.test(referralCode)) return res.status(400).send(formError('Invalid referral code', 'That referral code is not valid. Check it and try again.'));
+      if (!/^MONARCH\d{6}$/.test(referralCode)) return res.status(400).send(formError('Invalid referral code', 'That referral code is not valid. Check it and try again.'));
       const [referrers] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [referralCode]);
       if (!referrers.length) return res.status(400).send(formError('Referral code not found', 'That referral code does not exist. Please correct it or remove it.', '/register'));
       referrerId = referrers[0].id;
@@ -177,7 +177,8 @@ async function requireAdmin(req, res, next) {
     if (!rows.length) return res.status(403).send(page('Admin access required',
       '<h1>Admin access required</h1><p class="muted">This account has not been provisioned for administrator access. Sign in with an authorised admin account or contact the site owner.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
     req.adminRole = rows[0].role;
-    next();  } catch (e) {
+    next();
+  } catch (e) {
     if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Admin setup required',
       '<h1>Admin setup required</h1><p class="muted">The admin database migration has not been applied yet. Apply migrations/002_admin_access.sql, then provision an admin account securely.</p><a class="btn" href="/dashboard">Return to dashboard</a>'));
     next(e);
@@ -274,7 +275,7 @@ app.get('/admin/members', requireAdmin, async (req,res,next)=>{
 
 app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
   try {
-    const id=String(req.params.id||''); if(!/^\\d{1,20}$/.test(id)) return res.sendStatus(400);
+    const id=String(req.params.id||''); if(!/^\d{1,20}$/.test(id)) return res.sendStatus(400);
     const [rows]=await pool.execute('SELECT k.*,m.username,m.monarch_uid FROM kyc_submissions k JOIN members m ON m.id=k.member_id WHERE k.id=? LIMIT 1',[id]);
     if(!rows.length) return res.status(404).send(page('Not found','<h1>KYC submission not found</h1><a class="btn" href="/admin/kyc">Back to queue</a>'));
     const k=rows[0]; let docNumber='Unable to decrypt with current key';
@@ -291,9 +292,9 @@ app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
   try {
     const id=String(req.params.id||''),kind=String(req.params.kind||'');
     const cols={front:'document_front_private_key',back:'document_back_private_key',selfie:'selfie_private_key'};
-    if(!/^\\d{1,20}$/.test(id)||!Object.prototype.hasOwnProperty.call(cols,kind)) return res.sendStatus(404);
+    if(!/^\d{1,20}$/.test(id)||!Object.prototype.hasOwnProperty.call(cols,kind)) return res.sendStatus(404);
     const [rows]=await pool.execute('SELECT '+cols[kind]+' AS private_key FROM kyc_submissions WHERE id=? LIMIT 1',[id]);
-    if(!rows.length||!rows[0].private_key||!/^[a-f0-9]{48}\\.enc$/.test(rows[0].private_key)) return res.sendStatus(404);
+    if(!rows.length||!rows[0].private_key||!/^[a-f0-9]{48}\.enc$/.test(rows[0].private_key)) return res.sendStatus(404);
     const config=getKycStorageConfig(),encrypted=fs.readFileSync(path.join(config.directory,rows[0].private_key)),image=decryptKycBuffer(encrypted,config.key);
     let mime=''; if(image.subarray(0,3).equals(Buffer.from([255,216,255])))mime='image/jpeg';else if(image.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))mime='image/png';else return res.sendStatus(415);
     res.set({'Content-Type':mime,'Content-Disposition':'inline','Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff'});return res.send(image);
@@ -311,7 +312,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
   const id = String(req.params.id || '');
   const status = req.body.status;
   const note = String(req.body.note || '').trim().slice(0,1000);
-  if (!/^\\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
+  if (!/^\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
   try {
     const conn = await pool.getConnection();
     try {
@@ -385,7 +386,8 @@ function encryptProfileValue(value) {
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
 }
 function decryptProfileValue(value) {
-  if (!value) return '';  const data = Buffer.from(value, 'base64'), iv = data.subarray(0,12), tag = data.subarray(12,28), encrypted = data.subarray(28);
+  if (!value) return '';
+  const data = Buffer.from(value, 'base64'), iv = data.subarray(0,12), tag = data.subarray(12,28), encrypted = data.subarray(28);
   const decipher = crypto.createDecipheriv('aes-256-gcm', profileKey(), iv); decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 }
@@ -570,7 +572,8 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
             submissionId = result.insertId;
             await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
             await conn.commit();
-          } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }          return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
+          } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
+          return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
         } catch (e) {
           for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
           if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'KYC database migration has not been applied.' });
