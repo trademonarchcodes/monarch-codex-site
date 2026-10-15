@@ -343,6 +343,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
   const status = req.body.status;
   const note = String(req.body.note || '').trim().slice(0,1000);
   if (!/^\d{1,20}$/.test(id) || !['pending','approved','rejected','needs_resubmission'].includes(status)) return res.status(400).send(page('Invalid review','<h1>Invalid review request</h1>'));
+  if (['rejected','needs_resubmission'].includes(status) && !note) return res.status(400).send(page('Review reason required','<h1>Please provide a reason</h1><p class="muted">A clear reason is required when rejecting KYC or requesting resubmission.</p><a class="btn" href="/admin/kyc/' + esc(id) + '">Return to review</a>'));
   try {
     const conn = await pool.getConnection();
     try {
