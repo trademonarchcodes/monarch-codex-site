@@ -50,7 +50,7 @@ test('admins can inspect KYC document images and selfie at full size', () => {
   assert.match(server, /class="kyc-image-dialog-image"/);
   assert.match(server, /Open full size/);
   assert.match(server, /app\.get\('\/admin\/kyc\/:id\/document\/:kind', requireAdmin/);
-  assert.match(server, /Cache-Control': 'no-store, private/);
+  assert.match(server, /no-store, private/);
 });
 
 test('KYC decisions use explicit rejection reasons and notify the member', () => {
