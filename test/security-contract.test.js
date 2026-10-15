@@ -39,3 +39,12 @@ test('Sovereign Desk tables and private notification uniqueness are additive', (
   assert.match(memberMigration, /CREATE TABLE IF NOT EXISTS academy_progress/);
   assert.doesNotMatch(deskMigration + memberMigration, /DROP TABLE|TRUNCATE TABLE|CREATE TABLE members\b/i);
 });
+
+test('KYC decisions use explicit rejection reasons and notify the member', () => {
+  assert.match(server, /const KYC_REJECTION_REASONS = Object\.freeze/);
+  assert.match(server, /name="reason_code" required/);
+  assert.match(server, /status === 'rejected' && !reason/);
+  assert.match(server, /INSERT INTO member_notifications \(member_id, notification_type, title, body, target_url, dedupe_key\)/);
+  assert.match(server, /Congratulations .*Your identity verification has been approved/);
+  assert.match(server, /found\[0\]\.status === 'approved' && status !== 'approved'/);
+});
