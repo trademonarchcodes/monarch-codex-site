@@ -177,13 +177,17 @@ async function requireAdmin(req, res, next) {
     if (!rows.length) return res.status(403).send(page('Admin access required',
       '<h1>Admin access required</h1><p class="muted">This account has not been provisioned for administrator access. Sign in with an authorised admin account or contact the site owner.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
     req.adminRole = rows[0].role;
-    if (!['super_admin','main_admin','sovereign_desk_admin'].includes(req.adminRole)) {
+    if (!['super_admin','main_admin','limited_admin','sovereign_desk_admin'].includes(req.adminRole)) {
       return res.status(403).send(page('Administrator role unavailable',
-        '<h1>Administrator role unavailable</h1><p class="muted">This legacy administrator role is not authorised for the new control areas. Ask the Main Admin to review its permissions.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
+        '<h1>Administrator role unavailable</h1><p class="muted">This administrator role is not authorised for the requested control area. Ask the Main Admin to review its permissions.</p><a class="btn" href="/dashboard">Return to member dashboard</a>'));
     }
     if (req.adminRole === 'sovereign_desk_admin' && req.path.startsWith('/admin')) {
       return res.status(403).send(page('Access denied',
         '<h1>Access denied</h1><p class="muted">Sovereign Desk administrators cannot access Main Admin, KYC or financial controls.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
+    }
+    if (req.adminRole === 'limited_admin' && req.path.startsWith('/sovereign-admin')) {
+      return res.status(403).send(page('Access denied',
+        '<h1>Access denied</h1><p class="muted">This legacy administrator role does not include Sovereign Desk publishing access.</p><a class="btn" href="/admin">Return to Main Admin</a>'));
     }
     next();
   } catch (e) {
