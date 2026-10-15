@@ -299,10 +299,15 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [found] = await conn.execute('SELECT id FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
+      const [found] = await conn.execute('SELECT id,member_id,status FROM kyc_submissions WHERE id = ? FOR UPDATE',[id]);
       if (!found.length) { await conn.rollback(); return res.status(404).send(page('Not found','<h1>KYC submission not found</h1>')); }
+      if (found[0].status === 'approved' && status !== 'approved') { await conn.rollback(); return res.status(409).send(page('Verification already approved','<h1>An approved verification cannot be downgraded through this review form.</h1><a class="btn" href="/admin/kyc">Return to KYC review</a>')); }
+      if (found[0].status === status && (status === 'pending' || status === 'approved')) { await conn.rollback(); return res.redirect('/admin/kyc'); }
       await conn.execute('UPDATE kyc_submissions SET status = ?, reviewer_member_id = ?, reviewer_note = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?',[status,req.session.memberId,note || null,id]);
       await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note || null]);
+      try {
+        await conn.execute("INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,'kyc_status','KYC verification update',?,'/kyc',CONCAT('kyc-review:',? ,':',? ,':',UNIX_TIMESTAMP()))",[found[0].member_id,'Your verification status is now '+status+'.'+(note?' Reviewer note: '+note:''),id,status]);
+      } catch(notificationError) { if(notificationError.code!=='ER_NO_SUCH_TABLE') throw notificationError; }
       await conn.commit();
     } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
     return res.redirect('/admin/kyc');
