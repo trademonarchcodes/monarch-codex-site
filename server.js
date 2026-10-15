@@ -702,6 +702,12 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
     try {
       csrfCheck(req, res, async csrfErr => {
         if (csrfErr) return;
+        let previousKycStatus = null;
+        try {
+          const [existingKyc] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC LIMIT 1',[req.session.memberId]);
+          previousKycStatus = existingKyc[0] ? existingKyc[0].status : null;
+          if (['pending','approved'].includes(previousKycStatus)) return res.status(409).json({error: previousKycStatus === 'approved' ? 'Your identity is already verified.' : 'Your verification is already under review.'});
+        } catch(e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
         let config;
         try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
         const b = req.body || {};
@@ -738,7 +744,7 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
               "INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
               [req.session.memberId,b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]]);
             submissionId = result.insertId;
-            await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,?)',[submissionId,req.session.memberId,previousKycStatus ? 'resubmitted' : 'submitted']);
             await conn.commit();
           } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
           return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
@@ -757,9 +763,21 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
-    const content = `
+    let latestKyc = null;
+    try {
+      const [kycRows] = await pool.execute('SELECT status,reviewer_note,submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC LIMIT 1',[m.id]);
+      latestKyc = kycRows[0] || null;
+    } catch(e) { if(e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    const statusLabels = {pending:'Under review',approved:'Verified',rejected:'Rejected',needs_resubmission:'Resubmission required'};
+    if (latestKyc && ['pending','approved'].includes(latestKyc.status)) {
+      const label = statusLabels[latestKyc.status] || latestKyc.status;
+      const note = latestKyc.reviewer_note ? '<p class="muted">'+esc(latestKyc.reviewer_note)+'</p>' : '';
+      return res.send(memberPage('KYC Verification','/kyc',m,'<section class="member-card"><span class="member-overline">IDENTITY VERIFICATION</span><h2>'+esc(label)+'</h2><p>Your latest verification submission was received on '+esc(latestKyc.submitted_at)+'.</p>'+note+(latestKyc.status==='approved'?'<p>Your identity has been verified.</p>':'<p>Your submission is waiting for an authorised review. You do not need to submit it again.</p>')+'</section>',req));
+    }
+    const kycStatusNotice = latestKyc ? '<section class="member-card"><h2>'+esc(statusLabels[latestKyc.status] || latestKyc.status)+'</h2><p>'+(latestKyc.status==='rejected'?'Your previous submission was rejected. Review the reason below and correct the information before resubmitting.':'Please review the administrator note and update your submission where needed.')+'</p>'+(latestKyc.reviewer_note?'<p class="muted">'+esc(latestKyc.reviewer_note)+'</p>':'')+'</section>' : '';
+    const content = `${kycStatusNotice}
       <div class="kyc-intro">Complete your verification in a few steps. You can go back to check your answers before submitting.</div>
-      <div class="kyc-security-note"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>Secure verification</strong><small>Identity verification is temporarily unavailable. Please try again later. Your information and documents will not be submitted unless verification is available.</small></span></div>
+      <div class="kyc-security-note"><span class="kyc-lock" aria-hidden="true">◆</span><span><strong>Secure verification</strong><small>Your identity documents are encrypted and submitted securely for authorised review.</small></span></div>
       <div class="kyc-progress" role="list" aria-label="Verification progress">
         <div class="kyc-progress-step is-active" data-progress-step="0" role="listitem"><span class="kyc-step-dot">1</span><span class="kyc-step-name">Personal</span></div><span class="kyc-progress-line"><i></i></span>
         <div class="kyc-progress-step" data-progress-step="1" role="listitem"><span class="kyc-step-dot">2</span><span class="kyc-step-name">Address</span></div><span class="kyc-progress-line"><i></i></span>
@@ -785,7 +803,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
           <label for="kycDocType">Identity document</label><select id="kycDocType" name="documentType" required><option value="">Select a document</option><option value="national_id">National identity card</option><option value="passport">International passport</option><option value="drivers_license">Driver's licence</option><option value="voters_card">Voter's card</option></select>
           <label for="kycDocCountry">Issuing country</label><select id="kycDocCountry" name="documentIssuerCountry" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option></select>
           <label for="kycDocNumber">Document number</label><input id="kycDocNumber" name="documentNumber" maxlength="80" autocomplete="off" aria-describedby="kycDocNumberError" required><p id="kycDocNumberError" class="kyc-field-error" role="alert" hidden></p>
-          <div class="kyc-hint">Identity verification is temporarily unavailable. Please try again later.</div>
+          <div class="kyc-hint">Your identity documents are encrypted and submitted securely for authorised review.</div>
         </section>
         <section class="kyc-stage" data-stage="3" hidden>
           <p class="kyc-stage-kicker">STEP 04 OF 04</p><h2>Documents & selfie</h2><p class="kyc-stage-copy">Please provide clear images of your document and a selfie. Do not continue if verification is unavailable.</p>
@@ -795,7 +813,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
             <div class="kyc-upload-card kyc-selfie-card"><span class="kyc-upload-icon">◎</span><strong>Live selfie</strong><small>Use your front camera to take a selfie</small><video id="kycSelfieVideo" autoplay playsinline muted hidden></video><canvas id="kycSelfieCanvas" hidden></canvas><img id="kycSelfiePreview" alt="Captured selfie preview" hidden><div class="kyc-camera-actions"><button type="button" class="kyc-camera-btn" id="kycStartCamera">Open camera</button><button type="button" class="kyc-camera-btn" id="kycCaptureSelfie" hidden>Capture selfie</button><button type="button" class="kyc-camera-btn" id="kycRetakeSelfie" hidden>Retake</button></div><p class="kyc-camera-status" id="kycCameraStatus" aria-live="polite">Selfie is camera capture only; image file selection is disabled.</p></div>
           </div>
           <div class="kyc-consent"><label for="kycConfirm"><input type="checkbox" id="kycConfirm" required> I confirm that the information is accurate and the images belong to me.</label></div>
-          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Identity verification is temporarily unavailable. You can review your entries, but submission may not be possible right now. Please try again later.</div>
+          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Identity verification is temporarily unavailable. Your information will be submitted securely when you confirm the final step.</div>
         </section>
         <div class="kyc-actions"><button type="button" id="kycBack" class="kyc-btn kyc-btn-secondary" hidden>Back</button><span class="kyc-steps-count" id="kycStepCount">Step 1 of 4</span><button type="button" id="kycNext" class="kyc-btn kyc-btn-primary">Continue <span aria-hidden="true">→</span></button></div>
         <p class="kyc-form-message" id="kycMessage" aria-live="polite"></p>
@@ -807,6 +825,58 @@ app.get('/deposit', requireAuth, async (req,res,next)=>{try{const m=await getMem
 app.get('/withdraw', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [rows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);const banks=rows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));const body='<div class="member-card"><h2>Withdrawal requests</h2><p class="muted">Choose a saved payout account for a future withdrawal request. Withdrawals remain disabled until KYC approval, payout processing, and the transaction ledger are operational.</p>'+(banks.length?'<form><label for="withdrawBank">Saved bank account</label><select id="withdrawBank" name="bankAccountId" disabled required>'+banks.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.bankName)+' — '+esc(b.bankAccountName)+' (••••'+esc(String(b.bankAccountNumber||'').slice(-4))+')</option>').join('')+'</select><p class="muted">Account selection will be enabled when withdrawal requests go live.</p></form>':'<p>No bank accounts saved yet. <a href="/profile">Add a bank account in your profile</a>.</p>')+'<p><a class="btn" href="/profile">Manage bank accounts</a></p><strong>Withdrawals are currently locked</strong></div>';res.send(memberPage('Withdraw','/withdraw',m,body,req));}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'Withdrawals are unavailable until the bank-account database migration is applied.',req));next(e)}});
 app.get('/transactions', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;res.send(memberPage('Transaction history','/transactions',m,'<div class="member-card"><strong>No transaction history available yet</strong><p class="muted">Once deposits and withdrawals are securely activated, each transaction will show its amount, currency, reference, date and status.</p></div>',req));}catch(e){next(e)}});
 app.get('/referrals', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [counts]=await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?',[m.id]);const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\/+$/,'');const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);const content='<div class="member-card"><p class="muted small">YOUR MONARCH UID</p><div class="copy-value"><strong id="pageUid">'+esc(m.monarch_uid)+'</strong><button class="copy-btn" type="button" data-copy-target="pageUid">Copy UID</button></div><p class="muted small">YOUR PERSONAL REFERRAL LINK</p><div class="copy-value"><input id="pageReferralLink" value="'+esc(link)+'" readonly><button class="copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="muted small">Referral attribution is recorded when a new account successfully registers using your code.</p></div><div class="grid"><div class="stat"><span class="muted small">Registered referrals</span><strong>'+Number(counts[0].total||0)+'</strong></div></div>';res.send(memberPage('Referrals','/referrals',m,content,req));}catch(e){next(e)}});
+
+app.get('/notifications', requireAuth, async(req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [rows]=await pool.execute('SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[m.id]);
+    const items=rows.map(n=>{
+      const target=typeof n.target_url==='string'&&/^\/(?!\/)/.test(n.target_url)?n.target_url:'/notifications';
+      return '<article class="member-card" style="border-color:'+(n.read_at?'#302f2b':'#5a4b1d')+'"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><strong>'+esc(n.title)+'</strong><span class="member-overline">'+(n.read_at?'Read':'Unread')+'</span></div><p>'+esc(n.body)+'</p><small class="muted">'+esc(n.created_at)+'</small><div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'+(target!=='/notifications'?'<a class="btn" href="'+esc(target)+'">Open</a>':'')+(!n.read_at?'<form method="post" action="/notifications/'+encodeURIComponent(n.id)+'/read">'+csrfField(req)+'<button class="btn" type="submit">Mark as read</button></form>':'')+'</div></article>';
+    }).join('');
+    const content='<section><div class="section-heading-row"><div><h2>Your notifications</h2><p class="muted">Only messages addressed to your Monarch account are shown here.</p></div>'+(rows.some(n=>!n.read_at)?'<form method="post" action="/notifications/read-all">'+csrfField(req)+'<button class="copy-btn" type="submit">Mark all read</button></form>':'')+'</div>'+(items||'<div class="member-card"><strong>You are all caught up.</strong><p class="muted">New account and Sovereign Desk updates will appear here.</p></div>')+'</section>';
+    res.send(memberPage('Notifications','/notifications',m,content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') { const m=await getMemberForPage(req,res); if(m) return res.send(memberPage('Notifications','/notifications',m,'<div class="member-card"><strong>Notifications are being configured</strong><p class="muted">The notification migration must be applied before messages can be stored.</p></div>',req)); return; } next(e); }
+});
+app.post('/notifications/:id/read', requireAuth, express.urlencoded({extended:false,limit:'2kb'}), csrfCheck, async(req,res,next)=>{
+  try {
+    if(!/^\d{1,20}$/.test(String(req.params.id||'')))return res.status(400).send(page('Invalid notification','<h1>Invalid notification</h1>'));
+    const [result]=await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND member_id=?',[req.params.id,req.session.memberId]);
+    if(!result.affectedRows)return res.status(404).send(page('Notification not found','<h1>Notification not found</h1><a class="btn" href="/notifications">Back to notifications</a>'));
+    res.redirect('/notifications');
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Notifications unavailable','migrations/005_member_dashboard_and_sovereign_desk.sql'));next(e); }
+});
+app.post('/notifications/read-all', requireAuth, express.urlencoded({extended:false,limit:'2kb'}), csrfCheck, async(req,res,next)=>{
+  try { await pool.execute('UPDATE member_notifications SET read_at=CURRENT_TIMESTAMP WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);res.redirect('/notifications'); }
+  catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Notifications unavailable','migrations/005_member_dashboard_and_sovereign_desk.sql'));next(e); }
+});
+app.get('/academy', requireAuth, async(req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [grant]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1",[m.id]);
+    const hasPremiumAccess=grant.length>0;
+    const [lessons]=await pool.execute("SELECT l.id,l.title,l.description,l.content,l.video_url,l.access_level,l.sort_order,p.completed_at FROM academy_lessons l LEFT JOIN academy_progress p ON p.lesson_id=l.id AND p.member_id=? WHERE l.status='published' ORDER BY l.sort_order,l.created_at",[m.id]);
+    const items=lessons.map(l=>{
+      const unlocked=l.access_level==='free'||hasPremiumAccess;
+      const video=unlocked&&l.video_url&&/^https:\/\//i.test(l.video_url)?'<p><a class="btn" href="'+esc(l.video_url)+'" target="_blank" rel="noopener noreferrer">Open lesson video</a></p>':'';
+      return '<article class="member-card"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><h3>'+esc(l.title)+'</h3><span class="member-overline">'+(unlocked?'Available':'Premium · Locked')+'</span></div><p class="muted">'+esc(l.description||'')+'</p>'+(unlocked?'<div style="white-space:pre-wrap;line-height:1.7">'+esc(l.content)+'</div>'+video+(l.completed_at?'<p class="member-overline">Completed '+esc(l.completed_at)+'</p>':'<form method="post" action="/academy/lessons/'+encodeURIComponent(l.id)+'/complete">'+csrfField(req)+'<button class="btn" type="submit">Mark completed</button></form>'):'<p class="muted">Premium lesson content is hidden until an authorised Academy access grant is active.</p>')+'</article>';
+    }).join('');
+    res.send(memberPage('Academy','/academy',m,'<section><h2>Your learning</h2><p class="muted">Published lessons and completion progress are loaded from the Academy database.</p>'+(items||'<div class="member-card"><strong>No lessons are published yet.</strong><p class="muted">Your learning content will appear here when it is published by an authorised administrator.</p></div>')+'</section>',req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') { const m=await getMemberForPage(req,res); if(m)return res.send(memberPage('Academy','/academy',m,'<div class="member-card"><strong>Academy is being configured</strong><p class="muted">The additive Academy migration must be applied before lessons and progress can be displayed.</p></div>',req));return; } next(e); }
+});
+app.post('/academy/lessons/:id/complete', requireAuth, express.urlencoded({extended:false,limit:'2kb'}), csrfCheck, async(req,res,next)=>{
+  const id=String(req.params.id||'');if(!/^\d{1,20}$/.test(id))return res.status(400).send(page('Invalid lesson','<h1>Invalid lesson</h1>'));
+  try {
+    const [lessons]=await pool.execute("SELECT id,access_level FROM academy_lessons WHERE id=? AND status='published' LIMIT 1",[id]);
+    if(!lessons.length)return res.status(404).send(page('Lesson unavailable','<h1>Lesson unavailable</h1>'));
+    if(lessons[0].access_level==='premium'){
+      const [grant]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>CURRENT_TIMESTAMP) LIMIT 1",[req.session.memberId]);
+      if(!grant.length)return res.status(403).send(page('Access required','<h1>Academy access required</h1><a class="btn" href="/academy">Back to Academy</a>'));
+    }
+    await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
+    res.redirect('/academy');
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Academy unavailable','migrations/005_member_dashboard_and_sovereign_desk.sql'));next(e); }
+});
 app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
   if (err) return next(err);
   res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
