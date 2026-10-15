@@ -332,7 +332,7 @@ app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
 app.post('/profile/bank', requireAuth, csrfCheck, async(req,res,next)=>{
   try{
     const bankName=String(req.body.bankName||'').trim(),bankAccountName=String(req.body.bankAccountName||'').trim(),bankAccountNumber=String(req.body.bankAccountNumber||'').trim();
-    if(!bankName||!bankAccountName||!/^\\d{6,34}$/.test(bankAccountNumber)||bankName.length>120||bankAccountName.length>160||(/[<>]/.test(bankName+bankAccountName)))return res.status(400).send(page('Invalid bank details','<h1>Check your bank details</h1><p class="muted">Enter a bank name, account name, and account number containing 6–34 digits.</p><a class="btn" href="/profile">Back to profile</a>'));
+    if(!bankName||!bankAccountName||!/^\d{6,34}$/.test(bankAccountNumber)||bankName.length>120||bankAccountName.length>160||(/[<>]/.test(bankName+bankAccountName)))return res.status(400).send(page('Invalid bank details','<h1>Check your bank details</h1><p class="muted">Enter a bank name, account name, and account number containing 6–34 digits.</p><a class="btn" href="/profile">Back to profile</a>'));
     const ciphertext=encryptProfileValue(JSON.stringify({bankName,bankAccountName,bankAccountNumber}));
     await pool.execute('INSERT INTO member_bank_accounts (member_id,details_ciphertext) VALUES (?,?)',[req.session.memberId,ciphertext]);
     res.redirect('/profile');
