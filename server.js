@@ -444,15 +444,20 @@ app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
   try {
     const [rows] = await pool.query("SELECT id,member_id,legal_full_name,contact_email,document_type,document_issuer_country,document_number_last4,status,submitted_at FROM kyc_submissions ORDER BY submitted_at DESC LIMIT 200");
     const rejectionOptions = Object.entries(KYC_REJECTION_REASONS).map(([value, reason]) => '<option value="' + esc(value) + '">' + esc(reason.label) + '</option>').join('');
+    const reviewKey = String(req.query.review || '');
+    const emailKey = String(req.query.email || '');
+    const reviewMessages = { approved: 'KYC application approved successfully.', rejected: 'KYC application rejected successfully.', needs_resubmission: 'Resubmission request saved successfully.' };
+    const emailMessages = { sent: 'The email was accepted by the mail server.', skipped: 'Email was not sent because SMTP is not configured.', failed: 'The decision was saved, but the email could not be sent. Check the server mail logs and SMTP settings.', no_address: 'The decision was saved, but the member has no email address.' };
+    const reviewNotice = reviewMessages[reviewKey] ? '<div class="ac-alert" role="status" style="border-color:#2e9c5d;background:#102a1c;color:#d4ffe2"><strong>Success:</strong> ' + esc(reviewMessages[reviewKey]) + ' ' + esc(emailMessages[emailKey] || '') + '</div>' : '';
     const items = rows.map(row => {
       const action = '/admin/kyc/' + encodeURIComponent(row.id) + '/review';
       return '<tr><td>' + esc(row.id) + '</td><td><strong>' + esc(row.legal_full_name) + '</strong><br><small>' + esc(row.contact_email) + '</small><br><a href="/admin/kyc/' + encodeURIComponent(row.id) + '">View application &amp; images →</a></td><td>' + esc(row.document_type) + ' (' + esc(row.document_issuer_country) + ')<br><small>•••• ' + esc(row.document_number_last4) + '</small></td><td>' + esc(row.status) + '</td><td><div class="kyc-queue-actions"><a class="btn" href="/admin/kyc/' + encodeURIComponent(row.id) + '">Review</a>' +
         (row.status === 'approved' ? '<span class="kyc-approved-label">Approved ✓</span>' :
-        '<form method="post" action="' + action + '" class="kyc-approve-form">' + csrfField(req) + '<input type="hidden" name="status" value="approved"><button class="btn kyc-approve" type="submit">Approve</button></form>' +
-        '<details class="kyc-reject-details"><summary class="btn kyc-reject">Reject</summary><form method="post" action="' + action + '" class="kyc-reject-form">' + csrfField(req) + '<input type="hidden" name="status" value="rejected"><label>Reason for rejection<select name="reason_code" required><option value="">Choose a reason</option>' + rejectionOptions + '</select></label><label>Additional message (optional)<textarea name="note" rows="2" maxlength="1000" placeholder="Add specific guidance for the member"></textarea></label><button class="btn kyc-confirm-reject" type="submit">Send rejection</button></form></details>') +
+        '<form method="post" action="' + action + '" class="kyc-approve-form" onsubmit="return confirm(&quot;Approve this KYC application? The member will be notified by email if email delivery is configured.&quot;)">' + csrfField(req) + '<input type="hidden" name="status" value="approved"><button class="btn kyc-approve" type="submit">✓ Approve</button></form>' +
+        '<details class="kyc-reject-details"><summary class="btn kyc-reject">✕ Reject</summary><form method="post" action="' + action + '" class="kyc-reject-form" onsubmit="return confirm(&quot;Send this rejection to the member? The selected reason and any guidance will be saved and sent as a notification.&quot;)">' + csrfField(req) + '<input type="hidden" name="status" value="rejected"><label>Reason for rejection<select name="reason_code" required><option value="">Choose a reason</option>' + rejectionOptions + '</select></label><label>Additional message (optional)<textarea name="note" rows="2" maxlength="1000" placeholder="Add specific guidance for the member"></textarea></label><button class="btn kyc-confirm-reject" type="submit">Confirm rejection &amp; send</button></form></details>') +
         '</div></td></tr>';
     }).join('');
-    const body = '<div class="wrap"><h1>KYC review queue</h1><p class="muted">Documents are encrypted outside the public web directory. Open an application to inspect submitted information and images before making a review decision.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select,td textarea{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c;font:inherit;max-width:100%}.kyc-queue-actions{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;min-width:190px}.kyc-queue-actions .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 12px;cursor:pointer;text-decoration:none}.kyc-approve{background:#2b2410;color:#f6d43c;border:1px solid #6b5a1b}.kyc-reject-details{min-width:180px}.kyc-reject-details summary{list-style:none}.kyc-reject-details summary::-webkit-details-marker{display:none}.kyc-reject{background:#251414;color:#ffb5b5;border:1px solid #744040}.kyc-reject-form{margin-top:8px;padding:12px;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:240px}.kyc-reject-form label{display:grid;gap:6px;font-size:.85rem}.kyc-confirm-reject{background:#5a2020;color:#fff;border:1px solid #8b3d3d}.kyc-approved-label{color:#8fddb2;font-weight:700;padding:8px}.ac-table-wrap{overflow-x:auto}td small{color:#aaa}@media(max-width:640px){.kyc-queue-actions{min-width:160px}.kyc-reject-form{min-width:220px}}</style>';
+    const body = '<div class="wrap"><h1>KYC review queue</h1>' + reviewNotice + '<p class="muted">Documents are encrypted outside the public web directory. Open an application to inspect submitted information and images before making a review decision.</p><div class="panel" style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Member</th><th>Document</th><th>Status</th><th>Review</th></tr></thead><tbody>' + (items || '<tr><td colspan="5">No submissions yet.</td></tr>') + '</tbody></table></div><p><a class="btn" href="/admin">Back to admin</a></p></div><style>td,th{padding:12px;text-align:left;border-bottom:1px solid #39352a;vertical-align:top}td form{display:grid;gap:7px;min-width:190px}td input,td select,td textarea{padding:9px;border-radius:8px;background:#0d0d10;color:#fff;border:1px solid #45434c;font:inherit;max-width:100%}.kyc-queue-actions{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;min-width:190px}.kyc-queue-actions .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 12px;cursor:pointer;text-decoration:none}.kyc-approve{background:#176b3a;color:#fff;border:1px solid #2e9c5d}.kyc-approve:hover,.kyc-approve:focus-visible{background:#21864b;outline:2px solid #62d995;outline-offset:2px}.kyc-reject-details{min-width:180px}.kyc-reject-details summary{list-style:none}.kyc-reject-details summary::-webkit-details-marker{display:none}.kyc-reject{background:#251414;color:#ffb5b5;border:1px solid #744040}.kyc-reject-form{margin-top:8px;padding:12px;border:1px solid #39352a;border-radius:10px;background:#111115;min-width:240px}.kyc-reject-form label{display:grid;gap:6px;font-size:.85rem}.kyc-confirm-reject{background:#5a2020;color:#fff;border:1px solid #8b3d3d}.kyc-approved-label{color:#8fddb2;font-weight:700;padding:8px}.ac-table-wrap{overflow-x:auto}td small{color:#aaa}@media(max-width:640px){.kyc-queue-actions{min-width:160px}.kyc-reject-form{min-width:220px}}</style>';
     res.send(adminControlPage('KYC review','/admin/kyc', '<section class="ac-panel">' + body + '</section>', req));
   } catch(e) { next(e); }
 });
@@ -483,6 +488,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
       var kycApplicant = applicantRows[0] || null;
       await conn.commit();
     } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    let emailStatus = 'not_applicable';
     if (kycApplicant) {
       const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '');
       const messages = {
@@ -503,9 +509,19 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
           [kycApplicant.member_id, 'kyc_review', inApp.title, inApp.body.slice(0, 1000), inApp.target, 'kyc-review:' + id + ':' + status + ':' + Date.now()]
         ).catch(e => console.error('[notification] KYC in-app notification failed:', e.message));
       }
-      if (notification && kycApplicant.email) sendAppEmail({ to: kycApplicant.email, ...notification }).catch(e => console.error('[mail] KYC notification failed:', e.message));
+      if (notification && kycApplicant.email) {
+        try {
+          const sent = await sendAppEmail({ to: kycApplicant.email, ...notification });
+          emailStatus = sent ? 'sent' : 'skipped';
+        } catch(e) {
+          emailStatus = 'failed';
+          console.error('[mail] KYC notification failed:', e.message);
+        }
+      } else if (notification) {
+        emailStatus = 'no_address';
+      }
     }
-    return res.redirect('/admin/kyc');
+    return res.redirect('/admin/kyc?review=' + encodeURIComponent(status) + '&email=' + encodeURIComponent(emailStatus));
   } catch(e) { next(e); }
 });
 
