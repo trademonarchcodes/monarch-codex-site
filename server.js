@@ -152,8 +152,8 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [insertedId]);
       await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [insertedId, tokenHash]);
-      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '') + '/verify-email?token=' + token;
-      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\\n\\nVerify your email address within 24 hours using this link: ' + verifyLink + '\\n\\nIf you did not create this account, you can ignore this email.' });
+      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;
+      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
     })().catch(e => console.error('[mail] Verification email failed:', e.message));
     req.session.regenerate(err => {
       if (err) return next(err);
@@ -357,11 +357,11 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
       await conn.commit();
     } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
     if (kycApplicant) {
-      const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '');
+      const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '');
       const messages = {
         approved: { subject: 'Your Monarch Codex KYC is approved', text: 'Congratulations ' + kycApplicant.full_name + '! Your identity verification has been approved. You can review your status in your dashboard: ' + baseUrl + '/dashboard' },
-        rejected: { subject: 'An update on your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', your identity verification was not approved. Reason from our review team: ' + (note || 'Please contact support for clarification.') + '\\n\\nPlease review your submission and contact support if you need help: ' + baseUrl + '/kyc' },
-        needs_resubmission: { subject: 'Action needed: resubmit your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', we need you to resubmit your identity verification. Reason and instructions: ' + (note || 'Please review your submitted details and documents, then submit again.') + '\\n\\nContinue here: ' + baseUrl + '/kyc' }
+        rejected: { subject: 'An update on your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', your identity verification was not approved. Reason from our review team: ' + (note || 'Please contact support for clarification.') + '\n\nPlease review your submission and contact support if you need help: ' + baseUrl + '/kyc' },
+        needs_resubmission: { subject: 'Action needed: resubmit your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', we need you to resubmit your identity verification. Reason and instructions: ' + (note || 'Please review your submitted details and documents, then submit again.') + '\n\nContinue here: ' + baseUrl + '/kyc' }
       };
       const notification = messages[status];
       if (notification) sendAppEmail({ to: kycApplicant.email, ...notification }).catch(e => console.error('[mail] KYC notification failed:', e.message));
