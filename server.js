@@ -156,7 +156,12 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
     req.session.regenerate(err => {
       if (err) return next(err);
       req.session.memberId = member.id; req.session.csrf = crypto.randomBytes(32).toString('hex');
-      req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/dashboard'));
+      pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
+        .then(([admins]) => {
+          const destination = admins.length ? '/admin' : '/dashboard';
+          req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect(destination));
+        })
+        .catch(next);
     });
   } catch (e) { next(e); }
 });
