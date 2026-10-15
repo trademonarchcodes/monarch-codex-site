@@ -35,6 +35,18 @@ Open `index.html` in a browser. The contact form opens a draft email; it does no
 8. Test the site on the Hostinger preview/domain, including mobile layout, email link, WhatsApp link, privacy page and website notice.
 9. Configure HTTPS/SSL in hPanel once the domain is connected.
 
+## Database connection preflight
+
+Before troubleshooting registration, login, sessions, profile updates, or referrals, verify the Node.js application's database connection from the same Hostinger application environment:
+
+1. In hPanel, copy the exact MySQL **host**, **database name**, and **database username** from the database details page. Do not assume the host is `localhost`; use the exact host Hostinger provides for this database and application.
+2. Confirm the database user is assigned to the intended database and has the privileges required by the application.
+3. Set `DB_HOST`, `DB_PORT` (normally 3306 unless Hostinger specifies otherwise), `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in the Node.js app's environment variables. Also set a random `SESSION_SECRET` of at least 32 characters.
+4. Install dependencies, then run `npm run db:check` in the same environment as the deployed Node.js app. The diagnostic never prints the password or session secret.
+5. If it reports `ER_ACCESS_DENIED_ERROR`, re-copy the credentials and check database-user assignment/permissions in hPanel. If it reports `ER_BAD_DB_ERROR`, check the exact database name. If it reports a hostname or timeout error, check the supplied database host and network settings.
+6. Restart the Node.js application after changing environment variables, then test `/health`. A healthy response is `{"ok":true,"service":"monarch-codex"}`; a 503 means the application cannot complete a basic database query.
+7. Do not delete, recreate, or re-import the production database as a first troubleshooting step. Take a backup before any schema changes.
+
 ## Domain
 No domain is included. Choose and register a domain after checking availability and trademark considerations. A domain usually has a registration fee; hosting and domain registration are separate services.
 
