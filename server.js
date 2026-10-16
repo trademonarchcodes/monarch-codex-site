@@ -1297,7 +1297,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       if(requested)requestNotice='<div class="withdraw-notice" role="status"><strong>Request #'+Number(requested.id)+' received.</strong> Current status: '+esc(requested.status.toUpperCase())+'. This is a review request, not a payment confirmation.</div>';
     }
     const bankCards=banks.length?banks.map((b,i)=>'<div class="withdraw-bank-row"><span class="withdraw-bank-icon">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-bank-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-recent">RECENT</span>':'')+'</div>').join(''):'<div class="withdraw-empty"><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready.</p><a class="withdraw-link" href="/profile">Add bank account ↗</a></div>';
-    const body='<style>
+    const body = \`<style>
 .withdraw-page{--wd-gold:#dfbd62;--wd-gold-bright:#f7e4a0;--wd-border:rgba(223,189,98,.2);--wd-muted:#aaa79e;display:grid;gap:18px;width:100%;max-width:1120px;margin:0 auto;color:#f5f1e8;min-width:0}
 .withdraw-page *{box-sizing:border-box}
 .withdraw-page .withdraw-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.16),transparent 42%),linear-gradient(135deg,#191916,#10100f 70%,#1b1810);min-width:0}
@@ -1360,7 +1360,68 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
 @media(max-width:820px){.withdraw-page .withdraw-hero{align-items:flex-start;flex-direction:column}.withdraw-page .withdraw-hero-side{justify-items:start;width:100%}.withdraw-page .withdraw-hero-nav{justify-content:flex-start}.withdraw-page .withdraw-layout{grid-template-columns:1fr}.withdraw-page .withdraw-history{grid-column:auto}}
 @media(max-width:560px){.withdraw-page{gap:13px}.withdraw-page .withdraw-hero{padding:21px 17px;border-radius:18px}.withdraw-page .withdraw-overview{grid-template-columns:1fr;gap:9px}.withdraw-page .withdraw-metric{grid-template-columns:36px minmax(0,1fr);align-items:center;column-gap:10px;padding:12px}.withdraw-page .withdraw-metric-icon{grid-row:span 2}.withdraw-page .withdraw-metric-top{align-self:end}.withdraw-page .withdraw-metric strong{font-size:16px}.withdraw-page .withdraw-panel{padding:16px 13px;border-radius:16px}.withdraw-page .withdraw-bank-row{gap:8px;padding:10px}.withdraw-page .withdraw-recent{display:none}.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:11px 9px}.withdraw-page .withdraw-hero-nav a{flex:1 1 auto}}
 @media(prefers-reduced-motion:reduce){.withdraw-page *{scroll-behavior:auto!important;transition:none!important}}
-</style><div class="withdraw-page">'+requestNotice+'<section class="withdraw-hero"><div class="withdraw-hero-copy"><span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span><h2>Withdrawals, with clarity.</h2><p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p></div><div class="withdraw-hero-side"><span class="withdraw-status-label">'+esc(heroStatus)+'</span><nav class="withdraw-hero-nav" aria-label="Account shortcuts"><a href="/dashboard">Dashboard ↗</a><a href="/profile">Profile ↗</a><a href="/transactions">Activity ↗</a></nav></div></section><div class="withdraw-overview"><div class="withdraw-metric"><span class="withdraw-metric-icon" aria-hidden="true">✓</span><span class="withdraw-metric-top">Identity verification</span><strong>'+(kycApproved?'Approved':kycStatus==='pending'?'In review':'Action needed')+'</strong><small>'+(kycApproved?'KYC is complete':kycStatus==='pending'?'Waiting for review':'Review your verification status')+'</small></div><div class="withdraw-metric"><span class="withdraw-metric-icon" aria-hidden="true">◎</span><span class="withdraw-metric-top">Payout destination</span><strong>'+(banks.length?banks.length+' saved account'+(banks.length===1?'':'s'):'Not added')+'</strong><small>'+(banks.length?'Bank details are saved securely':'Add an account in your profile')+'</small></div><div class="withdraw-metric"><span class="withdraw-metric-icon" aria-hidden="true">◈</span><span class="withdraw-metric-top">Available funds</span><strong>'+(available.NGN>0?'₦'+available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}):available.USD>0?'<section class="withdraw-panel"><p class="withdraw-kicker">PAYOUT DESTINATION</p><h3>Your bank accounts</h3><p class="withdraw-sub">Account numbers remain masked for privacy.</p><div class="withdraw-bank-list">'+bankCards+'</div>'+(banks.length?'<a class="withdraw-link" href="/profile">Manage payout details ↗</a>':'')+'</section>'+requestPanel+'<section class="withdraw-panel withdraw-history"><p class="withdraw-kicker">YOUR ACTIVITY</p><h3>Withdrawal requests</h3><p class="withdraw-sub">Track each request through review and verified payment.</p><div class="withdraw-table-wrap"><table class="withdraw-table"><thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>')+'</tbody></table></div></section></div><p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p></div>';
+
+</style>
+<div class="withdraw-page">
+  \${requestNotice}
+  <section class="withdraw-hero">
+    <div class="withdraw-hero-copy">
+      <span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span>
+      <h2>Withdrawals, with clarity.</h2>
+      <p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p>
+    </div>
+    <div class="withdraw-hero-side">
+      <span class="withdraw-status-label">\${esc(heroStatus)}</span>
+      <nav class="withdraw-hero-nav" aria-label="Account shortcuts">
+        <a href="/dashboard">Dashboard ↗</a>
+        <a href="/profile">Profile ↗</a>
+        <a href="/transactions">Activity ↗</a>
+      </nav>
+    </div>
+  </section>
+  <section class="withdraw-overview" aria-label="Withdrawal readiness summary">
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">✓</span>
+      <span class="withdraw-metric-top">Identity verification</span>
+      <strong>\${kycApproved ? 'Approved' : kycStatus === 'pending' ? 'In review' : 'Action needed'}</strong>
+      <small>\${kycApproved ? 'KYC is complete' : kycStatus === 'pending' ? 'Waiting for review' : 'Review your verification status'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◎</span>
+      <span class="withdraw-metric-top">Payout destination</span>
+      <strong>\${banks.length ? banks.length + ' saved account' + (banks.length === 1 ? '' : 's') : 'Not added'}</strong>
+      <small>\${banks.length ? 'Bank details are saved securely' : 'Add an account in your profile'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◈</span>
+      <span class="withdraw-metric-top">Available funds</span>
+      <strong>\${available.NGN > 0 ? '₦' + available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}) : available.USD > 0 ? '$' + available.USD.toLocaleString('en-US',{maximumFractionDigits:2}) : 'No available funds'}</strong>
+      <small>Unreserved wallet balance</small>
+    </div>
+  </section>
+  <div class="withdraw-layout">
+    <section class="withdraw-panel">
+      <p class="withdraw-kicker">PAYOUT DESTINATION</p>
+      <h3>Your bank accounts</h3>
+      <p class="withdraw-sub">Account numbers remain masked for privacy.</p>
+      <div class="withdraw-bank-list">\${bankCards}</div>
+      \${banks.length ? '<a class="withdraw-link" href="/profile">Manage payout details ↗</a>' : ''}
+    </section>
+    \${requestPanel}
+    <section class="withdraw-panel withdraw-history">
+      <p class="withdraw-kicker">YOUR ACTIVITY</p>
+      <h3>Withdrawal requests</h3>
+      <p class="withdraw-sub">Track each request through review and verified payment.</p>
+      <div class="withdraw-table-wrap">
+        <table class="withdraw-table">
+          <thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead>
+          <tbody>\${historyRows || '<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p>
+</div>\`;
     res.set('Cache-Control','no-store');
     res.send(memberPage('Withdraw','/withdraw',m,body,req));
   }catch(e){
