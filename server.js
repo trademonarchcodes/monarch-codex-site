@@ -871,7 +871,7 @@ function memberPage(title, active, member, content, req) {
 }
 function wizardPage(title, content, req) {
   if (title === 'KYC Verification') {
-    const body = '<link rel="stylesheet" href="/kyc-wizard.css?v=20261016-rebuild1"><div class="kyc-page"><header class="kyc-page-head"><a class="kyc-cancel" href="/dashboard">Cancel</a><div><p class="kyc-eyebrow">ACCOUNT VERIFICATION</p><h1>KYC Verification</h1></div><span class="kyc-head-spacer" aria-hidden="true"></span></header>' + content + '</div><script src="/kyc-wizard.js" defer></script>';
+    const body = '<link rel="stylesheet" href="/kyc-wizard.css?v=20261016-rebuild2"><div class="kyc-page"><header class="kyc-page-head"><a class="kyc-cancel" href="/dashboard">Cancel</a><div><p class="kyc-eyebrow">ACCOUNT VERIFICATION</p><h1>KYC Verification</h1></div><span class="kyc-head-spacer" aria-hidden="true"></span></header>' + content + '</div><script src="/kyc-wizard.js" defer></script>';
     return page(title, body);
   }
   const body = '<style>.wizard-shell{max-width:680px;margin:24px auto;padding:clamp(18px,4vw,34px);min-height:70vh}.wizard-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:30px}.wizard-head h1{font-size:1.2rem;margin:0}.wizard-cancel{color:#d7d4cb;text-decoration:none;border:1px solid #403a27;border-radius:10px;padding:10px 14px}.wizard-progress{display:flex;align-items:flex-start;gap:0;margin:0 0 32px}.wizard-progress .wizard-node{display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;min-width:0;color:#8d897e;font-size:.78rem;text-align:center}.wizard-progress .wizard-dot{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;border:1px solid #514721;background:#111115;color:#aaa}.wizard-progress .wizard-node.active .wizard-dot,.wizard-progress .wizard-node.done .wizard-dot{background:#f3cf3c;border-color:#f3cf3c;color:#17140a}.wizard-progress .wizard-node.active,.wizard-progress .wizard-node.done{color:#f3cf3c}.wizard-track{height:2px;background:#403a27;flex:1;margin:15px -2px 0;position:relative}.wizard-track span{display:block;height:100%;width:0;background:#f3cf3c;transition:width .3s ease}.wizard-panel{padding:clamp(18px,4vw,30px);border:1px solid #403a27;border-radius:18px;background:#111115}.wizard-panel h2{margin-top:0}.wizard-actions{display:flex;justify-content:space-between;gap:12px;margin-top:28px}.wizard-actions button{min-width:120px}.wizard-actions .wizard-continue{margin-left:auto}.wizard-foot{color:#8d897e;font-size:.85rem;margin-top:16px}.wizard-panel .member-card{padding:0;border:0;background:transparent}.wizard-panel .member-steps{display:none}@media(max-width:520px){.wizard-shell{margin:8px auto;padding:14px}.wizard-progress .wizard-node{font-size:.68rem}.wizard-progress .wizard-dot{width:28px;height:28px}.wizard-track{margin-top:13px}}</style><div class="wizard-shell"><header class="wizard-head"><a class="wizard-cancel" href="/dashboard">Cancel</a><h1>' + esc(title) + '</h1><span style="width:60px"></span></header><main class="wizard-panel">' + content + '</main></div><script>(function(){var k=document.getElementById("kycWizard"),d=document.getElementById("depositWizard");var form=k||d;if(!form)return;var isKyc=!!k;var progress=document.createElement("div");progress.className="wizard-progress";var count=isKyc?4:3;var names=isKyc?["Details","Address","Identity","Review"]:["Amount","Payment","Review"];for(var i=0;i<count;i++){if(i){var track=document.createElement("div");track.className="wizard-track";track.innerHTML="<span></span>";progress.appendChild(track)}var node=document.createElement("div");node.className="wizard-node";node.innerHTML="<span class=wizard-dot>"+(i+1)+"</span><span>"+names[i]+"</span>";progress.appendChild(node)}form.parentNode.insertBefore(progress,form);var steps=[].slice.call(form.querySelectorAll(isKyc?".kyc-step":".deposit-step"));var next=document.getElementById(isKyc?"kycNext":"depositNext"),back=document.getElementById(isKyc?"kycBack":"depositBack");function sync(){var idx=steps.findIndex(function(x){return !x.hidden});if(idx<0)idx=0;var nodes=progress.querySelectorAll(".wizard-node"),tracks=progress.querySelectorAll(".wizard-track span");nodes.forEach(function(n,i){n.classList.toggle("active",i===idx);n.classList.toggle("done",i<idx)});tracks.forEach(function(t,i){t.style.width=idx>i?"100%":"0"});if(back)back.textContent="Back";if(next)next.classList.add("wizard-continue")}var observer=new MutationObserver(sync);steps.forEach(function(x){observer.observe(x,{attributes:true,attributeFilter:["hidden"]})});if(next)next.addEventListener("click",function(){setTimeout(sync,0)});if(back)back.addEventListener("click",function(){setTimeout(sync,0)});sync()})();</script>';
@@ -1139,7 +1139,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
     }
     res.set('Cache-Control','no-store');
     if (existingKycStatus === 'approved') {
-      const approvedContent = '<main class="kyc-status-card kyc-status-approved" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">✓</div><p class="kyc-status-overline">IDENTITY CHECK COMPLETE</p><p class="kyc-status-chip"><span aria-hidden="true"></span> VERIFIED MEMBER</p><h2 id="kycStatusTitle">Your identity is verified.</h2><p class="kyc-status-lead">Your KYC review is complete. Your account is approved, and you do not need to submit these identity documents again.</p><div class="kyc-status-facts"><div><span>Verification</span><strong>Approved</strong></div><div><span>Next step</span><strong>Check withdrawal readiness</strong></div></div><div class="kyc-status-actions"><a class="kyc-btn kyc-btn-primary" href="/withdraw">Continue to withdrawals <span aria-hidden="true">→</span></a><a class="kyc-btn kyc-btn-secondary" href="/dashboard">Return to dashboard</a></div><p class="kyc-status-foot">KYC approval is separate from withdrawal eligibility. A saved payout account and available, unreserved wallet funds may also be required.</p></main>';
+      const approvedContent = '<main class="kyc-status-card kyc-status-approved" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">✓</div><p class="kyc-status-overline">IDENTITY CHECK COMPLETE</p><p class="kyc-status-chip"><span aria-hidden="true"></span> VERIFIED MEMBER</p><h2 id="kycStatusTitle">Your identity is verified.</h2><p class="kyc-status-lead">Your identity review is complete. Your verification remains on file, so you do not need to submit these documents again unless our review team requests an update.</p><div class="kyc-status-facts"><div><span>Verification status</span><strong>Approved · No action needed</strong></div><div><span>Account access</span><strong>Your member workspace is ready</strong></div></div><section class="kyc-member-next" aria-labelledby="kycMemberNextTitle"><p class="kyc-member-next-kicker">YOUR MEMBER SPACE</p><h3 id="kycMemberNextTitle">Where would you like to go?</h3><div class="kyc-member-links"><a href="/dashboard"><span class="kyc-member-link-icon" aria-hidden="true">⌂</span><span><strong>Dashboard</strong><small>Return to your account overview</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/profile"><span class="kyc-member-link-icon" aria-hidden="true">◎</span><span><strong>Profile &amp; payout details</strong><small>Review your personal and bank details</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/transactions"><span class="kyc-member-link-icon" aria-hidden="true">↔</span><span><strong>Account activity</strong><small>Review your financial activity and records</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a></div></section><p class="kyc-status-foot">Your KYC approval is a verification result, not a promise of financial eligibility. Any financial request is subject to its own account requirements and review.</p></main>';
       return res.send(wizardPage('KYC Verification',approvedContent,req));
     }
     if (existingKycStatus === 'pending') {
@@ -1297,7 +1297,131 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       if(requested)requestNotice='<div class="withdraw-notice" role="status"><strong>Request #'+Number(requested.id)+' received.</strong> Current status: '+esc(requested.status.toUpperCase())+'. This is a review request, not a payment confirmation.</div>';
     }
     const bankCards=banks.length?banks.map((b,i)=>'<div class="withdraw-bank-row"><span class="withdraw-bank-icon">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-bank-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-recent">RECENT</span>':'')+'</div>').join(''):'<div class="withdraw-empty"><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready.</p><a class="withdraw-link" href="/profile">Add bank account ↗</a></div>';
-    const body='<style>.withdraw-page{--wd-gold:#d8b45a;--wd-border:rgba(216,180,90,.22);display:grid;gap:20px;color:#f5f1e8}.withdraw-hero{padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.17),transparent 42%),linear-gradient(135deg,#171714,#10100f 70%,#1b1810)}.withdraw-eyebrow,.withdraw-kicker{color:var(--wd-gold);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}.withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.035em;margin:13px 0 10px}.withdraw-hero p,.withdraw-sub{color:#bdb8aa;font-size:13px;line-height:1.7}.withdraw-status-label{display:inline-flex;padding:5px 8px;border-radius:7px;background:rgba(216,180,90,.12);color:#e9ce86;font-size:10px;font-weight:850}.withdraw-status-label.status-paid{background:rgba(55,145,89,.14);color:#94e3b0}.withdraw-status-label.status-rejected{background:rgba(190,75,75,.13);color:#f0aaaa}.withdraw-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:18px;align-items:start}.withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012))}.withdraw-panel h3{margin:8px 0;color:#fff;font-size:19px}.withdraw-bank-list{display:grid;gap:10px}.withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}.withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}.withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}.withdraw-bank-copy strong,.withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.withdraw-bank-copy strong{font-size:12px}.withdraw-bank-copy small,.withdraw-mask{font-size:11px;color:#bdb8aa}.withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}.withdraw-empty{padding:24px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px}.withdraw-form{display:grid;gap:10px;margin-top:16px}.withdraw-form label{margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}.withdraw-form input,.withdraw-form select,.withdraw-form textarea{width:100%;min-width:0;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px}.withdraw-form input:focus,.withdraw-form select:focus,.withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}.withdraw-available{display:grid;grid-template-columns:1fr auto;gap:6px 10px;padding:12px;border:1px solid rgba(216,180,90,.16);border-radius:10px;font-size:11px;color:#bdb8aa}.withdraw-available strong{text-align:right;color:#f4e3a4}.withdraw-submit{width:100%;display:flex;justify-content:center;gap:8px;margin-top:8px;cursor:pointer}.withdraw-checks{display:grid;gap:13px;padding:0;margin:18px 0;list-style:none}.withdraw-checks li{display:grid;gap:4px;padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:rgba(0,0,0,.12)}.withdraw-checks strong{font-size:12px}.withdraw-checks span{font-size:11px;color:#bdb8aa}.withdraw-link{display:inline-flex;margin-top:8px;padding:10px 13px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold);text-decoration:none;font-size:12px;font-weight:800}.withdraw-notice{padding:14px 16px;border:1px solid var(--wd-border);border-radius:12px;background:rgba(216,180,90,.07);color:#e9ce86;font-size:13px}.withdraw-history{grid-column:1/-1}.withdraw-table-wrap{overflow-x:auto}.withdraw-table{width:100%;border-collapse:collapse;min-width:420px}.withdraw-table th,.withdraw-table td{padding:12px 10px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07);font-size:12px}.withdraw-table th{color:#aaa18a;font-size:10px;text-transform:uppercase;letter-spacing:.1em}.withdraw-table small{color:#aaa18a}@media(max-width:760px){.withdraw-layout{grid-template-columns:1fr}.withdraw-bank-row{gap:8px;padding:10px}.withdraw-recent{display:none}}</style><div class="withdraw-page">'+requestNotice+'<section class="withdraw-hero"><span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span><h2>Withdrawals, with clarity.</h2><p>Your identity is checked separately from your payout account and available balance. Requests are reviewed before any transfer is marked complete.</p><span class="withdraw-status-label">'+esc(heroStatus)+'</span></section><div class="withdraw-layout"><section class="withdraw-panel"><p class="withdraw-kicker">PAYOUT DESTINATION</p><h3>Your bank accounts</h3><p class="withdraw-sub">Account numbers remain masked for privacy.</p><div class="withdraw-bank-list">'+bankCards+'</div>'+(banks.length?'<a class="withdraw-link" href="/profile">Manage payout details ↗</a>':'')+'</section>'+requestPanel+'<section class="withdraw-panel withdraw-history"><p class="withdraw-kicker">YOUR ACTIVITY</p><h3>Withdrawal requests</h3><p class="withdraw-sub">Track each request through review and verified payment.</p><div class="withdraw-table-wrap"><table class="withdraw-table"><thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="3">No withdrawal requests yet.</td></tr>')+'</tbody></table></div></section></div><p class="withdraw-sub">Important: a request is not a payout. Administrators must confirm eligibility/maturity and verify the real transfer before marking it paid. No payment is sent automatically.</p></div>';
+    const body = `<style>
+.withdraw-page{--wd-gold:#dfbd62;--wd-gold-bright:#f7e4a0;--wd-border:rgba(223,189,98,.2);--wd-muted:#aaa79e;display:grid;gap:18px;width:100%;max-width:1120px;margin:0 auto;color:#f5f1e8;min-width:0}
+.withdraw-page *{box-sizing:border-box}
+.withdraw-page .withdraw-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.16),transparent 42%),linear-gradient(135deg,#191916,#10100f 70%,#1b1810);min-width:0}
+.withdraw-page .withdraw-hero-copy{min-width:0;max-width:680px}
+.withdraw-page .withdraw-eyebrow,.withdraw-page .withdraw-kicker{display:block;color:var(--wd-gold);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase;margin:0 0 10px}
+.withdraw-page .withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.04em;margin:0 0 10px;color:#fff}
+.withdraw-page .withdraw-hero p,.withdraw-page .withdraw-sub{color:#bdb8aa;font-size:13px;line-height:1.7;margin:8px 0}
+.withdraw-page .withdraw-hero-side{display:grid;justify-items:end;gap:12px;flex:0 0 auto}
+.withdraw-page .withdraw-status-label{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid var(--wd-border);border-radius:999px;background:rgba(216,180,90,.1);color:#f0d994;font-size:10px;font-weight:850;letter-spacing:.035em;white-space:normal}
+.withdraw-page .withdraw-status-label:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px}
+.withdraw-page .withdraw-hero-nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.withdraw-page .withdraw-hero-nav a,.withdraw-page .withdraw-link{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:9px 12px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold-bright);text-decoration:none;font-size:11px;font-weight:800;transition:background .18s,border-color .18s}
+.withdraw-page .withdraw-hero-nav a:hover,.withdraw-page .withdraw-link:hover{background:rgba(216,180,90,.09);border-color:rgba(223,189,98,.48)}
+.withdraw-page .withdraw-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.withdraw-page .withdraw-metric{display:grid;gap:8px;min-width:0;padding:16px;border:1px solid rgba(255,255,255,.075);border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012))}
+.withdraw-page .withdraw-metric-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#a9a397;font-size:11px}
+.withdraw-page .withdraw-metric-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:rgba(216,180,90,.1);color:var(--wd-gold-bright);font-size:15px}
+.withdraw-page .withdraw-metric strong{font-size:clamp(15px,2vw,19px);color:#f5edcf;overflow-wrap:anywhere}
+.withdraw-page .withdraw-metric small{font-size:11px;color:#a9a397;line-height:1.5}
+.withdraw-page .withdraw-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+.withdraw-page .withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012));overflow:hidden}
+.withdraw-page .withdraw-panel h3{margin:6px 0;color:#fff;font-size:19px;letter-spacing:-.02em}
+.withdraw-page .withdraw-bank-list{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}
+.withdraw-page .withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}
+.withdraw-page .withdraw-bank-copy strong,.withdraw-page .withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.withdraw-page .withdraw-bank-copy strong{font-size:12px;color:#f4f0e7}
+.withdraw-page .withdraw-bank-copy small,.withdraw-page .withdraw-mask{font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-mask{white-space:nowrap}
+.withdraw-page .withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-empty{padding:24px 16px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-empty strong{color:#f4edda}
+.withdraw-page .withdraw-empty p{color:var(--wd-muted);font-size:12px;line-height:1.6}
+.withdraw-page .withdraw-form{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-form label{display:block;margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}
+.withdraw-page .withdraw-form input,.withdraw-page .withdraw-form select,.withdraw-page .withdraw-form textarea{display:block;width:100%;min-width:0;min-height:44px;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px;line-height:1.45}
+.withdraw-page .withdraw-form textarea{resize:vertical;min-height:72px}
+.withdraw-page .withdraw-form input:focus,.withdraw-page .withdraw-form select:focus,.withdraw-page .withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}
+.withdraw-page .withdraw-available{display:grid;grid-template-columns:1fr auto;gap:7px 10px;padding:13px;border:1px solid rgba(216,180,90,.16);border-radius:12px;background:rgba(0,0,0,.13);font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-available strong{text-align:right;color:#f4e3a4;font-variant-numeric:tabular-nums}
+.withdraw-page .withdraw-submit{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;cursor:pointer;border:1px solid #f1d575!important;border-radius:11px!important;background:linear-gradient(120deg,#d3ad4a,#f5df8c)!important;color:#18150c!important;font-size:12px;font-weight:900;box-shadow:0 9px 24px rgba(213,173,56,.1)}
+.withdraw-page .withdraw-submit:hover{filter:brightness(1.05)}
+.withdraw-page .withdraw-checks{display:grid;gap:10px;padding:0;margin:18px 0;list-style:none}
+.withdraw-page .withdraw-checks li{display:grid;gap:5px;min-width:0;padding:13px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-checks strong{font-size:12px;color:#eee8d8}
+.withdraw-page .withdraw-checks span{font-size:11px;color:#bdb8aa;line-height:1.5}
+.withdraw-page .withdraw-notice{padding:14px 16px;border:1px solid var(--wd-border);border-radius:12px;background:rgba(216,180,90,.07);color:#e9ce86;font-size:13px;line-height:1.6}
+.withdraw-page .withdraw-status-label.status-paid{background:rgba(55,145,89,.14);color:#94e3b0}
+.withdraw-page .withdraw-status-label.status-rejected{background:rgba(190,75,75,.13);color:#f0aaaa}
+.withdraw-page .withdraw-history{grid-column:1/-1}
+.withdraw-page .withdraw-table-wrap{width:100%;overflow-x:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px}
+.withdraw-page .withdraw-table{width:100%;border-collapse:collapse;min-width:420px}
+.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:13px 12px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07);font-size:12px;overflow-wrap:anywhere}
+.withdraw-page .withdraw-table th{color:#aaa18a;font-size:10px;text-transform:uppercase;letter-spacing:.1em;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-table tr:last-child td{border-bottom:0}
+.withdraw-page .withdraw-table small{color:#aaa18a}
+.withdraw-page .withdraw-history-empty{padding:24px;text-align:center;color:#aaa79e;font-size:12px}
+.withdraw-page .withdraw-page-foot{margin:0;padding:0 2px;color:#98958c;font-size:11px;line-height:1.7}
+@media(max-width:820px){.withdraw-page .withdraw-hero{align-items:flex-start;flex-direction:column}.withdraw-page .withdraw-hero-side{justify-items:start;width:100%}.withdraw-page .withdraw-hero-nav{justify-content:flex-start}.withdraw-page .withdraw-layout{grid-template-columns:1fr}.withdraw-page .withdraw-history{grid-column:auto}}
+@media(max-width:560px){.withdraw-page{gap:13px}.withdraw-page .withdraw-hero{padding:21px 17px;border-radius:18px}.withdraw-page .withdraw-overview{grid-template-columns:1fr;gap:9px}.withdraw-page .withdraw-metric{grid-template-columns:36px minmax(0,1fr);align-items:center;column-gap:10px;padding:12px}.withdraw-page .withdraw-metric-icon{grid-row:span 2}.withdraw-page .withdraw-metric-top{align-self:end}.withdraw-page .withdraw-metric strong{font-size:16px}.withdraw-page .withdraw-panel{padding:16px 13px;border-radius:16px}.withdraw-page .withdraw-bank-row{gap:8px;padding:10px}.withdraw-page .withdraw-recent{display:none}.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:11px 9px}.withdraw-page .withdraw-hero-nav a{flex:1 1 auto}}
+@media(prefers-reduced-motion:reduce){.withdraw-page *{scroll-behavior:auto!important;transition:none!important}}
+
+</style>
+<div class="withdraw-page">
+  ${requestNotice}
+  <section class="withdraw-hero">
+    <div class="withdraw-hero-copy">
+      <span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span>
+      <h2>Withdrawals, with clarity.</h2>
+      <p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p>
+    </div>
+    <div class="withdraw-hero-side">
+      <span class="withdraw-status-label">${esc(heroStatus)}</span>
+      <nav class="withdraw-hero-nav" aria-label="Account shortcuts">
+        <a href="/dashboard">Dashboard ↗</a>
+        <a href="/profile">Profile ↗</a>
+        <a href="/transactions">Activity ↗</a>
+      </nav>
+    </div>
+  </section>
+  <section class="withdraw-overview" aria-label="Withdrawal readiness summary">
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">✓</span>
+      <span class="withdraw-metric-top">Identity verification</span>
+      <strong>${kycApproved ? 'Approved' : kycStatus === 'pending' ? 'In review' : 'Action needed'}</strong>
+      <small>${kycApproved ? 'KYC is complete' : kycStatus === 'pending' ? 'Waiting for review' : 'Review your verification status'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◎</span>
+      <span class="withdraw-metric-top">Payout destination</span>
+      <strong>${banks.length ? banks.length + ' saved account' + (banks.length === 1 ? '' : 's') : 'Not added'}</strong>
+      <small>${banks.length ? 'Bank details are saved securely' : 'Add an account in your profile'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◈</span>
+      <span class="withdraw-metric-top">Available funds</span>
+      <strong>${available.NGN > 0 ? '₦' + available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}) : available.USD > 0 ? '$' + available.USD.toLocaleString('en-US',{maximumFractionDigits:2}) : 'No available funds'}</strong>
+      <small>Unreserved wallet balance</small>
+    </div>
+  </section>
+  <div class="withdraw-layout">
+    <section class="withdraw-panel">
+      <p class="withdraw-kicker">PAYOUT DESTINATION</p>
+      <h3>Your bank accounts</h3>
+      <p class="withdraw-sub">Account numbers remain masked for privacy.</p>
+      <div class="withdraw-bank-list">${bankCards}</div>
+      ${banks.length ? '<a class="withdraw-link" href="/profile">Manage payout details ↗</a>' : ''}
+    </section>
+    ${requestPanel}
+    <section class="withdraw-panel withdraw-history">
+      <p class="withdraw-kicker">YOUR ACTIVITY</p>
+      <h3>Withdrawal requests</h3>
+      <p class="withdraw-sub">Track each request through review and verified payment.</p>
+      <div class="withdraw-table-wrap">
+        <table class="withdraw-table">
+          <thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead>
+          <tbody>${historyRows || '<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p>
+</div>`;
     res.set('Cache-Control','no-store');
     res.send(memberPage('Withdraw','/withdraw',m,body,req));
   }catch(e){
