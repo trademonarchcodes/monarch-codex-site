@@ -112,6 +112,8 @@ function createSovereignDeskRouter(deps) {
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
   });
 
+  router.get('/sovereign-admin/guidance', requireAdmin, adminOnly, (req,res) => res.redirect('/sovereign-admin/mentorship'));
+
   router.get('/sovereign-admin/mentorship', requireAdmin, adminOnly, async(req,res,next)=>{
     try{
       const [rows]=await pool.execute('SELECT id,title,body,status,published_at,created_at FROM sovereign_guidance ORDER BY created_at DESC LIMIT 100');
