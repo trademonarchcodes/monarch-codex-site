@@ -1153,7 +1153,7 @@ app.get('/api/deposit-quote', requireAuth, async (req,res,next) => {
     if(methodId){
       if(!/^\d{1,20}$/.test(methodId))return res.status(400).json({error:'invalid_destination'});
       const [[method]]=await pool.execute('SELECT method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
-      if(!method || !Number(method.is_active) || method.currency!==currency)return res.status(400).json({error:'destination_unavailable'});
+      if(!method || !Number(method.is_active) || method.currency!==currency || (method.method_type==='wallet' && currency!=='USD'))return res.status(400).json({error:'destination_unavailable'});
       feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd);
     }
     const amountUsd=currency==='USD'?amount:amount/rate, amountNgn=currency==='NGN'?amount:amount*rate;
@@ -1205,7 +1205,7 @@ app.post('/deposit', requireAuth, parseDepositProof, csrfCheck, async (req,res,n
     const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
     if(!pricing || pricing.base_usd_ngn_rate===null || Number(pricing.base_usd_ngn_rate)<=0) return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit'));
     const [[method]]=await pool.execute('SELECT id,method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
-    if(!method || !Number(method.is_active) || method.currency!==currency) return res.status(400).send(formError('Payment destination unavailable','Choose an active payment destination for the selected currency.','/deposit'));
+    if(!method || !Number(method.is_active) || method.currency!==currency || (method.method_type==='wallet' && currency!=='USD')) return res.status(400).send(formError('Payment destination unavailable','Choose an active payment destination for the selected currency.','/deposit'));
     const base=Number(pricing.base_usd_ngn_rate), rate=base*(1+Number(pricing.markup_percent)/100), feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd), fee=currency==='NGN'?feeUsd*rate:feeUsd, total=amount+fee;
     const [insertResult]=await pool.execute('INSERT INTO deposit_requests (member_id,currency,amount,fee_usd,fee_amount,base_usd_ngn_rate,effective_usd_ngn_rate,total_due,payment_method_id,payment_reference,proof_storage_key,proof_mime_type,proof_original_name,member_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[m.id,currency,amount,feeUsd,fee,base,rate,total,methodId,reference,req.file.filename,req.file.mimetype,path.basename(req.file.originalname).slice(0,255),note||null]);
     res.redirect('/deposit?submitted=1&request='+encodeURIComponent(insertResult.insertId));
