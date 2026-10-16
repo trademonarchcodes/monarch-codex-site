@@ -1139,7 +1139,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
     }
     res.set('Cache-Control','no-store');
     if (existingKycStatus === 'approved') {
-      const approvedContent = '<main class="kyc-status-card kyc-status-approved" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">✓</div><p class="kyc-status-overline">IDENTITY CHECK COMPLETE</p><p class="kyc-status-chip"><span aria-hidden="true"></span> VERIFIED MEMBER</p><h2 id="kycStatusTitle">Your identity is verified.</h2><p class="kyc-status-lead">Your KYC review is complete. Your account is approved, and you do not need to submit these identity documents again.</p><div class="kyc-status-facts"><div><span>Verification</span><strong>Approved</strong></div><div><span>Next step</span><strong>Check withdrawal readiness</strong></div></div><div class="kyc-status-actions"><a class="kyc-btn kyc-btn-primary" href="/withdraw">Continue to withdrawals <span aria-hidden="true">→</span></a><a class="kyc-btn kyc-btn-secondary" href="/dashboard">Return to dashboard</a></div><p class="kyc-status-foot">KYC approval is separate from withdrawal eligibility. A saved payout account and available, unreserved wallet funds may also be required.</p></main>';
+      const approvedContent = '<main class="kyc-status-card kyc-status-approved" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">✓</div><p class="kyc-status-overline">IDENTITY CHECK COMPLETE</p><p class="kyc-status-chip"><span aria-hidden="true"></span> VERIFIED MEMBER</p><h2 id="kycStatusTitle">Your identity is verified.</h2><p class="kyc-status-lead">Your identity review is complete. Your verification remains on file, so you do not need to submit these documents again unless our review team requests an update.</p><div class="kyc-status-facts"><div><span>Verification status</span><strong>Approved · No action needed</strong></div><div><span>Account access</span><strong>Your member workspace is ready</strong></div></div><section class="kyc-member-next" aria-labelledby="kycMemberNextTitle"><p class="kyc-member-next-kicker">YOUR MEMBER SPACE</p><h3 id="kycMemberNextTitle">Where would you like to go?</h3><div class="kyc-member-links"><a href="/dashboard"><span class="kyc-member-link-icon" aria-hidden="true">⌂</span><span><strong>Dashboard</strong><small>Return to your account overview</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/profile"><span class="kyc-member-link-icon" aria-hidden="true">◎</span><span><strong>Profile &amp; payout details</strong><small>Review your personal and bank details</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/transactions"><span class="kyc-member-link-icon" aria-hidden="true">↔</span><span><strong>Account activity</strong><small>Review your financial activity and records</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a></div></section><p class="kyc-status-foot">Your KYC approval is a verification result, not a promise of financial eligibility. Any financial request is subject to its own account requirements and review.</p></main>';
       return res.send(wizardPage('KYC Verification',approvedContent,req));
     }
     if (existingKycStatus === 'pending') {
@@ -1297,7 +1297,181 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       if(requested)requestNotice='<div class="withdraw-notice" role="status"><strong>Request #'+Number(requested.id)+' received.</strong> Current status: '+esc(requested.status.toUpperCase())+'. This is a review request, not a payment confirmation.</div>';
     }
     const bankCards=banks.length?banks.map((b,i)=>'<div class="withdraw-bank-row"><span class="withdraw-bank-icon">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-bank-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-recent">RECENT</span>':'')+'</div>').join(''):'<div class="withdraw-empty"><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready.</p><a class="withdraw-link" href="/profile">Add bank account ↗</a></div>';
-    const body='<style>.withdraw-page{--wd-gold:#d8b45a;--wd-border:rgba(216,180,90,.22);display:grid;gap:20px;color:#f5f1e8}.withdraw-hero{padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.17),transparent 42%),linear-gradient(135deg,#171714,#10100f 70%,#1b1810)}.withdraw-eyebrow,.withdraw-kicker{color:var(--wd-gold);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}.withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.035em;margin:13px 0 10px}.withdraw-hero p,.withdraw-sub{color:#bdb8aa;font-size:13px;line-height:1.7}.withdraw-status-label{display:inline-flex;padding:5px 8px;border-radius:7px;background:rgba(216,180,90,.12);color:#e9ce86;font-size:10px;font-weight:850}.withdraw-status-label.status-paid{background:rgba(55,145,89,.14);color:#94e3b0}.withdraw-status-label.status-rejected{background:rgba(190,75,75,.13);color:#f0aaaa}.withdraw-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:18px;align-items:start}.withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012))}.withdraw-panel h3{margin:8px 0;color:#fff;font-size:19px}.withdraw-bank-list{display:grid;gap:10px}.withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}.withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}.withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}.withdraw-bank-copy strong,.withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.withdraw-bank-copy strong{font-size:12px}.withdraw-bank-copy small,.withdraw-mask{font-size:11px;color:#bdb8aa}.withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}.withdraw-empty{padding:24px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px}.withdraw-form{display:grid;gap:10px;margin-top:16px}.withdraw-form label{margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}.withdraw-form input,.withdraw-form select,.withdraw-form textarea{width:100%;min-width:0;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px}.withdraw-form input:focus,.withdraw-form select:focus,.withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}.withdraw-available{display:grid;grid-template-columns:1fr auto;gap:6px 10px;padding:12px;border:1px solid rgba(216,180,90,.16);border-radius:10px;font-size:11px;color:#bdb8aa}.withdraw-available strong{text-align:right;color:#f4e3a4}.withdraw-submit{width:100%;display:flex;justify-content:center;gap:8px;margin-top:8px;cursor:pointer}.withdraw-checks{display:grid;gap:13px;padding:0;margin:18px 0;list-style:none}.withdraw-checks li{display:grid;gap:4px;padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:11px;background:rgba(0,0,0,.12)}.withdraw-checks strong{font-size:12px}.withdraw-checks span{font-size:11px;color:#bdb8aa}.withdraw-link{display:inline-flex;margin-top:8px;padding:10px 13px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold);text-decoration:none;font-size:12px;font-weight:800}.withdraw-notice{padding:14px 16px;border:1px solid var(--wd-border);border-radius:12px;background:rgba(216,180,90,.07);color:#e9ce86;font-size:13px}.withdraw-history{grid-column:1/-1}.withdraw-table-wrap{overflow-x:auto}.withdraw-table{width:100%;border-collapse:collapse;min-width:420px}.withdraw-table th,.withdraw-table td{padding:12px 10px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07);font-size:12px}.withdraw-table th{color:#aaa18a;font-size:10px;text-transform:uppercase;letter-spacing:.1em}.withdraw-table small{color:#aaa18a}@media(max-width:760px){.withdraw-layout{grid-template-columns:1fr}.withdraw-bank-row{gap:8px;padding:10px}.withdraw-recent{display:none}}</style><div class="withdraw-page">'+requestNotice+'<section class="withdraw-hero"><span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span><h2>Withdrawals, with clarity.</h2><p>Your identity is checked separately from your payout account and available balance. Requests are reviewed before any transfer is marked complete.</p><span class="withdraw-status-label">'+esc(heroStatus)+'</span></section><div class="withdraw-layout"><section class="withdraw-panel"><p class="withdraw-kicker">PAYOUT DESTINATION</p><h3>Your bank accounts</h3><p class="withdraw-sub">Account numbers remain masked for privacy.</p><div class="withdraw-bank-list">'+bankCards+'</div>'+(banks.length?'<a class="withdraw-link" href="/profile">Manage payout details ↗</a>':'')+'</section>'+requestPanel+'<section class="withdraw-panel withdraw-history"><p class="withdraw-kicker">YOUR ACTIVITY</p><h3>Withdrawal requests</h3><p class="withdraw-sub">Track each request through review and verified payment.</p><div class="withdraw-table-wrap"><table class="withdraw-table"><thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="3">No withdrawal requests yet.</td></tr>')+'</tbody></table></div></section></div><p class="withdraw-sub">Important: a request is not a payout. Administrators must confirm eligibility/maturity and verify the real transfer before marking it paid. No payment is sent automatically.</p></div>';
+    const body='<style>
+.withdraw-page{--wd-gold:#dfbd62;--wd-gold-bright:#f7e4a0;--wd-border:rgba(223,189,98,.2);--wd-muted:#aaa79e;display:grid;gap:18px;width:100%;max-width:1120px;margin:0 auto;color:#f5f1e8;min-width:0}
+.withdraw-page *{box-sizing:border-box}
+.withdraw-page .withdraw-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.16),transparent 42%),linear-gradient(135deg,#191916,#10100f 70%,#1b1810);min-width:0}
+.withdraw-page .withdraw-hero-copy{min-width:0;max-width:680px}
+.withdraw-page .withdraw-eyebrow,.withdraw-page .withdraw-kicker{display:block;color:var(--wd-gold);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase;margin:0 0 10px}
+.withdraw-page .withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.04em;margin:0 0 10px;color:#fff}
+.withdraw-page .withdraw-hero p,.withdraw-page .withdraw-sub{color:#bdb8aa;font-size:13px;line-height:1.7;margin:8px 0}
+.withdraw-page .withdraw-hero-side{display:grid;justify-items:end;gap:12px;flex:0 0 auto}
+.withdraw-page .withdraw-status-label{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid var(--wd-border);border-radius:999px;background:rgba(216,180,90,.1);color:#f0d994;font-size:10px;font-weight:850;letter-spacing:.035em;white-space:normal}
+.withdraw-page .withdraw-status-label:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px}
+.withdraw-page .withdraw-hero-nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.withdraw-page .withdraw-hero-nav a,.withdraw-page .withdraw-link{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:9px 12px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold-bright);text-decoration:none;font-size:11px;font-weight:800;transition:background .18s,border-color .18s}
+.withdraw-page .withdraw-hero-nav a:hover,.withdraw-page .withdraw-link:hover{background:rgba(216,180,90,.09);border-color:rgba(223,189,98,.48)}
+.withdraw-page .withdraw-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.withdraw-page .withdraw-metric{display:grid;gap:8px;min-width:0;padding:16px;border:1px solid rgba(255,255,255,.075);border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012))}
+.withdraw-page .withdraw-metric-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#a9a397;font-size:11px}
+.withdraw-page .withdraw-metric-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:rgba(216,180,90,.1);color:var(--wd-gold-bright);font-size:15px}
+.withdraw-page .withdraw-metric strong{font-size:clamp(15px,2vw,19px);color:#f5edcf;overflow-wrap:anywhere}
+.withdraw-page .withdraw-metric small{font-size:11px;color:#a9a397;line-height:1.5}
+.withdraw-page .withdraw-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+.withdraw-page .withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012));overflow:hidden}
+.withdraw-page .withdraw-panel h3{margin:6px 0;color:#fff;font-size:19px;letter-spacing:-.02em}
+.withdraw-page .withdraw-bank-list{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}
+.withdraw-page .withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}
+.withdraw-page .withdraw-bank-copy strong,.withdraw-page .withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.withdraw-page .withdraw-bank-copy strong{font-size:12px;color:#f4f0e7}
+.withdraw-page .withdraw-bank-copy small,.withdraw-page .withdraw-mask{font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-mask{white-space:nowrap}
+.withdraw-page .withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-empty{padding:24px 16px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-empty strong{color:#f4edda}
+.withdraw-page .withdraw-empty p{color:var(--wd-muted);font-size:12px;line-height:1.6}
+.withdraw-page .withdraw-form{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-form label{display:block;margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}
+.withdraw-page .withdraw-form input,.withdraw-page .withdraw-form select,.withdraw-page .withdraw-form textarea{display:block;width:100%;min-width:0;min-height:44px;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px;line-height:1.45}
+.withdraw-page .withdraw-form textarea{resize:vertical;min-height:72px}
+.withdraw-page .withdraw-form input:focus,.withdraw-page .withdraw-form select:focus,.withdraw-page .withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}
+.withdraw-page .withdraw-available{display:grid;grid-template-columns:1fr auto;gap:7px 10px;padding:13px;border:1px solid rgba(216,180,90,.16);border-radius:12px;background:rgba(0,0,0,.13);font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-available strong{text-align:right;color:#f4e3a4;font-variant-numeric:tabular-nums}
+.withdraw-page .withdraw-submit{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;cursor:pointer;border:1px solid #f1d575!important;border-radius:11px!important;background:linear-gradient(120deg,#d3ad4a,#f5df8c)!important;color:#18150c!important;font-size:12px;font-weight:900;box-shadow:0 9px 24px rgba(213,173,56,.1)}
+.withdraw-page .withdraw-submit:hover{filter:brightness(1.05)}
+.withdraw-page .withdraw-checks{display:grid;gap:10px;padding:0;margin:18px 0;list-style:none}
+.withdraw-page .withdraw-checks li{display:grid;gap:5px;min-width:0;padding:13px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-checks strong{font-size:12px;color:#eee8d8}
+.withdraw-page .withdraw-checks span{font-size:11px;color:#bdb8aa;line-height:1.5}
+.withdraw-page .withdraw-notice{padding:14px 16px;border:1px solid var(--wd-border);border-radius:12px;background:rgba(216,180,90,.07);color:#e9ce86;font-size:13px;line-height:1.6}
+.withdraw-page .withdraw-status-label.status-paid{background:rgba(55,145,89,.14);color:#94e3b0}
+.withdraw-page .withdraw-status-label.status-rejected{background:rgba(190,75,75,.13);color:#f0aaaa}
+.withdraw-page .withdraw-history{grid-column:1/-1}
+.withdraw-page .withdraw-table-wrap{width:100%;overflow-x:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px}
+.withdraw-page .withdraw-table{width:100%;border-collapse:collapse;min-width:420px}
+.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:13px 12px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07);font-size:12px;overflow-wrap:anywhere}
+.withdraw-page .withdraw-table th{color:#aaa18a;font-size:10px;text-transform:uppercase;letter-spacing:.1em;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-table tr:last-child td{border-bottom:0}
+.withdraw-page .withdraw-table small{color:#aaa18a}
+.withdraw-page .withdraw-history-empty{padding:24px;text-align:center;color:#aaa79e;font-size:12px}
+.withdraw-page .withdraw-page-foot{margin:0;padding:0 2px;color:#98958c;font-size:11px;line-height:1.7}
+@media(max-width:820px){.withdraw-page .withdraw-hero{align-items:flex-start;flex-direction:column}.withdraw-page .withdraw-hero-side{justify-items:start;width:100%}.withdraw-page .withdraw-hero-nav{justify-content:flex-start}.withdraw-page .withdraw-layout{grid-template-columns:1fr}.withdraw-page .withdraw-history{grid-column:auto}}
+@media(max-width:560px){.withdraw-page{gap:13px}.withdraw-page .withdraw-hero{padding:21px 17px;border-radius:18px}.withdraw-page .withdraw-overview{grid-template-columns:1fr;gap:9px}.withdraw-page .withdraw-metric{grid-template-columns:36px minmax(0,1fr);align-items:center;column-gap:10px;padding:12px}.withdraw-page .withdraw-metric-icon{grid-row:span 2}.withdraw-page .withdraw-metric-top{align-self:end}.withdraw-page .withdraw-metric strong{font-size:16px}.withdraw-page .withdraw-panel{padding:16px 13px;border-radius:16px}.withdraw-page .withdraw-bank-row{gap:8px;padding:10px}.withdraw-page .withdraw-recent{display:none}.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:11px 9px}.withdraw-page .withdraw-hero-nav a{flex:1 1 auto}}
+@media(prefers-reduced-motion:reduce){.withdraw-page *{scroll-behavior:auto!important;transition:none!important}}
+</style><div class="withdraw-page">'+requestNotice+'<section class="withdraw-hero"><div class="withdraw-hero-copy"><span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span><h2>Withdrawals, with clarity.</h2><p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p></div><div class="withdraw-hero-side"><span class="withdraw-status-label">'+esc(heroStatus)+'</span><nav class="withdraw-hero-nav" aria-label="Account shortcuts"><a href="/dashboard">Dashboard ↗</a><a href="/profile">Profile ↗</a><a href="/transactions">Activity ↗</a></nav></div></section><div class="withdraw-overview"><div class="withdraw-metric"><span class="withdraw-metric-icon" aria-hidden="true">✓</span><span class="withdraw-metric-top">Identity verification</span><strong>'+(kycApproved?'Approved':kycStatus==='pending'?'In review':'Action needed')+'</strong><small>'+(kycApproved?'KYC is complete':kycStatus==='pending'?'Waiting for review':'Review your verification status')+'</small></div><div class="withdraw-metric"><span class="withdraw-metric-icon" aria-hidden="true">◎</span><span class="withdraw-metric-top">Payout destination</span><strong>'+(banks.length?banks.length+' saved account'+(banks.length===1?'':'s'):'Not added')+'</strong><small>'+(banks.length?'Bank details are saved securely':'Add an account in your profile')+'</small></div><div class="withdraw-metric"><span class="withdraw-metric-icon" aria-hidden="true">◈</span><span class="withdraw-metric-top">Available funds</span><strong>'+(available.NGN>0?'₦'+available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}):available.USD>0?'<section class="withdraw-panel"><p class="withdraw-kicker">PAYOUT DESTINATION</p><h3>Your bank accounts</h3><p class="withdraw-sub">Account numbers remain masked for privacy.</p><div class="withdraw-bank-list">'+bankCards+'</div>'+(banks.length?'<a class="withdraw-link" href="/profile">Manage payout details ↗</a>':'')+'</section>'+requestPanel+'<section class="withdraw-panel withdraw-history"><p class="withdraw-kicker">YOUR ACTIVITY</p><h3>Withdrawal requests</h3><p class="withdraw-sub">Track each request through review and verified payment.</p><div class="withdraw-table-wrap"><table class="withdraw-table"><thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>')+'</tbody></table></div></section></div><p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p></div>';
+    res.set('Cache-Control','no-store');
+    res.send(memberPage('Withdraw','/withdraw',m,body,req));
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'<div class="member-card"><h2>Withdrawal setup needs one final step</h2><p>Apply <code>migrations/009_withdrawal_requests.sql</code> after the KYC, bank-account and deposit-ledger migrations. No request has been created.</p><a class="btn" href="/profile">Manage bank accounts</a></div>',req));
+    next(e);
+  }
+});
+app.post('/withdraw', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const currency=String(req.body.currency||''), bankId=String(req.body.bank_account_id||''), amountText=String(req.body.amount||'').trim(), memberNote=String(req.body.member_note||'').trim().slice(0,500);
+  if(!['NGN','USD'].includes(currency)||!/^\d{1,20}$/.test(bankId)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText))return res.status(400).send(formError('Check withdrawal details','Choose a saved payout account, a supported currency and a valid amount.','/withdraw'));
+  const amount=Number(amountText);
+  if(!Number.isFinite(amount)||amount<=0||amount>1000000000000)return res.status(400).send(formError('Invalid amount','Enter a positive amount within your available balance.','/withdraw'));
+  try{
+    const [[kyc]]=await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",[req.session.memberId]);
+    if(!kyc||String(kyc.status||'').trim().toLowerCase()!=='approved')return res.status(403).send(formError('KYC approval required','Withdrawal requests unlock only after your identity verification is approved by an administrator.','/kyc'));
+    const conn=await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[bank]]=await conn.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE id=? AND member_id=? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',[bankId,req.session.memberId]);
+      if(!bank){await conn.rollback();return res.status(400).send(formError('Payout account unavailable','Choose one of your active saved bank accounts.','/profile'));}
+      const [[walletRow]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[req.session.memberId,currency]);
+      const [[reservedRow]]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM withdrawal_requests WHERE member_id=? AND currency=? AND status IN ('pending','approved')",[req.session.memberId,currency]);
+      const available=Math.max(0,(walletRow?Number(walletRow.balance):0)-(reservedRow?Number(reservedRow.total):0));
+      if(amount>available+1e-8){await conn.rollback();return res.status(400).send(formError('Amount exceeds available balance','Your request must not exceed the unreserved wallet balance shown on the withdrawal page.','/withdraw'));}
+      const [result]=await conn.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')",[req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,memberNote||null]);
+      await conn.commit();
+      return res.redirect('/withdraw?request='+encodeURIComponent(result.insertId));
+    }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(formError('Withdrawal setup incomplete','The withdrawal database migration has not been applied yet. No request was created.','/withdraw'));
+    next(e);
+  }
+});
+app.get('/transactions', requireAuth, async (req,res,next) => {
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [transactions]=await pool.execute('SELECT id,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const [requests]=await pool.execute('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 100',[m.id]);
+    const txRows=transactions.map(t=>'<tr><td>'+esc(t.created_at)+'</td><td>Deposit credit</td><td>'+esc(t.currency+' '+Number(t.amount).toLocaleString('en-US',{maximumFractionDigits:8}))+'</td><td>'+esc(t.reference)+'</td><td><span class="ac-pill">COMPLETED</span></td></tr>').join('');
+    const reqRows=requests.map(d=>'<tr><td>'+esc(d.created_at)+'</td><td>'+esc(d.payment_label)+'<br><small>'+esc(d.payment_reference)+'</small></td><td>'+esc(d.currency+' '+Number(d.amount).toLocaleString('en-US',{maximumFractionDigits:8}))+'<br><small>Fee: '+esc(d.currency+' '+Number(d.fee_amount).toLocaleString('en-US',{maximumFractionDigits:8}))+' · Total: '+esc(d.currency+' '+Number(d.total_due).toLocaleString('en-US',{maximumFractionDigits:8}))+'</small></td><td><span class="ac-pill">'+esc(d.status.toUpperCase())+'</span>'+(d.reviewer_note?'<p class="muted small">'+esc(d.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    const body='<div class="member-card"><h2>Completed transactions</h2><p class="muted small">Only approved deposits that have been credited to your wallet appear as completed transactions.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>'+(txRows||'<tr><td colspan="5">No completed transactions yet.</td></tr>')+'</tbody></table></div></div><div class="member-card"><h2>Deposit requests</h2><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Date</th><th>Payment destination / reference</th><th>Amount / fee</th><th>Status</th></tr></thead><tbody>'+(reqRows||'<tr><td colspan="4">No deposit requests yet.</td></tr>')+'</tbody></table></div></div><style>.ac-table{width:100%;border-collapse:collapse;min-width:580px}.ac-table th,.ac-table td{padding:12px;text-align:left;border-bottom:1px solid #35323a;vertical-align:top}.ac-table-wrap{overflow-x:auto}</style>';
+    res.send(memberPage('Transaction history','/transactions',m,body,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
+});
+app.get('/referrals', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [counts]=await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?',[m.id]);const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\/+$/,'');const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);const content='<div class="member-card"><p class="muted small">YOUR MONARCH UID</p><div class="copy-value"><strong id="pageUid">'+esc(m.monarch_uid)+'</strong><button class="copy-btn" type="button" data-copy-target="pageUid">Copy UID</button></div><p class="muted small">YOUR PERSONAL REFERRAL LINK</p><div class="copy-value"><input id="pageReferralLink" value="'+esc(link)+'" readonly><button class="copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="muted small">Referral attribution is recorded when a new account successfully registers using your code.</p></div><div class="grid"><div class="stat"><span class="muted small">Registered referrals</span><strong>'+Number(counts[0].total||0)+'</strong></div></div>';res.send(memberPage('Referrals','/referrals',m,content,req));}catch(e){next(e)}});
+app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
+  if (err) return next(err);
+  res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  res.redirect('/');
+}));
+app.get('/forgot-password', (req, res) => res.send(page('Reset password', '<h1>Reset your password</h1><p class="muted">Enter your account email. If it exists, we will send reset instructions.</p><form method="post" action="/forgot-password">' + csrfField(req) + '<label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required maxlength="254"><button class="btn" type="submit">Send reset link</button></form><div class="links"><a href="/login">Back to login</a></div>')));
+app.post('/forgot-password', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const [rows] = await pool.execute('SELECT id, email FROM members WHERE email = ? LIMIT 1', [email]);
+    if (rows.length && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
+      const token = crypto.randomBytes(32).toString('hex'), tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      await pool.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].id]);
+      await pool.execute('INSERT INTO password_resets (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))', [rows[0].id, tokenHash]);
+      const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: String(process.env.SMTP_SECURE || 'false') === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } });
+      const link = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/reset-password?token=' + token;
+      await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to: rows[0].email, subject: 'Reset your Monarch Codex password', text: 'Use this one-time link within 30 minutes to reset your password: ' + link + '\nIf you did not request this, ignore this email.' });
+    }
+    res.send(page('Check your email', '<h1>Check your email</h1><p class="muted">If an account exists for that address and email delivery is configured, reset instructions will arrive shortly.</p><a class="btn" href="/login">Return to login</a>'));
+  } catch (e) { next(e); }
+});
+app.get('/reset-password', async (req, res, next) => {
+  try {
+    const token = String(req.query.token || '');
+    if (!/^[a-f0-9]{64}$/.test(token)) return res.status(400).send(formError('Invalid reset link', 'Request a new password reset link.', '/forgot-password'));
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await pool.execute('SELECT id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
+    if (!rows.length) return res.status(400).send(formError('Expired reset link', 'Request a new password reset link.', '/forgot-password'));
+    req.session.resetTokenHash = tokenHash;
+    res.send(page('Choose a new password', '<h1>Choose a new password</h1><form method="post" action="/reset-password">' + csrfField(req) + '<label for="password">New password</label><div class="password-wrap"><input id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="password-toggle" type="button" data-toggle-password="password" onclick="togglePassword(&quot;password&quot;,this)" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><button class="btn" type="submit">Update password</button></form>'));
+  } catch (e) { next(e); }
+});
+app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const password = String(req.body.password || ''), tokenHash = req.session.resetTokenHash;
+    if (password.length < 12 || password.length > 128) return res.status(400).send(formError('Check your password', 'Use a password between 12 and 128 characters.', '/forgot-password'));
+    if (!tokenHash) return res.status(400).send(formError('Reset session expired', 'Request a new password reset link.', '/forgot-password'));
+    const [rows] = await pool.execute('SELECT id, member_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
+    if (!rows.length) return res.status(400).send(formError('Expired reset link', 'Request a new password reset link.', '/forgot-password'));
+    const hash = await bcrypt.hash(password, 12), conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute('UPDATE members SET password_hash = ? WHERE id = ?', [hash, rows[0].member_id]);
+      await conn.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].member_id]);
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    req.session.destroy(() => res.redirect('/login'));
+  } catch (e) { next(e); }
+});
+// Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.js', '/wallet-balances.js'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
+app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
+app.use((err, _req, res, _next) => {
+  console.error('[app error]', err && err.message ? err.message : 'Unknown error');
+  if (res.headersSent) return;
+  res.status(500).send(page('Something went wrong', '<h1>Something went wrong</h1><p class="muted">Please try again shortly.</p><a class="btn" href="/">Return home</a>'));
+});
+app.listen(port, () => console.log('Monarch Codex server listening on port', port));
++available.USD.toLocaleString('en-US',{maximumFractionDigits:2}):'No available funds')+'</strong><small>Unreserved wallet balance</small></div></div><div class="withdraw-layout"><section class="withdraw-panel"><p class="withdraw-kicker">PAYOUT DESTINATION</p><h3>Your bank accounts</h3><p class="withdraw-sub">Account numbers remain masked for privacy.</p><div class="withdraw-bank-list">'+bankCards+'</div>'+(banks.length?'<a class="withdraw-link" href="/profile">Manage payout details ↗</a>':'')+'</section>'+requestPanel+'<section class="withdraw-panel withdraw-history"><p class="withdraw-kicker">YOUR ACTIVITY</p><h3>Withdrawal requests</h3><p class="withdraw-sub">Track each request through review and verified payment.</p><div class="withdraw-table-wrap"><table class="withdraw-table"><thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="3">No withdrawal requests yet.</td></tr>')+'</tbody></table></div></section></div><p class="withdraw-sub">Important: a request is not a payout. Administrators must confirm eligibility/maturity and verify the real transfer before marking it paid. No payment is sent automatically.</p></div>';
     res.set('Cache-Control','no-store');
     res.send(memberPage('Withdraw','/withdraw',m,body,req));
   }catch(e){
