@@ -3,7 +3,7 @@
 const express = require('express');
 
 function createSovereignDeskRouter(deps) {
-  const { pool, requireAuth, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc } = deps;
+  const { pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc } = deps;
   const router = express.Router();
   const urlencoded = express.urlencoded({ extended: false, limit: '12kb' });
   const idOk = value => /^\d{1,20}$/.test(String(value || ''));
@@ -269,7 +269,7 @@ function createSovereignDeskRouter(deps) {
   function noAccessContent(m) {
     return '<section class="sd-member-hero"><span class="kicker">THE SOVEREIGN DESK</span><h2>Your private trading workspace.</h2><p>Signals, mentorship and announcements are available to members with an active access grant.</p></section><section class="sd-member-card"><h3>Access is not active yet</h3><p>Submit an access request for the team to review. An administrator must approve it before private content becomes visible.</p><a class="btn" href="/sovereign-desk/access">Request access</a></section>';
   }
-  router.get('/sovereign-desk',requireAuth,async(req,res,next)=>{
+  router.get('/sovereign-desk',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{
       const m=await getMemberForPage(req,res);if(!m)return;
       const active=await memberAccess(m.id);
@@ -281,28 +281,28 @@ function createSovereignDeskRouter(deps) {
       renderMember(req,res,m,'The Sovereign Desk','/sovereign-desk',body);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
   });
-  router.get('/sovereign-desk/signals',requireAuth,async(req,res,next)=>{
+  router.get('/sovereign-desk/signals',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return renderMember(req,res,m,'Desk signals','/sovereign-desk/signals',noAccessContent(m));
       const [rows]=await pool.execute("SELECT title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100");
       const content='<section class="sd-member-hero"><span class="kicker">MARKET ANALYSIS</span><h2>Signals & market notes</h2><p>Published analysis from The Sovereign Desk. Use your own risk controls and independent judgment.</p></section><div class="sd-member-list">'+(rows.map(s=>'<article class="sd-member-item"><span class="sd-member-tag">'+esc(s.direction.toUpperCase())+' · '+esc(s.asset_pair)+'</span><h3>'+esc(s.title)+'</h3><p>'+esc(s.explanation)+'</p><div class="sd-member-grid"><div><small>Entry zone</small><p>'+esc(s.entry_zone||'Not specified')+'</p></div><div><small>Timeframe</small><p>'+esc(s.timeframe||'Not specified')+'</p></div><div><small>Stop loss</small><p>'+esc(s.stop_loss||'Not specified')+'</p></div><div><small>Targets</small><p>'+(s.take_profit_1?esc(s.take_profit_1):'—')+(s.take_profit_2?' / '+esc(s.take_profit_2):'')+'</p></div></div><small>Published '+dateLabel(s.published_at)+' · Expires '+dateLabel(s.expires_at)+'</small></article>').join('')||'<article class="sd-member-card"><h3>No published signals yet</h3><p>New signals will appear here after the desk team publishes them.</p></article>')+'</div>';
       renderMember(req,res,m,'Signals','/sovereign-desk/signals',content);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
   });
-  router.get('/sovereign-desk/mentorship',requireAuth,async(req,res,next)=>{
+  router.get('/sovereign-desk/mentorship',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return renderMember(req,res,m,'Mentorship','/sovereign-desk/mentorship',noAccessContent(m));
       const [rows]=await pool.execute("SELECT title,body,published_at FROM sovereign_guidance WHERE status='published' ORDER BY published_at DESC,id DESC LIMIT 100");
       const content='<section class="sd-member-hero"><span class="kicker">LEARNING & GUIDANCE</span><h2>Mentorship library</h2><p>Practical education and desk guidance for your continued learning.</p></section><div class="sd-member-list">'+(rows.map(g=>'<article class="sd-member-item"><h3>'+esc(g.title)+'</h3><p>'+esc(g.body)+'</p><small>Published '+dateLabel(g.published_at)+'</small></article>').join('')||'<article class="sd-member-card"><h3>No mentorship resources yet</h3><p>Published lessons and guidance will appear here.</p></article>')+'</div>';
       renderMember(req,res,m,'Mentorship','/sovereign-desk/mentorship',content);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
   });
-  router.get('/sovereign-desk/announcements',requireAuth,async(req,res,next)=>{
+  router.get('/sovereign-desk/announcements',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return renderMember(req,res,m,'Announcements','/sovereign-desk/announcements',noAccessContent(m));
       const [rows]=await pool.execute("SELECT title,body,published_at FROM sovereign_announcements WHERE status='published' ORDER BY published_at DESC,id DESC LIMIT 100");
       const content='<section class="sd-member-hero"><span class="kicker">DESK UPDATES</span><h2>Announcements</h2><p>Important updates from The Sovereign Desk.</p></section><div class="sd-member-list">'+(rows.map(a=>'<article class="sd-member-item"><h3>'+esc(a.title)+'</h3><p>'+esc(a.body)+'</p><small>Published '+dateLabel(a.published_at)+'</small></article>').join('')||'<article class="sd-member-card"><h3>No announcements yet</h3><p>New desk announcements will appear here.</p></article>')+'</div>';
       renderMember(req,res,m,'Announcements','/sovereign-desk/announcements',content);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
   });
-  router.get('/sovereign-desk/access',requireAuth,async(req,res,next)=>{
+  router.get('/sovereign-desk/access',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{
       const m=await getMemberForPage(req,res);if(!m)return;
       const [grants]=await pool.execute('SELECT status,reason,granted_at,expires_at FROM sovereign_desk_access WHERE member_id=? LIMIT 1',[m.id]);
@@ -315,7 +315,7 @@ function createSovereignDeskRouter(deps) {
       renderMember(req,res,m,'Desk access','/sovereign-desk/access',body);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk access workflow is not configured yet.');next(e);}
   });
-  router.post('/sovereign-desk/access/request',requireAuth,urlencoded,csrfCheck,async(req,res,next)=>{
+  router.post('/sovereign-desk/access/request',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
     const reason=clean(req.body.reason,1000);
     if(!reason)return res.status(400).send('Please explain why you are requesting access.');
     try{
