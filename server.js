@@ -197,8 +197,7 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
       const token = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [insertedId]);
-      await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [insertedId, tokenHash]);      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
-    })().catch(e => console.error('[mail] Verification email failed:', e.message));
+      await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [insertedId, tokenHash]);      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });    })().catch(e => console.error('[mail] Verification email failed:', e.message));
     delete req.session.registrationReferralCode;
     return res.redirect('/verification-pending');
   } catch (e) { next(e); }
@@ -280,7 +279,7 @@ function adminControlPage(title, active, content, req) {
   const groups = deskOnly ? [
     {label:'Desk overview',links:[['/sovereign-admin','Overview','◫']]},
     {label:'Signals & learning',links:[['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦']]},
-    {label:'People & access',links:[['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/activity','My activity','▤']]},
+    {label:'People & access',links:[['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/activity','My activity','◷']]},
     {label:'Account',links:[['/dashboard','Member view','↗']]}
   ] : [
     {label:'Control centre',links:[['/admin','Overview','◫']]},
@@ -397,8 +396,7 @@ const adminSectionInfo = {
   '/admin/referrals': ['Referral monitoring','Review platform referral activity and eligible earnings.','Referral attribution exists in member registration, but platform-wide earnings and audit reporting are not yet connected here.'],
   '/admin/academy': ['Academy management','Manage learning content and eligible access.','The existing Academy management data source has not yet been connected to this control centre.'],
   '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
-  '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']
-};
+  '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']};
 for (const [route, info] of Object.entries(adminSectionInfo)) {
   if (['/admin/deposits','/admin/withdrawals','/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
   app.get(route, requireAdmin, async (req,res,next) => {
@@ -597,8 +595,7 @@ app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:fa
     if (rawVideoUrl) {      try { const parsed = new URL(rawVideoUrl); if (!['http:','https:'].includes(parsed.protocol)) throw new Error('Unsupported URL protocol'); videoUrl = parsed.toString(); }
       catch (_) { return res.status(400).send(page('Invalid video URL','<h1>Enter a valid HTTPS or HTTP video URL</h1><a class="btn" href="/admin/academy">Return to Academy</a>')); }    }
     if (!title || !content) return res.status(400).send(page('Lesson details required','<h1>Enter a lesson title and content</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
-    await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);
-    res.redirect('/admin/academy');
+    await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);    res.redirect('/admin/academy');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
 app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
@@ -797,8 +794,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
           emailStatus = sent ? 'sent' : 'skipped';        } catch(e) {
           emailStatus = 'failed';
           console.error('[mail] KYC notification failed:', e.message);
-        }
-      } else if (notification) {
+        }      } else if (notification) {
         emailStatus = 'no_address';
       }
     }
@@ -997,8 +993,7 @@ app.get('/profile', requireAuth, async (req,res,next)=>{
   } catch(e){next(e);}
 });
 app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
-  try{
-    const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
+  try{    const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
     if(!/^[A-Za-z0-9_]{3,30}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||phone.length>32||fullName.length===0||fullName.length>160) return res.status(400).send(page('Invalid profile','<h1>Check your profile details</h1><a class="btn" href="/profile">Back to profile</a>'));
     let hasKyc=false;
     try { const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved')) AS has_kyc",[req.session.memberId]); hasKyc=Number(status.has_kyc)>0; }
@@ -1197,8 +1192,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
         kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted. Please try again later.';
       } else if (readinessError && ['ER_ACCESS_DENIED_ERROR','ECONNREFUSED','ETIMEDOUT','ENOTFOUND'].includes(readinessError.code)) {
         kycReadinessMessage = 'Secure verification cannot connect to its database right now. Your information and documents will not be submitted.';
-      } else if (readinessError && readinessError.status === 503) {
-        kycReadinessMessage = 'Secure document storage is not configured yet. Your information and documents will not be submitted.';
+      } else if (readinessError && readinessError.status === 503) {        kycReadinessMessage = 'Secure document storage is not configured yet. Your information and documents will not be submitted.';
       } else {
         console.error('[kyc readiness]', readinessError && readinessError.code ? readinessError.code : 'readiness_check_failed');
         kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
@@ -1397,8 +1391,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
 .withdraw-page .withdraw-empty{padding:24px 16px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px;background:rgba(0,0,0,.12)}
 .withdraw-page .withdraw-empty strong{color:#f4edda}
 .withdraw-page .withdraw-empty p{color:var(--wd-muted);font-size:12px;line-height:1.6}
-.withdraw-page .withdraw-form{display:grid;gap:10px;margin-top:16px}
-.withdraw-page .withdraw-form label{display:block;margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}
+.withdraw-page .withdraw-form{display:grid;gap:10px;margin-top:16px}.withdraw-page .withdraw-form label{display:block;margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}
 .withdraw-page .withdraw-form input,.withdraw-page .withdraw-form select,.withdraw-page .withdraw-form textarea{display:block;width:100%;min-width:0;min-height:44px;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px;line-height:1.45}
 .withdraw-page .withdraw-form textarea{resize:vertical;min-height:72px}
 .withdraw-page .withdraw-form input:focus,.withdraw-page .withdraw-form select:focus,.withdraw-page .withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}
@@ -1597,8 +1590,7 @@ app.get('/referrals', requireAuth, async (req,res,next)=>{  try {
     const base = String(process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/[/]+$/, '');
     const link = base + '/register?ref=' + encodeURIComponent(m.monarch_uid);
     const total = Number(counts[0].total || 0);
-    const content = `<style>
-.referral-experience{display:grid;gap:18px;min-width:0}
+    const content = `<style>.referral-experience{display:grid;gap:18px;min-width:0}
 .referral-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 112px;align-items:center;gap:22px;padding:clamp(22px,4vw,36px);border:1px solid rgba(223,189,98,.25);border-radius:22px;background:radial-gradient(ellipse at 88% 12%,rgba(223,189,98,.19),transparent 36%),linear-gradient(135deg,#1b1a16 0%,#111113 58%,#19160e 100%)}
 .referral-hero:after{content:"";position:absolute;z-index:-1;width:210px;height:210px;right:-82px;bottom:-125px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 22px rgba(223,189,98,.025),0 0 0 44px rgba(223,189,98,.02)}
 .referral-kicker{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:#e5c66f;font-size:10px;font-weight:850;letter-spacing:.17em;text-transform:uppercase}
