@@ -1421,7 +1421,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
     </section>
   </div>
   <p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p>
-</div>\`;
+</div>`;
     res.set('Cache-Control','no-store');
     res.send(memberPage('Withdraw','/withdraw',m,body,req));
   }catch(e){
