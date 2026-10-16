@@ -1137,6 +1137,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
         kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
       }
     }
+    res.set('Cache-Control','no-store');
     if (existingKycStatus === 'approved') {
       const approvedContent = '<section class="kyc-approved-card" aria-labelledby="kycApprovedTitle"><div class="kyc-approved-mark" aria-hidden="true">✓</div><p class="kyc-approved-eyebrow">IDENTITY CHECK COMPLETE</p><p class="kyc-approved-pill"><span aria-hidden="true">●</span> KYC APPROVED</p><h2 id="kycApprovedTitle">You’re verified.</h2><p class="kyc-approved-lead">Your identity review is complete. Your account is verified, and you do not need to submit these documents again.</p><div class="kyc-approved-details"><div><span>Verification status</span><strong>Approved</strong></div><div><span>What happens next</span><strong>Check withdrawal readiness</strong></div></div><div class="kyc-approved-actions"><a class="kyc-approved-primary" href="/withdraw">Continue to withdrawals <span aria-hidden="true">→</span></a><a class="kyc-approved-secondary" href="/dashboard">Return to dashboard</a></div><p class="kyc-approved-foot">To submit a withdrawal request, you’ll also need a saved payout account and available wallet funds. Your verification is approved; these are separate account requirements.</p></section>';
       return res.send(wizardPage('KYC Verification',approvedContent,req));
@@ -1311,7 +1312,7 @@ app.post('/withdraw', requireAuth, express.urlencoded({extended:false,limit:'5kb
   if(!Number.isFinite(amount)||amount<=0||amount>1000000000000)return res.status(400).send(formError('Invalid amount','Enter a positive amount within your available balance.','/withdraw'));
   try{
     const [[kyc]]=await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",[req.session.memberId]);
-    if(!kyc||kyc.status!=='approved')return res.status(403).send(formError('KYC approval required','Withdrawal requests unlock only after your identity verification is approved by an administrator.','/kyc'));
+    if(!kyc||String(kyc.status||'').trim().toLowerCase()!=='approved')return res.status(403).send(formError('KYC approval required','Withdrawal requests unlock only after your identity verification is approved by an administrator.','/kyc'));
     const conn=await pool.getConnection();
     try{
       await conn.beginTransaction();
