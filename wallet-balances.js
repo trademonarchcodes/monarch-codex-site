@@ -1,18 +1,24 @@
 (function () {
   'use strict';
+
   var selector = document.getElementById('balanceCurrency');
   var total = document.getElementById('totalBalance');
   var note = document.getElementById('balanceConversionNote');
   if (!selector || !total) return;
 
   var state = { ngn: 0, usd: 0, rate: null };
+
   function format(amount, currency) {
     return new Intl.NumberFormat(currency === 'NGN' ? 'en-NG' : 'en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }).format(Number(amount) || 0);
   }
-  var currencyButtons = Array.prototype.slice.call(document.querySelectorAll('[data-currency-toggle]'));
+
+  var currencyButtons = Array.prototype.slice.call(
+    document.querySelectorAll('[data-currency-toggle]')
+  );
+
   function syncCurrencyToggle() {
     currencyButtons.forEach(function (button) {
       var active = button.getAttribute('data-currency-toggle') === selector.value;
@@ -20,13 +26,41 @@
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
   }
+
   function render() {
     var rate = Number(state.rate);
     var hasRate = Number.isFinite(rate) && rate > 0;
-    if (selector.value === 'USD') {
-      var usdEquivalent = hasRate ? state.usd + (state.ngn / rate) : state.usd;
-      total.textContent = '
-  selector.addEventListener('change', function () { syncCurrencyToggle(); render(); });
+
+    if (hasRate) {
+      // Treat the NGN and USD wallet amounts as one combined value,
+      // expressed in whichever display currency the member selects.
+      var totalNgn = state.ngn + (state.usd * rate);
+      var totalUsd = totalNgn / rate;
+
+      if (selector.value === 'USD') {
+        total.textContent = '$' + format(totalUsd, 'USD');
+      } else {
+        total.textContent = '₦' + format(totalNgn, 'NGN');
+      }
+
+      if (note) {
+        note.textContent = 'Your total wallet value, shown in the selected currency. Switching currencies changes the display only.';
+      }
+      return;
+    }
+
+    // Do not silently show an incomplete conversion when the FX rate is unavailable.
+    total.textContent = '—';
+    if (note) {
+      note.textContent = 'Your wallet value will appear when the exchange rate is available.';
+    }
+  }
+
+  selector.addEventListener('change', function () {
+    syncCurrencyToggle();
+    render();
+  });
+
   currencyButtons.forEach(function (button) {
     button.addEventListener('click', function () {
       selector.value = button.getAttribute('data-currency-toggle');
@@ -34,8 +68,13 @@
       render();
     });
   });
+
   syncCurrencyToggle();
-  fetch('/api/wallet-balances', { credentials: 'same-origin', cache: 'no-store' })
+
+  fetch('/api/wallet-balances', {
+    credentials: 'same-origin',
+    cache: 'no-store'
+  })
     .then(function (response) {
       if (!response.ok) throw new Error('Wallet balance request failed');
       return response.json();
@@ -47,40 +86,7 @@
       render();
     })
     .catch(function () {
-      if (note) note.textContent = 'Wallet balances are temporarily unavailable. Refresh the page to try again.';
-    });
-})(); + format(usdEquivalent, 'USD');
-      if (note) note.textContent = hasRate
-        ? 'Combined wallet value, converted at ₦' + format(rate, 'NGN') + ' per $1. Display only; wallet balances remain in their original currencies.'
-        : 'Showing your USD wallet balance. Currency conversion is temporarily unavailable.';
-    } else {
-      var ngnEquivalent = hasRate ? state.ngn + (state.usd * rate) : state.ngn;
-      total.textContent = '₦' + format(ngnEquivalent, 'NGN');
-      if (note) note.textContent = hasRate
-        ? 'Combined wallet value, converted at ₦' + format(rate, 'NGN') + ' per $1. Display only; wallet balances remain in their original currencies.'
-        : 'Showing your NGN wallet balance. Currency conversion is temporarily unavailable.';
-    }
-  }
-  selector.addEventListener('change', function () { syncCurrencyToggle(); render(); });
-  currencyButtons.forEach(function (button) {
-    button.addEventListener('click', function () {
-      selector.value = button.getAttribute('data-currency-toggle');
-      syncCurrencyToggle();
-      render();
-    });
-  });
-  syncCurrencyToggle();
-  fetch('/api/wallet-balances', { credentials: 'same-origin', cache: 'no-store' })
-    .then(function (response) {
-      if (!response.ok) throw new Error('Wallet balance request failed');
-      return response.json();
-    })
-    .then(function (data) {
-      state.ngn = Number(data.ngn) || 0;
-      state.usd = Number(data.usd) || 0;
-      render();
-    })
-    .catch(function () {
-      if (note) note.textContent = 'Wallet balances are temporarily unavailable. Refresh the page to try again.';
+      total.textContent = '—';
+      if (note) note.textContent = 'Wallet value is temporarily unavailable. Please refresh and try again.';
     });
 })();
