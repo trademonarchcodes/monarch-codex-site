@@ -207,19 +207,39 @@ app.get('/resend-verification', (req, res) => res.send(page('Resend verification
 app.post('/resend-verification', resetLimiter, csrfCheck, async (req, res, next) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
+    let resultTitle = 'Check your inbox';
+    let resultBody = 'If an unverified account exists for that email, a fresh verification link will be sent shortly. Check your inbox and spam folder.';
     if (validEmail(email)) {
       const [members] = await pool.execute('SELECT id, full_name, email, email_verified_at FROM members WHERE email = ? LIMIT 1', [email]);
-      if (members.length && !members[0].email_verified_at) {
+      if (members.length && members[0].email_verified_at) {
+        resultTitle = 'Your email is already verified';
+        resultBody = 'Great news — this email address is already verified. You can sign in to Monarch Codex now.';
+      } else if (members.length) {
+        if (!mailConfigured()) {
+          console.error('[mail] Cannot resend verification: SMTP_HOST, SMTP_USER or SMTP_PASSWORD is missing.');
+          return res.status(503).send(page('Email service unavailable', '<h1>We could not send your link yet</h1><p class="muted">The email service is temporarily unavailable. Please try again later or contact support. Your account has not been removed.</p><a class="btn" href="/login">Back to login</a>'));
+        }
         const member = members[0], token = crypto.randomBytes(32).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [member.id]);
         await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [member.id, tokenHash]);
         const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;
-        await sendAppEmail({ to: member.email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + member.full_name + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
+        const safeName = esc(member.full_name || 'Monarch');
+        const html = '<div style="margin:0;padding:36px 16px;background:#08090b;color:#f8f5eb;font-family:Arial,Helvetica,sans-serif"><div style="max-width:560px;margin:0 auto;border:1px solid #5d4a17;border-radius:22px;overflow:hidden;background:#111216"><div style="padding:30px 28px;text-align:center;background:linear-gradient(135deg,#211b0b,#111216)"><div style="font-size:12px;font-weight:bold;letter-spacing:4px;color:#e8c34d">MONARCH CODEX</div><div style="font-size:42px;margin:18px 0 8px">✉️</div><h1 style="margin:0;font-size:27px;line-height:1.25">Your kingdom is one step away</h1><p style="color:#d7d0bd;margin:14px 0 0">Confirm your email to activate your member access.</p></div><div style="padding:28px"><p style="font-size:16px">Hello ' + safeName + ',</p><p style="color:#d4d1c7;line-height:1.8">Here is your fresh verification link. For your security, it expires in <strong style="color:#f3cf3c">24 hours</strong> and can only be used once.</p><div style="text-align:center;margin:30px 0"><a href="' + esc(verifyLink) + '" style="display:inline-block;padding:15px 25px;border-radius:12px;background:#f3cf3c;color:#17130a;text-decoration:none;font-weight:bold">Verify my email →</a></div><p style="font-size:13px;color:#aaa7a0;line-height:1.7">If the button does not open, copy this link into your browser:<br><a style="color:#f3cf3c;word-break:break-all" href="' + esc(verifyLink) + '">' + esc(verifyLink) + '</a></p><p style="font-size:13px;color:#aaa7a0">If you did not create this account, you can safely ignore this message.</p></div><div style="padding:18px 28px;border-top:1px solid #302a1a;color:#888477;font-size:12px;text-align:center">BUILD WEALTH. BUILD A KINGDOM. · Monarch Codex</div></div></div>';
+        const sent = await sendAppEmail({ to: member.email, subject: 'Your fresh Monarch Codex email verification link', text: 'Hello ' + member.full_name + ',\n\nUse this link to verify your Monarch Codex email within 24 hours: ' + verifyLink + '\n\nIf you did not create this account, ignore this email.', html });
+        if (!sent) return res.status(503).send(page('Email service unavailable', '<h1>We could not send your link yet</h1><p class="muted">The email service is temporarily unavailable. Please try again later or contact support.</p><a class="btn" href="/login">Back to login</a>'));
+        resultTitle = 'Verification link sent';
+        resultBody = 'A fresh verification link is on its way. Check your inbox and spam folder. The link expires in 24 hours.';
       }
     }
-    return res.send(page('Check your email', '<h1>Check your email</h1><p class="muted">If an unverified account exists for that address, a new verification link will be sent shortly.</p><a class="btn" href="/login">Return to login</a>'));
-  } catch (e) { next(e); }
+    return res.send(page(resultTitle, '<h1>' + esc(resultTitle) + '</h1><p class="muted">' + esc(resultBody) + '</p><a class="btn" href="/login">Return to login</a>'));
+  } catch (e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE' && /email_verification_tokens/.test(String(e.message || ''))) {
+      console.error('[mail] Verification token table is missing. Apply migrations/003_email_verification_tokens.sql.');
+      return res.status(503).send(page('Verification setup required', '<h1>Email verification needs setup</h1><p class="muted">The verification service has not been fully configured yet. Please contact support while the site administrator completes the database setup.</p><a class="btn" href="/login">Back to login</a>'));
+    }
+    next(e);
+  }
 });
 app.get('/verify-email', async (req, res, next) => {
   try {
@@ -813,12 +833,12 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
     let emailStatus = 'not_applicable';
     if (kycApplicant) {
       const baseUrl = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '');
+      const approvedHtml = '<div style="margin:0;padding:36px 16px;background:#08090b;color:#f8f5eb;font-family:Arial,Helvetica,sans-serif"><div style="max-width:580px;margin:0 auto;border:1px solid #6a561b;border-radius:24px;overflow:hidden;background:#111216"><div style="padding:34px 28px 30px;text-align:center;background:radial-gradient(circle at top,#3b3012,#111216 72%)"><div style="font-size:12px;font-weight:bold;letter-spacing:4px;color:#e8c34d">MONARCH CODEX</div><div style="font-size:52px;line-height:1.2;margin:18px 0 8px">👑</div><div style="display:inline-block;padding:6px 12px;border:1px solid #77611d;border-radius:999px;color:#f3cf3c;font-size:11px;font-weight:bold;letter-spacing:1.5px">IDENTITY VERIFIED</div><h1 style="font-size:30px;line-height:1.2;margin:18px 0 10px">Congratulations, ' + esc(kycApplicant.full_name) + '!</h1><p style="font-size:16px;line-height:1.7;color:#e2d9c3;margin:0">Your identity verification has been approved.</p></div><div style="padding:28px"><p style="font-size:16px;line-height:1.8">You did it! 🎉 Your verification has been reviewed and approved by our team. This is an important milestone in your Monarch Codex journey.</p><div style="margin:22px 0;padding:18px;border-radius:14px;background:#1a1914;border:1px solid #3e351c"><div style="color:#f3cf3c;font-size:12px;font-weight:bold;letter-spacing:1px;margin-bottom:7px">WHAT HAPPENS NEXT?</div><p style="margin:0;color:#d8d3c7;line-height:1.8">Head to your dashboard to view your updated verification status and continue with the account features available to you.</p></div><div style="text-align:center;margin:28px 0 24px"><a href="' + esc(baseUrl + '/dashboard') + '" style="display:inline-block;padding:15px 25px;border-radius:12px;background:#f3cf3c;color:#17130a;text-decoration:none;font-weight:bold;font-size:15px">Open my dashboard →</a></div><p style="font-size:14px;line-height:1.8;color:#c5c0b5">Thank you for being part of Monarch Codex. We’re glad to have you with us — keep building with confidence. ✨</p></div><div style="padding:18px 28px;border-top:1px solid #302a1a;color:#a49d8b;font-size:12px;text-align:center">BUILD WEALTH. BUILD A KINGDOM.<br>Monarch Codex · This is an automated account notification.</div></div></div>';
       const messages = {
-        approved: { subject: 'Your Monarch Codex KYC is approved', text: 'Congratulations ' + kycApplicant.full_name + '! Your identity verification has been approved. You can review your status in your dashboard: ' + baseUrl + '/dashboard' },
+        approved: { subject: '👑 You’re verified, ' + String(kycApplicant.full_name || 'Monarch').split(/\s+/)[0] + '! Welcome to your next chapter', text: 'Congratulations, ' + kycApplicant.full_name + '! 🎉\n\nYour identity verification has been approved by the Monarch Codex team. This is an important milestone in your journey.\n\nWhat happens next? Visit your dashboard to view your updated verification status and continue with the account features available to you: ' + baseUrl + '/dashboard\n\nThank you for being part of Monarch Codex. Keep building with confidence! 👑✨\n\nBUILD WEALTH. BUILD A KINGDOM.\nMonarch Codex', html: approvedHtml },
         rejected: { subject: 'An update on your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', your identity verification was not approved. Reason from our review team: ' + (note || 'Please contact support for clarification.') + '\n\nPlease review your submission and contact support if you need help: ' + baseUrl + '/kyc' },
         needs_resubmission: { subject: 'Action needed: resubmit your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', we need you to resubmit your identity verification. Reason and instructions: ' + (note || 'Please review your submitted details and documents, then submit again.') + '\n\nContinue here: ' + baseUrl + '/kyc' }
       };
-      const notification = messages[status];
       const inAppMessages = {
         approved: { title: 'KYC approved', body: 'Congratulations ' + kycApplicant.full_name + '! Your identity verification has been approved. Your KYC status is now approved.', target: '/dashboard' },
         rejected: { title: 'KYC review update', body: 'Your identity verification was not approved. Reason: ' + note + ' Please review the feedback and contact support if needed.', target: '/kyc' },
