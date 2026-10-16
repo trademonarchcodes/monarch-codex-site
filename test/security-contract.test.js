@@ -127,5 +127,5 @@ test('admin overview uses live database metrics and clearly labels unconnected f
   assert.match(server, /Workflow readiness/);
   assert.match(server, /Payment provider and fully verified deposit-credit workflow are not connected/);
   assert.match(server, /No verified investment, profit or bonus ledger is connected/);
-  assert.match(server, /Never filled with fake account or financial records/);
+  assert.match(server, /never filled with fake account or financial records/i);
 });
