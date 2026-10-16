@@ -267,7 +267,7 @@ app.get('/login-intro', async (req, res, next) => {
     if (!rows.length) {
       return req.session.destroy(() => res.redirect('/login'));
     }
-    const firstName = String(rows[0].full_name || '').trim().split(/\\s+/)[0] || 'Monarch';
+    const firstName = String(rows[0].full_name || '').trim().split(/\s+/)[0] || 'Monarch';
     const safeName = esc(firstName);
     const safeDestination = esc(destination);
     const body = '<main class="welcome-screen"><div class="welcome-card">' +
