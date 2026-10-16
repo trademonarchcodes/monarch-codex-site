@@ -93,6 +93,16 @@ function csrfCheck(req, res, next) {
   next();
 }
 function requireAuth(req, res, next) { if (!req.session.memberId) return res.redirect('/login'); next(); }
+async function requireApprovedKyc(req, res, next) {
+  try {
+    const [rows] = await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1", [req.session.memberId]);
+    if (rows.length && String(rows[0].status || '').trim().toLowerCase() === 'approved') return next();
+    return res.redirect('/kyc?required=approval');
+  } catch (error) {
+    if (error && error.code === 'ER_NO_SUCH_TABLE') return res.redirect('/kyc?required=approval');
+    return next(error);
+  }
+}
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254; }
 function validUsername(username) { return /^[a-zA-Z0-9_]{6,30}$/.test(username); }
 function formError(title, message, back) { return page(title, '<h1>' + esc(title) + '</h1><div class="notice">' + esc(message) + '</div><a class="btn" href="' + esc(back || '/register') + '">Go back</a>'); }
@@ -1452,7 +1462,7 @@ app.post('/deposit', requireAuth, parseDepositProof, csrfCheck, async (req,res,n
     res.redirect('/deposit?submitted=1&request='+encodeURIComponent(insertResult.insertId));
   } catch(e) { if(req.file) fs.unlink(req.file.path,()=>{}); if(e.code==='ER_DUP_ENTRY') return res.status(409).send(formError('Reference already submitted','This payment reference has already been submitted for your account. Check your deposit history or contact support.','/deposit')); if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit')); next(e); }
 });
-app.get('/withdraw', requireAuth, async (req,res,next)=>{
+app.get('/withdraw', requireAuth, requireApprovedKyc, async (req,res,next)=>{
   try{
     const m=await getMemberForPage(req,res); if(!m)return;
     const [bankRows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);
@@ -1610,7 +1620,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
     next(e);
   }
 });
-app.post('/withdraw', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+app.post('/withdraw', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
   const currency=String(req.body.currency||''), bankId=String(req.body.bank_account_id||''), amountText=String(req.body.amount||'').trim(), memberNote=String(req.body.member_note||'').trim().slice(0,500);
   if(!['NGN','USD'].includes(currency)||!/^\d{1,20}$/.test(bankId)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText))return res.status(400).send(formError('Check withdrawal details','Choose a saved payout account, a supported currency and a valid amount.','/withdraw'));
   const amount=Number(amountText);
@@ -1636,7 +1646,7 @@ app.post('/withdraw', requireAuth, express.urlencoded({extended:false,limit:'5kb
     next(e);
   }
 });
-app.get('/transactions', requireAuth, async (req,res,next) => {
+app.get('/transactions', requireAuth, requireApprovedKyc, async (req,res,next) => {
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
     const [transactions]=await pool.execute('SELECT id,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
@@ -1706,7 +1716,7 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
-app.get('/referrals', requireAuth, async (req,res,next)=>{  try {
+app.get('/referrals', requireAuth, requireApprovedKyc, async (req,res,next)=>{  try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [m.id]);
@@ -1827,7 +1837,7 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 // Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
-app.use(createSovereignDeskRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
+app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
 
 // Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
