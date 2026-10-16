@@ -1471,7 +1471,7 @@ app.get('/referrals', requireAuth, async (req,res,next)=>{
     const m = await getMemberForPage(req,res);
     if (!m) return;
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [m.id]);
-    const base = String(process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '');
+    const base = String(process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/[/]+$/, '');
     const link = base + '/register?ref=' + encodeURIComponent(m.monarch_uid);
     const total = Number(counts[0].total || 0);
     const content = `<style>
