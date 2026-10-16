@@ -1297,7 +1297,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       if(requested)requestNotice='<div class="withdraw-notice" role="status"><strong>Request #'+Number(requested.id)+' received.</strong> Current status: '+esc(requested.status.toUpperCase())+'. This is a review request, not a payment confirmation.</div>';
     }
     const bankCards=banks.length?banks.map((b,i)=>'<div class="withdraw-bank-row"><span class="withdraw-bank-icon">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-bank-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-recent">RECENT</span>':'')+'</div>').join(''):'<div class="withdraw-empty"><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready.</p><a class="withdraw-link" href="/profile">Add bank account ↗</a></div>';
-    const body = \`<style>
+    const body = `<style>
 .withdraw-page{--wd-gold:#dfbd62;--wd-gold-bright:#f7e4a0;--wd-border:rgba(223,189,98,.2);--wd-muted:#aaa79e;display:grid;gap:18px;width:100%;max-width:1120px;margin:0 auto;color:#f5f1e8;min-width:0}
 .withdraw-page *{box-sizing:border-box}
 .withdraw-page .withdraw-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.16),transparent 42%),linear-gradient(135deg,#191916,#10100f 70%,#1b1810);min-width:0}
@@ -1363,7 +1363,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
 
 </style>
 <div class="withdraw-page">
-  \${requestNotice}
+  ${requestNotice}
   <section class="withdraw-hero">
     <div class="withdraw-hero-copy">
       <span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span>
@@ -1371,7 +1371,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       <p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p>
     </div>
     <div class="withdraw-hero-side">
-      <span class="withdraw-status-label">\${esc(heroStatus)}</span>
+      <span class="withdraw-status-label">${esc(heroStatus)}</span>
       <nav class="withdraw-hero-nav" aria-label="Account shortcuts">
         <a href="/dashboard">Dashboard ↗</a>
         <a href="/profile">Profile ↗</a>
@@ -1383,19 +1383,19 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
     <div class="withdraw-metric">
       <span class="withdraw-metric-icon" aria-hidden="true">✓</span>
       <span class="withdraw-metric-top">Identity verification</span>
-      <strong>\${kycApproved ? 'Approved' : kycStatus === 'pending' ? 'In review' : 'Action needed'}</strong>
-      <small>\${kycApproved ? 'KYC is complete' : kycStatus === 'pending' ? 'Waiting for review' : 'Review your verification status'}</small>
+      <strong>${kycApproved ? 'Approved' : kycStatus === 'pending' ? 'In review' : 'Action needed'}</strong>
+      <small>${kycApproved ? 'KYC is complete' : kycStatus === 'pending' ? 'Waiting for review' : 'Review your verification status'}</small>
     </div>
     <div class="withdraw-metric">
       <span class="withdraw-metric-icon" aria-hidden="true">◎</span>
       <span class="withdraw-metric-top">Payout destination</span>
-      <strong>\${banks.length ? banks.length + ' saved account' + (banks.length === 1 ? '' : 's') : 'Not added'}</strong>
-      <small>\${banks.length ? 'Bank details are saved securely' : 'Add an account in your profile'}</small>
+      <strong>${banks.length ? banks.length + ' saved account' + (banks.length === 1 ? '' : 's') : 'Not added'}</strong>
+      <small>${banks.length ? 'Bank details are saved securely' : 'Add an account in your profile'}</small>
     </div>
     <div class="withdraw-metric">
       <span class="withdraw-metric-icon" aria-hidden="true">◈</span>
       <span class="withdraw-metric-top">Available funds</span>
-      <strong>\${available.NGN > 0 ? '₦' + available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}) : available.USD > 0 ? '$' + available.USD.toLocaleString('en-US',{maximumFractionDigits:2}) : 'No available funds'}</strong>
+      <strong>${available.NGN > 0 ? '₦' + available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}) : available.USD > 0 ? '$' + available.USD.toLocaleString('en-US',{maximumFractionDigits:2}) : 'No available funds'}</strong>
       <small>Unreserved wallet balance</small>
     </div>
   </section>
@@ -1404,10 +1404,10 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       <p class="withdraw-kicker">PAYOUT DESTINATION</p>
       <h3>Your bank accounts</h3>
       <p class="withdraw-sub">Account numbers remain masked for privacy.</p>
-      <div class="withdraw-bank-list">\${bankCards}</div>
-      \${banks.length ? '<a class="withdraw-link" href="/profile">Manage payout details ↗</a>' : ''}
+      <div class="withdraw-bank-list">${bankCards}</div>
+      ${banks.length ? '<a class="withdraw-link" href="/profile">Manage payout details ↗</a>' : ''}
     </section>
-    \${requestPanel}
+    ${requestPanel}
     <section class="withdraw-panel withdraw-history">
       <p class="withdraw-kicker">YOUR ACTIVITY</p>
       <h3>Withdrawal requests</h3>
@@ -1415,7 +1415,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       <div class="withdraw-table-wrap">
         <table class="withdraw-table">
           <thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead>
-          <tbody>\${historyRows || '<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>'}</tbody>
+          <tbody>${historyRows || '<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>'}</tbody>
         </table>
       </div>
     </section>
