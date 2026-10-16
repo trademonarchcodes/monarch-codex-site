@@ -428,3 +428,14 @@
 .member-main .deposit-history-card .ac-table{min-width:650px}
 @media(max-width:760px){.deposit-workflow{padding:18px 14px}.deposit-step .deposit-input-grid{grid-template-columns:1fr;gap:10px}.deposit-final-summary{flex-direction:column;gap:14px}.deposit-final-summary>div+div{padding:14px 0 0;border-left:0;border-top:1px solid #49402d}.deposit-step-actions .btn,.deposit-step-actions .deposit-next{min-width:0;flex:1}.deposit-back,.deposit-cancel-link{padding:10px 11px}.deposit-progress li{font-size:.72rem}}
 @media(max-width:430px){.deposit-progress li>span{width:34px;height:34px}.deposit-progress:before{top:16px}.deposit-step-actions{gap:8px;align-items:stretch}.deposit-step-actions .btn,.deposit-step-actions .deposit-next{font-size:.82rem;padding:12px 10px}.deposit-back{font-size:.78rem;padding:9px 8px}.deposit-summary-strip{flex-wrap:wrap}.deposit-summary-strip .deposit-text-button{margin-left:auto}}
+
+
+/* Shared notification control — also used by the separately rendered overview page. */
+.member-notification-bell{position:relative;display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;border:1px solid #4a4026;border-radius:14px;background:linear-gradient(145deg,#211b0e,#151518);color:#f3d65c;text-decoration:none;box-shadow:0 8px 22px #0002;transition:background .18s,border-color .18s,transform .18s}
+.member-notification-bell:hover{background:#302611;border-color:#a88936;transform:translateY(-1px)}
+.member-notification-bell:focus-visible{outline:2px solid #f3cf3c;outline-offset:3px}
+.member-notification-bell svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.member-notification-bell [data-member-notification-count]:not([hidden]),.member-notification-bell .dashboard-notification-bell-count{position:absolute;top:-5px;right:-5px;display:grid;place-items:center;min-width:19px;height:19px;padding:0 4px;border:2px solid #101013;border-radius:999px;background:#f3cf3c;color:#17140a;font-size:.64rem;font-weight:900;line-height:1}
+.dashboard-overview-bell{margin-left:auto;flex-shrink:0}
+@media(max-width:760px){.dashboard-overview-bell{width:42px;height:42px;flex-basis:42px;border-radius:13px}}
+@media(prefers-reduced-motion:reduce){.member-notification-bell{transition:none}}

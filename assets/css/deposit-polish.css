@@ -25,3 +25,67 @@
 @media(max-width:760px){.member-main .deposit-calculator-grid{grid-template-columns:1fr}.member-main .deposit-calc-item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:7px 12px;min-height:0;padding:14px}.member-main .deposit-calc-item>span{grid-column:1}.member-main .deposit-calc-item>strong{grid-column:2;grid-row:1;text-align:right}.member-main .deposit-calc-item>small{grid-column:1/-1}.deposit-step-actions{flex-wrap:wrap}.deposit-step-actions .deposit-cancel-link{padding-left:4px;padding-right:4px}}
 @media(max-width:520px){.member-page-heading{align-items:flex-start;gap:10px}.member-heading-actions{padding-top:4px}.member-notification-bell{width:39px;height:39px;border-radius:12px}.member-main .deposit-workflow{padding:17px 12px}.member-main .deposit-page-intro{margin-bottom:17px}.member-main .deposit-destination-head{gap:9px}.member-main .deposit-destination-fields{grid-template-columns:1fr}.member-main .deposit-destination-field.is-address{grid-column:auto}.member-main .deposit-destination-instructions{padding:0 13px 14px}.member-main .deposit-calculator{padding:14px!important}.member-main .deposit-step-actions .btn,.member-main .deposit-step-actions .deposit-next{flex:1;min-width:0}.member-main .deposit-history-card{padding:14px 12px}.member-main .deposit-success-panel{padding:25px 16px}}
 @media(prefers-reduced-motion:reduce){.member-notification-bell{transition:none}}
+
+
+/* Refined deposit flow: confident progress navigation, calm spacing and clear payment hierarchy. */
+.member-main>.deposit-page-card{display:block;width:100%;max-width:none;margin:0 0 24px;padding:clamp(18px,2.8vw,38px)!important}
+.member-main>.deposit-history-card{width:100%;max-width:none;margin-top:24px}
+.member-main .deposit-page-intro{position:relative;margin:0 0 clamp(20px,3vw,34px);padding:0 0 22px;border-bottom:1px solid #302b20}
+.member-main .deposit-page-intro:after{content:"";display:block;width:68px;height:3px;margin-top:19px;border-radius:5px;background:linear-gradient(90deg,#f3cf3c,#a88936)}
+.member-main .deposit-page-intro h2{font-size:clamp(1.55rem,2.5vw,2.15rem);letter-spacing:-.04em;margin:8px 0 9px;color:#faf6e9}
+.member-main .deposit-page-intro p{max-width:780px;line-height:1.7}
+.member-main .deposit-workflow{padding:clamp(18px,3vw,38px);border-color:#383329;border-radius:24px;background:radial-gradient(ellipse at 50% 0%,#30271455,transparent 42%),linear-gradient(145deg,#151519,#101013);box-shadow:0 20px 55px #0002}
+.member-main .deposit-progress{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(8px,2vw,22px);margin:0 0 clamp(30px,4vw,48px);padding:0 0 25px;border-bottom:1px solid #302d26}
+.member-main .deposit-progress:before{left:12%;right:12%;top:20px;height:1px;background:linear-gradient(90deg,#665323,#3a3529)}
+.member-main .deposit-progress li{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:11px;min-width:0;text-align:left;color:#8e8a80;font-size:.82rem}
+.member-main .deposit-progress li>span{flex:0 0 42px;width:42px;height:42px;border:1px solid #494334;border-radius:14px;background:#141418;color:#bcb5a4;font-size:.76rem;letter-spacing:.04em;box-shadow:0 6px 18px #0002}
+.member-main .deposit-progress li>div{display:grid;gap:4px;min-width:0}
+.member-main .deposit-progress li b{color:#d8d2c5;font-size:.88rem;font-weight:750;letter-spacing:-.01em}
+.member-main .deposit-progress li small{color:#817d75;font-size:.7rem;line-height:1.35}
+.member-main .deposit-progress li.is-active>span,.member-main .deposit-progress li.is-done>span{background:linear-gradient(145deg,#f6dc6b,#d8b332);border-color:#f3cf3c;color:#17140a;box-shadow:0 0 0 5px #f3cf3c12,0 8px 22px #0003}
+.member-main .deposit-progress li.is-active b,.member-main .deposit-progress li.is-done b{color:#f3d65c}
+.member-main .deposit-progress li.is-active small,.member-main .deposit-progress li.is-done small{color:#b9ad85}
+.member-main .deposit-step[hidden]{display:none!important}
+.member-main .deposit-step:not([hidden]){animation:deposit-stage-enter .24s ease-out both}
+@keyframes deposit-stage-enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+.member-main .deposit-step-heading{margin-bottom:clamp(22px,3vw,32px)}
+.member-main .deposit-step-heading h3{font-size:clamp(1.35rem,2.2vw,1.85rem);letter-spacing:-.035em;margin:9px 0 10px}
+.member-main .deposit-step-heading p{max-width:760px;line-height:1.75}
+.member-main .deposit-step-kicker{display:inline-flex;align-items:center;gap:8px;font-size:.68rem;letter-spacing:.16em}
+.member-main .deposit-step .deposit-input-grid{gap:18px;margin-bottom:20px}
+.member-main .deposit-step .deposit-field{padding:clamp(14px,2vw,22px);border:1px solid #36332b;border-radius:16px;background:linear-gradient(145deg,#18181c,#121215)}
+.member-main .deposit-step .deposit-field label{display:block;margin-bottom:10px;color:#e8e1d1;font-size:.85rem;font-weight:700}
+.member-main .deposit-step .deposit-field input,.member-main .deposit-step .deposit-field select{min-height:50px;border:1px solid #454034;border-radius:11px;background:#0e0e11;color:#f6f0e3;padding:12px 14px}
+.member-main .deposit-step .deposit-field-hint{display:block;margin-top:9px;line-height:1.5;color:#918b7e}
+.member-main .deposit-summary-strip{padding:16px 18px;border:1px solid #4a4027;border-radius:14px;background:linear-gradient(100deg,#282111,#171619)}
+.member-main .deposit-method-switch{margin:20px 0;gap:12px}
+.member-main .deposit-method-tab{min-height:90px;padding:17px;border-radius:16px}
+.member-main .deposit-destination-picker{margin:18px 0 12px}
+.member-main .deposit-destination-picker label{font-size:.83rem;font-weight:700;color:#e4ddce}
+.member-main .deposit-destination-picker select{min-height:49px;border:1px solid #454034;border-radius:11px;background:#0e0e11;color:#f6f0e3;padding:11px 13px}
+.member-main .deposit-payment-details{overflow:hidden;border:1px solid #49402d;border-radius:17px;background:#141417;box-shadow:0 12px 30px #0002}
+.member-main .deposit-destination-head{padding:19px 21px;background:linear-gradient(110deg,#292212,#171619)}
+.member-main .deposit-destination-field{padding:16px;border-radius:13px}
+.member-main .deposit-copy-button{min-height:36px;padding:8px 13px;border-radius:10px;font-size:.75rem;transition:background .16s,border-color .16s,transform .16s}
+.member-main .deposit-copy-button:active{transform:scale(.98)}
+.member-main .deposit-calculator{margin:24px 0;padding:clamp(17px,2.5vw,27px)!important;border-radius:18px!important}
+.member-main .deposit-calculator-heading{margin-bottom:18px}
+.member-main .deposit-calculator-heading h3{font-size:clamp(1.1rem,1.8vw,1.35rem)}
+.member-main .deposit-calc-item{min-height:135px;padding:17px;border-radius:14px}
+.member-main .deposit-calc-total{box-shadow:inset 0 0 0 1px #7e662b,0 8px 20px #0002}
+.member-main .deposit-step-actions{margin-top:30px;padding-top:22px}
+.member-main .deposit-step-actions .btn,.member-main .deposit-step-actions .deposit-next{min-height:48px;border-radius:12px;font-weight:800}
+.member-main .deposit-back,.member-main .deposit-cancel-link{min-height:44px;border-radius:11px}
+.member-main .deposit-final-summary{margin-bottom:24px;border-radius:16px}
+.member-main .deposit-step label[for="paymentReference"],.member-main .deposit-step label[for="paymentProof"],.member-main .deposit-step label[for="memberNote"]{display:block;margin:18px 0 8px;color:#e6dfd0;font-size:.84rem;font-weight:700}
+.member-main .deposit-step #paymentReference,.member-main .deposit-step #paymentProof,.member-main .deposit-step #memberNote{width:100%;box-sizing:border-box}
+.member-main .deposit-step #paymentReference,.member-main .deposit-step #memberNote{min-height:48px;border:1px solid #454034;border-radius:11px;background:#0e0e11;color:#f6f0e3;padding:12px 14px}
+.member-main .deposit-step #paymentProof{padding:14px;border:1px dashed #615333;border-radius:12px;background:#121216;color:#c9c2b3}
+.member-main .deposit-confirm-check{display:flex;align-items:flex-start;gap:11px;margin:20px 0;padding:15px;border:1px solid #36332b;border-radius:13px;background:#151518;line-height:1.55}
+.member-main .deposit-history-heading{gap:14px}
+.member-main .deposit-history-heading h2{font-size:1.2rem}
+.member-main .deposit-inline-notice{padding:13px 15px;border:1px solid #795e29;border-radius:12px;line-height:1.55}
+@media(max-width:900px){.member-main .deposit-progress li{gap:8px}.member-main .deposit-progress li>span{flex-basis:37px;width:37px;height:37px;border-radius:12px}.member-main .deposit-progress li b{font-size:.82rem}.member-main .deposit-progress li small{font-size:.66rem}}
+@media(max-width:680px){.member-main .deposit-progress{gap:8px;padding-bottom:20px;margin-bottom:28px}.member-main .deposit-progress:before{top:18px;left:10%;right:10%}.member-main .deposit-progress li{flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;text-align:center}.member-main .deposit-progress li>span{flex-basis:37px}.member-main .deposit-progress li>div{gap:3px}.member-main .deposit-progress li b{font-size:.77rem}.member-main .deposit-progress li small{font-size:.62rem;max-width:105px}.member-main .deposit-step .deposit-input-grid{grid-template-columns:1fr;gap:12px}.member-main .deposit-step .deposit-field{padding:15px}.member-main .deposit-method-switch{grid-template-columns:1fr 1fr;gap:9px}.member-main .deposit-method-tab{min-height:100px;padding:12px 10px}.member-main .deposit-destination-fields{grid-template-columns:1fr;padding:13px}.member-main .deposit-destination-field.is-address{grid-column:auto}.member-main .deposit-calc-item{min-height:0;padding:14px}.member-main .deposit-step-actions{gap:10px}.member-main .deposit-step-actions .btn,.member-main .deposit-step-actions .deposit-next{min-width:0;flex:1}.member-main .deposit-page-intro{margin-bottom:20px}}
+@media(max-width:420px){.member-main .deposit-page-card{padding:14px!important}.member-main .deposit-workflow{padding:14px 11px}.member-main .deposit-progress li small{display:none}.member-main .deposit-progress li b{font-size:.73rem}.member-main .deposit-progress li>span{width:34px;height:34px;flex-basis:34px}.member-main .deposit-progress:before{top:16px}.member-main .deposit-step-actions{flex-wrap:wrap}.member-main .deposit-step-actions .deposit-next{width:100%;flex-basis:100%}}
+@media(prefers-reduced-motion:reduce){.member-main .deposit-step:not([hidden]){animation:none}}
