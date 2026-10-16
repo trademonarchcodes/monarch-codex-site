@@ -14,6 +14,14 @@
       maximumFractionDigits: 2
     }).format(Number(amount) || 0);
   }
+  var currencyButtons = Array.prototype.slice.call(document.querySelectorAll('[data-currency-toggle]'));
+  function syncCurrencyToggle() {
+    currencyButtons.forEach(function (button) {
+      var active = button.getAttribute('data-currency-toggle') === selector.value;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
   function render() {
     if (selector.value === 'USD') {
       var totalUsd = state.rate === null ? state.usd : state.usd + state.ngn / state.rate;
@@ -26,7 +34,15 @@
       ? 'The exchange rate is not configured, so the combined total cannot be converted yet.'
       : 'Combined wallet total uses the current platform conversion rate.';
   }
-  selector.addEventListener('change', render);
+  selector.addEventListener('change', function () { syncCurrencyToggle(); render(); });
+  currencyButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      selector.value = button.getAttribute('data-currency-toggle');
+      syncCurrencyToggle();
+      render();
+    });
+  });
+  syncCurrencyToggle();
   fetch('/api/wallet-balances', { credentials: 'same-origin', cache: 'no-store' })
     .then(function (response) {
       if (!response.ok) throw new Error('Wallet balance request failed');
