@@ -475,6 +475,11 @@ app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({
       await conn.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,?,?,?,?,?)',[d.member_id,d.id,'deposit_credit',d.currency,d.amount,'DEP-'+d.id]);
     }
     await conn.execute('UPDATE deposit_requests SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision,req.session.memberId,note||null,id]);
+    const notificationTitle=decision==='approved'?'Deposit approved':'Deposit needs attention';
+    const notificationBody=decision==='approved'
+      ? 'Your deposit request #'+d.id+' has been approved and '+Number(d.amount).toLocaleString('en-US',{maximumFractionDigits:8})+' '+d.currency+' has been credited to your wallet.'
+      : 'Your deposit request #'+d.id+' was not approved. '+(note||'Please review your payment details and contact support if you need help.');
+    await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[d.member_id,'deposit_review',notificationTitle,notificationBody.slice(0,1000),decision==='approved'?'/transactions':'/deposit','deposit-review:'+d.id+':'+decision]);
     await conn.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,'deposit.'+decision,'deposit_request',String(id),JSON.stringify({currency:d.currency,amount:d.amount,fee_amount:d.fee_amount,note}),req.ip||null]);
     await conn.commit();
     res.redirect('/admin/deposits');
@@ -1149,7 +1154,7 @@ app.get('/deposit', requireAuth, async (req,res,next) => {
 app.post('/deposit', requireAuth, parseDepositProof, csrfCheck, async (req,res,next) => {
   const currency=String(req.body.currency||''), methodId=String(req.body.payment_method_id||''), reference=String(req.body.payment_reference||'').trim().slice(0,190), note=String(req.body.member_note||'').trim().slice(0,1000);
   const amount=Number(req.body.amount);
-  if (!['NGN','USD'].includes(currency) || !/^\d{1,20}$/.test(methodId) || !Number.isFinite(amount) || amount<=0 || amount>1000000000 || !reference) return res.status(400).send(formError('Check your deposit details','Enter a valid currency, amount, active payment destination and transfer reference.','/deposit'));
+  if (!['NGN','USD'].includes(currency) || !/^\d{1,20}$/.test(methodId) || !Number.isFinite(amount) || amount<=0 || amount>1000000000 || !reference || !req.file) return res.status(400).send(formError('Check your deposit details','Enter a valid currency and amount, choose an active payment destination, and provide your transfer reference and receipt.','/deposit'));
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
     const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
