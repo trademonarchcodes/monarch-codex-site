@@ -231,7 +231,12 @@ app.get('/verify-email', async (req, res, next) => {
     await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE id = ? AND verified_at IS NULL', [rows[0].id]);
     await pool.execute('UPDATE members SET email_verified_at = NOW() WHERE id = ? AND email_verified_at IS NULL', [rows[0].member_id]);
     await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [rows[0].member_id]);
-    return res.send(page('Email verified', '<h1>Email verified successfully</h1><p class="muted">Your Monarch Codex email address is now verified.</p><a class="btn" href="/login">Log in to your account</a>'));
+    // Remember this verified member in the current browser session so their first login greeting is generic.
+    req.session.newlyVerifiedMemberId = Number(rows[0].member_id);
+    return req.session.save(saveErr => {
+      if (saveErr) return next(saveErr);
+      return res.send(page('Email verified', '<h1>Email verified successfully</h1><p class="muted">Your Monarch Codex email address is now verified.</p><a class="btn" href="/login">Log in to your account</a>'));
+    });
   } catch (e) { next(e); }
 });
 app.get('/login', (req, res) => res.send(loginForm(req)));
@@ -243,9 +248,11 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
     const match = member ? await bcrypt.compare(password, member.password_hash) : false;
     if (!member || !match) return res.status(401).send(loginForm(req, 'The email/username or password is incorrect.'));
     if (!member.email_verified_at) return res.status(403).send(loginForm(req, 'Please verify your email using the link we sent you before logging in. If you cannot find it, use the resend verification option below.'));
+    const isFirstLoginAfterVerification = Number(req.session.newlyVerifiedMemberId) === Number(member.id);
     req.session.regenerate(err => {
       if (err) return next(err);
       req.session.memberId = member.id; req.session.csrf = crypto.randomBytes(32).toString('hex');
+      if (isFirstLoginAfterVerification) req.session.showGenericMonarchWelcome = true;
       pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
         .then(([admins]) => {
           const destination = admins.length ? (admins[0].role === 'sovereign_desk_admin' ? '/sovereign-admin' : '/admin') : '/dashboard';
@@ -267,8 +274,11 @@ app.get('/login-intro', async (req, res, next) => {
     if (!rows.length) {
       return req.session.destroy(() => res.redirect('/login'));
     }
+    const showGenericWelcome = req.session.showGenericMonarchWelcome === true;
+    delete req.session.showGenericMonarchWelcome;
     const firstName = String(rows[0].full_name || '').trim().split(/\s+/)[0] || 'Monarch';
-    const safeName = esc(firstName);
+    const welcomeText = showGenericWelcome ? 'Welcome Monarch' : 'Welcome back, ' + firstName + '.';
+    const safeName = esc(showGenericWelcome ? 'Monarch' : firstName);
     const safeDestination = esc(destination);
     const letters = 'MONARCH CODEX'.split('').map((letter, index) =>
       '<span class="brand-letter" style="--letter-index:' + index + '">' + (letter === ' ' ? '&nbsp;' : letter) + '</span>'
@@ -282,9 +292,9 @@ app.get('/login-intro', async (req, res, next) => {
       '<div class="intro-welcome"><h1 id="introWelcome" aria-label="Welcome back, ' + safeName + '."></h1></div>' +
       '</section></main>' +
       '<style>@import url("https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&display=swap");.wrap{width:100%;max-width:none;margin:0;padding:0}.brand-intro{min-height:100svh;width:100%;display:grid;place-items:center;overflow:hidden;padding:24px;background:#050505;color:#f7f5ef}.intro-lockup{width:min(100%,900px);text-align:center}.intro-topline{display:flex;align-items:center;justify-content:center;gap:clamp(18px,4vw,42px);margin:0 auto}.intro-logo{display:block;height:auto;width:clamp(74px,17vw,142px);flex:0 0 auto;opacity:0;transform:translateX(130px);animation:logo-arrive 1.05s cubic-bezier(.16,1,.3,1) .18s forwards}.intro-logo{filter:drop-shadow(0 0 22px #d6a52a20)}.intro-divider{height:clamp(72px,15vw,126px);width:1px;flex:0 0 1px;background:linear-gradient(180deg,transparent,#e6bf51 20%,#e6bf51 80%,transparent);transform:scaleY(0);transform-origin:center;animation:line-reveal .45s ease 1.05s forwards}.intro-wordmark{display:flex;align-items:center;justify-content:flex-start;white-space:pre;font-family:"Baloo 2","Arial Rounded MT Bold",Arial,sans-serif;font-size:clamp(1.2rem,4.6vw,3.2rem);font-weight:800;letter-spacing:.025em;line-height:1.1}.brand-letter{display:inline-block;opacity:0;transform:translateY(12px);animation:letter-arrive .28s ease-out calc(1.12s + var(--letter-index)*.105s) forwards}.intro-tagline{min-height:1.5em;margin:clamp(25px,5vw,36px) 0 0;color:#c9a84a;font-size:clamp(.62rem,2vw,.9rem);font-weight:700;letter-spacing:clamp(.08em,.9vw,.22em);line-height:1.5;overflow-wrap:anywhere}.intro-welcome{min-height:1.5em;margin-top:clamp(18px,3.5vw,28px)}.intro-welcome h1{margin:0;font-size:clamp(1.25rem,4.8vw,2.2rem);font-weight:500;letter-spacing:-.025em;line-height:1.35;overflow-wrap:anywhere}.type-cursor:after{content:"";display:inline-block;height:.9em;border-right:1px solid #e6bf51;margin-left:3px;vertical-align:-.08em;animation:cursor-blink .7s steps(1,end) infinite}@keyframes logo-arrive{to{opacity:1;transform:translateX(0)}}@keyframes line-reveal{to{transform:scaleY(1)}}@keyframes letter-arrive{to{opacity:1;transform:translateY(0)}}@keyframes cursor-blink{50%{opacity:0}}@media(max-width:520px){.intro-topline{gap:12px}.intro-logo{width:clamp(52px,15vw,72px)}.intro-wordmark{font-size:clamp(.95rem,4vw,1.25rem);letter-spacing:0}.intro-divider{height:66px}.intro-tagline{letter-spacing:.08em}}@media(prefers-reduced-motion:reduce){.intro-logo,.intro-divider,.brand-letter{animation:none;opacity:1;transform:none}.type-cursor:after{animation:none}}</style>' +
-      '<script>(function(){var target=' + JSON.stringify(destination) + ';var lines=[{id:"introTagline",text:"BUILD WEALTH. BUILD A KINGDOM."},{id:"introWelcome",text:' + JSON.stringify('Welcome back, ' + firstName + '.') + '}];function run(){var delay=24,start=1250;lines.forEach(function(line){var el=document.getElementById(line.id);if(!el)return;el.textContent="";el.classList.add("type-cursor");var i=0;function type(){if(i<line.text.length){el.textContent+=line.text.charAt(i++);window.setTimeout(type,delay);}else{el.classList.remove("type-cursor");}}window.setTimeout(type,start);start+=line.text.length*delay+180;});}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run,{once:true});}else{run();}window.setTimeout(function(){window.location.replace(target);},4500);window.setTimeout(function(){if(document.visibilityState==="visible"&&location.pathname==="/login-intro"){location.href=target;}},4900);})();</script>';
+      '<script>(function(){var target=' + JSON.stringify(destination) + ';var lines=[{id:"introTagline",text:"BUILD WEALTH. BUILD A KINGDOM."},{id:"introWelcome",text:' + JSON.stringify(welcomeText) + '}];function run(){var delay=24,start=1250;lines.forEach(function(line){var el=document.getElementById(line.id);if(!el)return;el.textContent="";el.classList.add("type-cursor");var i=0;function type(){if(i<line.text.length){el.textContent+=line.text.charAt(i++);window.setTimeout(type,delay);}else{el.classList.remove("type-cursor");}}window.setTimeout(type,start);start+=line.text.length*delay+180;});}if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",run,{once:true});}else{run();}window.setTimeout(function(){window.location.replace(target);},4500);window.setTimeout(function(){if(document.visibilityState==="visible"&&location.pathname==="/login-intro"){location.href=target;}},4900);})();</script>';
     res.set('Cache-Control', 'no-store');
-    return res.send(page('Welcome back, Monarch', body));
+    return res.send(page(showGenericWelcome ? 'Welcome Monarch' : 'Welcome back, Monarch', body));
   } catch (e) { next(e); }
 });
 
