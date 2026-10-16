@@ -277,3 +277,15 @@
 .dashboard-notifications-empty{margin:0;padding:14px;border:1px dashed #39352b;border-radius:11px;color:#a8a3ac;font-size:.82rem}
 @media(max-width:520px){.currency-toggle{max-width:none}.dashboard-notifications{padding:14px}.dashboard-notification-item{padding:11px 9px;gap:8px}.dashboard-notification-state{font-size:.6rem;padding:4px 6px}.dashboard-notifications-heading h3{font-size:1.02rem}}
 @media(prefers-reduced-motion:reduce){.currency-toggle-option,.dashboard-notification-item{transition:none}}
+
+
+/* Compact notification bell in the member dashboard header */
+.dashboard-topline{align-items:flex-start;flex-wrap:nowrap}
+.dashboard-welcome{flex:1;min-width:0}
+.dashboard-notification-bell{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 48px;width:48px;height:48px;margin:2px 0 0 12px;border:1px solid #4c4120;border-radius:15px;background:linear-gradient(145deg,#1c1a14,#101012);color:#f0d15d;text-decoration:none;box-shadow:0 5px 18px #0003;transition:transform .16s ease,border-color .16s ease,background .16s ease}
+.dashboard-notification-bell svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.dashboard-notification-bell:hover{transform:translateY(-1px);border-color:#d1ae3a;background:linear-gradient(145deg,#292313,#121112)}
+.dashboard-notification-bell:focus-visible{outline:2px solid #f3cf3c;outline-offset:3px}
+.dashboard-notification-badge{position:absolute;top:-7px;right:-7px;display:flex;align-items:center;justify-content:center;min-width:21px;height:21px;padding:0 5px;border:2px solid #111113;border-radius:999px;background:#f0d15d;color:#18140a;font-size:.66rem;font-weight:900;line-height:1;box-shadow:0 2px 8px #0005}
+@media(max-width:520px){.dashboard-topline{align-items:flex-start;gap:10px}.dashboard-notification-bell{flex-basis:43px;width:43px;height:43px;margin-top:1px;border-radius:13px}.dashboard-notification-bell svg{width:20px;height:20px}.dashboard-topline h1{padding-right:0}}
+@media(prefers-reduced-motion:reduce){.dashboard-notification-bell{transition:none}}
