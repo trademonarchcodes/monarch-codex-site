@@ -1292,6 +1292,12 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
     const [withdrawalHistory] = await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 10',[m.id]);
     const withdrawalHistoryRows = withdrawalHistory.map(w=>'<tr><td>#'+Number(w.id)+'<br><small>'+esc(w.created_at)+'</small></td><td>'+esc(w.currency+' '+Number(w.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</td><td><span class="withdraw-history-status status-'+esc(w.status)+'">'+esc(w.status.replace(/_/g,' ').toUpperCase())+'</span>'+(w.reviewer_note?'<p class="withdraw-history-note">'+esc(w.reviewer_note)+'</p>':'')+'</td></tr>').join('');
     const historyPanel = '<section class="withdraw-panel withdraw-history-panel"><div class="withdraw-panel-head"><div><p class="withdraw-kicker">Your activity</p><h3>Withdrawal requests</h3><p class="withdraw-panel-sub">Track each request through review and verified payment.</p></div></div><div class="withdraw-history-scroll"><table class="withdraw-history-table"><thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead><tbody>'+(withdrawalHistoryRows||'<tr><td colspan="3">No withdrawal requests yet.</td></tr>')+'</tbody></table></div></section>';
+    const requestedWithdrawalId=String(req.query.request||'');
+    let requestNotice='';
+    if(/^\\d{1,20}$/.test(requestedWithdrawalId)){
+      const [[requestedWithdrawal]]=await pool.execute('SELECT id,status FROM withdrawal_requests WHERE id=? AND member_id=?',[requestedWithdrawalId,m.id]);
+      if(requestedWithdrawal)requestNotice='<div class="withdraw-footnote" role="status"><span><strong style="color:var(--wd-gold)">Request #'+Number(requestedWithdrawal.id)+' received.</strong> Current status: '+esc(requestedWithdrawal.status.toUpperCase())+'. This is a request for review, not a payment confirmation.</span></div>';
+    }
     const bankCards=banks.length ? banks.map((b,i)=>'<div class="withdraw-payout-row"><span class="withdraw-bank-mark" aria-hidden="true">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-payout-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-account-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-default">RECENT</span>':'')+'</div>').join('') : '<div class="withdraw-empty"><span class="withdraw-empty-icon" aria-hidden="true">＋</span><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready for a request.</p><a class="withdraw-secondary" href="/profile">Add bank account ↗</a></div>';
     const body=`<style>
       .withdraw-page{--wd-gold:#d8b45a;--wd-gold-soft:rgba(216,180,90,.12);--wd-border:rgba(216,180,90,.22);display:grid;gap:22px;color:var(--text,#f5f1e8)}
@@ -1339,6 +1345,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
       @media(prefers-reduced-motion:reduce){.withdraw-secondary{transition:none!important}}
     </style>
     <div class="withdraw-page">
+      ${requestNotice}
       <section class="withdraw-hero">
         <span class="withdraw-eyebrow">Member finance · Payout centre</span>
         <h2>Withdrawals, with clarity.</h2>
