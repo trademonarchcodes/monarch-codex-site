@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const path = require('node:path');
 const fs = require('node:fs');
 const multer = require('multer');
+const createSovereignDeskRouter = require('./sovereign-desk');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -197,8 +198,7 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [insertedId]);
       await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [insertedId, tokenHash]);
-      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;
-      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
+      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
     })().catch(e => console.error('[mail] Verification email failed:', e.message));
     delete req.session.registrationReferralCode;
     return res.redirect('/verification-pending');
@@ -397,8 +397,7 @@ const adminSectionInfo = {
   '/admin/earnings': ['Profits & bonuses','Review separately recorded profit and bonus operations.','No verified profit/bonus ledger is connected. Do not use this page to promise or fabricate earnings.'],
   '/admin/referrals': ['Referral monitoring','Review platform referral activity and eligible earnings.','Referral attribution exists in member registration, but platform-wide earnings and audit reporting are not yet connected here.'],
   '/admin/academy': ['Academy management','Manage learning content and eligible access.','The existing Academy management data source has not yet been connected to this control centre.'],
-  '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],
-  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],
+  '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],
   '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']
 };
@@ -597,8 +596,7 @@ app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:fa
     const status = ['draft','published'].includes(req.body.status) ? req.body.status : 'draft';
     const rawVideoUrl = String(req.body.video_url || '').trim().slice(0,1000);
     let videoUrl = null;
-    if (rawVideoUrl) {
-      try { const parsed = new URL(rawVideoUrl); if (!['http:','https:'].includes(parsed.protocol)) throw new Error('Unsupported URL protocol'); videoUrl = parsed.toString(); }
+    if (rawVideoUrl) {      try { const parsed = new URL(rawVideoUrl); if (!['http:','https:'].includes(parsed.protocol)) throw new Error('Unsupported URL protocol'); videoUrl = parsed.toString(); }
       catch (_) { return res.status(400).send(page('Invalid video URL','<h1>Enter a valid HTTPS or HTTP video URL</h1><a class="btn" href="/admin/academy">Return to Academy</a>')); }
     }
     if (!title || !content) return res.status(400).send(page('Lesson details required','<h1>Enter a lesson title and content</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
@@ -797,8 +795,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
           [kycApplicant.member_id, 'kyc_review', inApp.title, inApp.body.slice(0, 1000), inApp.target, 'kyc-review:' + id + ':' + status + ':' + Date.now()]
         ).catch(e => console.error('[notification] KYC in-app notification failed:', e.message));
       }
-      if (notification && kycApplicant.email) {
-        try {
+      if (notification && kycApplicant.email) {        try {
           const sent = await sendAppEmail({ to: kycApplicant.email, ...notification });
           emailStatus = sent ? 'sent' : 'skipped';
         } catch(e) {
@@ -997,8 +994,7 @@ app.get('/profile', requireAuth, async (req,res,next)=>{
         '<section class="profile-hero"><div class="profile-hero-main"><img class="profile-avatar" src="'+avatar+'" alt="Profile picture" id="profileAvatar"><div><p class="profile-eyebrow">Member account</p><h3>'+esc(m.full_name)+'</h3><p class="profile-username">@'+esc(m.username)+'</p><a class="profile-public" href="/members/'+encodeURIComponent(m.username)+'">View public profile <span aria-hidden="true">↗</span></a></div></div><span class="profile-state">'+(lock?'Identity details locked for KYC':'Personal details editable')+'</span></section>'+
         '<div class="profile-section-heading"><div><h3>Your account details</h3><p>Keep your contact information accurate and up to date.</p></div></div>'+
         '<form method="post" action="/profile" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">✦</span><div><h4>Personal information</h4><p class="profile-card-intro">These details identify your member account.</p></div></div><div class="profile-form-grid"><div><label for="fullName">Full name</label><input id="fullName" name="fullName" value="'+esc(m.full_name)+'" maxlength="160" required '+(lock?'readonly':'')+'></div><div><label for="username">Username</label><input id="username" name="username" value="'+esc(m.username)+'" pattern="[A-Za-z0-9_]{3,30}" maxlength="30" required></div><div><label for="email">Email address</label><input id="email" type="email" name="email" value="'+esc(m.email)+'" maxlength="254" autocomplete="email" required></div><div><label for="phone">Phone number</label><input id="phone" type="tel" name="phone" value="'+esc(profile.phone)+'" maxlength="32" autocomplete="tel"></div></div><p class="profile-hint">'+(lock?'Your legal name is locked while KYC is pending or approved. If your application was rejected, correct your details and resubmit.':'Your name can be updated before KYC starts. Once verification is pending or approved, the legal name is locked to protect verification integrity.')+'</p><button class="btn profile-save" type="submit">Save personal details</button></form>'+
-        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">◉</span><div><h4>Profile picture</h4><p class="profile-card-intro">Make your member profile easy to recognise.</p></div></div><form method="post" action="/profile/photo" enctype="multipart/form-data"><div class="profile-upload-row"><div><label for="profilePhoto">Choose an image</label><input id="profilePhoto" name="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" required><p class="profile-hint">JPG, PNG or WebP · Maximum 3 MB. Displayed on your public profile.</p></div><button class="btn profile-save" type="submit">Upload picture</button></div>'+csrfField(req)+'</form></section>'+
-        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">▤</span><div><h4>Saved bank accounts</h4><p class="profile-card-intro">Private account details are encrypted and shown only in masked form.</p></div></div><div class="profile-bank-list">'+(savedBanks.length?savedBanks.map(b=>'<div class="saved-bank-row"><div class="saved-bank-main"><span class="saved-bank-icon" aria-hidden="true">▤</span><div><strong>'+esc(b.bankName)+'</strong><p class="profile-hint">'+esc(b.bankAccountName)+' · ending '+esc(String(b.bankAccountNumber||'').slice(-4))+'</p></div></div><form method="post" action="/profile/bank/'+encodeURIComponent(b.id)+'/delete">'+csrfField(req)+'<button class="profile-remove" type="submit" aria-label="Remove bank account">Remove</button></form></div>').join(''):'<div class="profile-empty">No saved bank accounts yet.<br>Add an account below to keep your withdrawal details ready.</div>')+'</div></section>'+
+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">◉</span><div><h4>Profile picture</h4><p class="profile-card-intro">Make your member profile easy to recognise.</p></div></div><form method="post" action="/profile/photo" enctype="multipart/form-data"><div class="profile-upload-row"><div><label for="profilePhoto">Choose an image</label><input id="profilePhoto" name="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" required><p class="profile-hint">JPG, PNG or WebP · Maximum 3 MB. Displayed on your public profile.</p></div><button class="btn profile-save" type="submit">Upload picture</button></div>'+csrfField(req)+'</form></section>'+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">▤</span><div><h4>Saved bank accounts</h4><p class="profile-card-intro">Private account details are encrypted and shown only in masked form.</p></div></div><div class="profile-bank-list">'+(savedBanks.length?savedBanks.map(b=>'<div class="saved-bank-row"><div class="saved-bank-main"><span class="saved-bank-icon" aria-hidden="true">▤</span><div><strong>'+esc(b.bankName)+'</strong><p class="profile-hint">'+esc(b.bankAccountName)+' · ending '+esc(String(b.bankAccountNumber||'').slice(-4))+'</p></div></div><form method="post" action="/profile/bank/'+encodeURIComponent(b.id)+'/delete">'+csrfField(req)+'<button class="profile-remove" type="submit" aria-label="Remove bank account">Remove</button></form></div>').join(''):'<div class="profile-empty">No saved bank accounts yet.<br>Add an account below to keep your withdrawal details ready.</div>')+'</div></section>'+
         '<form method="post" action="/profile/bank" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">＋</span><div><h4>Add a bank account</h4><p class="profile-card-intro">Enter the details exactly as registered with your bank.</p></div></div><div class="profile-form-grid"><div><label for="bankName">Bank name</label><input id="bankName" name="bankName" maxlength="120" required></div><div><label for="bankAccountName">Account name</label><input id="bankAccountName" name="bankAccountName" maxlength="160" required></div><div class="full"><label for="bankAccountNumber">Account number</label><input id="bankAccountNumber" name="bankAccountNumber" inputmode="numeric" maxlength="34" autocomplete="off" required></div></div><p class="profile-hint">Saving bank details does not initiate a payment. You can remove a saved account at any time.</p><button class="btn profile-save" type="submit">Save bank account</button></form>'+
         '<div class="profile-private-note"><span aria-hidden="true">◆</span><span><strong>Privacy note:</strong> Your bank account is never displayed in full here. Only the final four digits are shown for recognition.</span></div>'+
       '</div>';
@@ -1197,8 +1193,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
     let kycReady = false;
     let kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted.';
     try {
-      const storage = getKycStorageConfig();
-      fs.accessSync(storage.directory, fs.constants.W_OK);
+      const storage = getKycStorageConfig();      fs.accessSync(storage.directory, fs.constants.W_OK);
       await pool.execute('SELECT 1 FROM kyc_submissions LIMIT 0');
       await pool.execute('SELECT 1 FROM kyc_review_events LIMIT 0');
       kycReady = true;
@@ -1397,8 +1392,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
 .withdraw-page .withdraw-metric small{font-size:11px;color:#a9a397;line-height:1.5}
 .withdraw-page .withdraw-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
 .withdraw-page .withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012));overflow:hidden}
-.withdraw-page .withdraw-panel h3{margin:6px 0;color:#fff;font-size:19px;letter-spacing:-.02em}
-.withdraw-page .withdraw-bank-list{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-panel h3{margin:6px 0;color:#fff;font-size:19px;letter-spacing:-.02em}.withdraw-page .withdraw-bank-list{display:grid;gap:10px;margin-top:16px}
 .withdraw-page .withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}
 .withdraw-page .withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}
 .withdraw-page .withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}
@@ -1597,8 +1591,7 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
       '<div class="tx-experience">'+
         '<section class="tx-hero"><div><p class="tx-eyebrow">Account activity</p><h3>Transaction history</h3><p>A clear record of completed wallet credits and deposit requests, with their latest review status and payment details.</p></div><span class="tx-hero-mark" aria-hidden="true">↗</span></section>'+
         '<div class="tx-summary-grid"><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">✓</span>Completed credits</div><strong class="tx-summary-value">'+completedCount+'</strong><p class="tx-summary-note">Deposits credited to your wallet</p></article><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">▤</span>Deposit requests</div><strong class="tx-summary-value">'+requestCount+'</strong><p class="tx-summary-note">Requests recorded on your account</p></article><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">◷</span>Awaiting review</div><strong class="tx-summary-value">'+pendingCount+'</strong><p class="tx-summary-note">Requests not yet decided</p></article></div>'+
-        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Completed transactions</h4><p>Only ledger entries that were credited to your wallet are listed here.</p></div><span class="tx-count">'+completedCount+' records</span></div>'+(txRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>'+txRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">↗</span><strong>No completed transactions yet</strong><p>When a deposit is approved and credited to your wallet, its record will appear here.</p></div>')+'</section>'+
-        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Deposit requests</h4><p>Track submitted deposits, fees, payment references and any review notes.</p></div><span class="tx-count">'+requestCount+' requests</span></div>'+(reqRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Payment destination / reference</th><th>Amount / fee</th><th>Status</th></tr></thead><tbody>'+reqRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">▤</span><strong>No deposit requests yet</strong><p>Deposit requests you submit will be listed here with their review status.</p></div>')+'</section>'+
+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Completed transactions</h4><p>Only ledger entries that were credited to your wallet are listed here.</p></div><span class="tx-count">'+completedCount+' records</span></div>'+(txRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>'+txRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">↗</span><strong>No completed transactions yet</strong><p>When a deposit is approved and credited to your wallet, its record will appear here.</p></div>')+'</section>'+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Deposit requests</h4><p>Track submitted deposits, fees, payment references and any review notes.</p></div><span class="tx-count">'+requestCount+' requests</span></div>'+(reqRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Payment destination / reference</th><th>Amount / fee</th><th>Status</th></tr></thead><tbody>'+reqRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">▤</span><strong>No deposit requests yet</strong><p>Deposit requests you submit will be listed here with their review status.</p></div>')+'</section>'+
         '<div class="tx-note">For clarity, a deposit request is not counted as a completed transaction until the wallet ledger confirms the credit. Values shown here come from your account records.</div>'+
       '</div>';
     res.send(memberPage('Transaction history','/transactions',m,body,req));
@@ -1726,6 +1719,9 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
     req.session.destroy(() => res.redirect('/login'));
   } catch (e) { next(e); }
 });
+// Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
+app.use(createSovereignDeskRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
+
 // Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
