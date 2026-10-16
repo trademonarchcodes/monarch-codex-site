@@ -104,3 +104,28 @@ test('transaction history uses member-owned database records and mobile-friendly
   assert.match(server, /No completed transactions yet/);
   assert.match(server, /No deposit requests yet/);
 });
+
+test('admin control centre has grouped navigation, responsive shell, and role-aware workspaces', () => {
+  assert.match(server, /function adminControlPage\(title, active, content, req\)/);
+  assert.match(server, /Financial operations/);
+  assert.match(server, /People & compliance/);
+  assert.match(server, /System & security/);
+  assert.match(server, /adminNavSearch/);
+  assert.match(server, /ac-layout\.ac-menu-open \.ac-side/);
+  assert.match(server, /@media\(max-width:820px\)/);
+  assert.match(server, /prefers-reduced-motion:reduce/);
+  assert.match(server, /req\.adminRole === 'sovereign_desk_admin'/);
+  assert.match(server, /\/sovereign-admin\/signals/);
+  assert.match(server, /Protected workspace/);
+});
+
+test('admin overview uses live database metrics and clearly labels unconnected financial workflows', () => {
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM members/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM admin_users WHERE is_active = 1/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM kyc_submissions WHERE status = 'pending'/);
+  assert.match(server, /ac-overview-hero/);
+  assert.match(server, /Workflow readiness/);
+  assert.match(server, /Payment provider and fully verified deposit-credit workflow are not connected/);
+  assert.match(server, /No verified investment, profit or bonus ledger is connected/);
+  assert.match(server, /Never filled with fake account or financial records/);
+});
