@@ -185,3 +185,18 @@
  .kyc-stage.is-entering-next,.kyc-stage.is-entering-back{animation:none}
  .kyc-page *,.kyc-page *:before,.kyc-page *:after{scroll-behavior:auto!important;transition-duration:.01ms!important}
 }
+/* Approved member navigation: balanced account options, never a withdrawal-only call to action. */
+.kyc-member-next{margin:27px 0 0;padding:20px;border:1px solid rgba(230,199,92,.16);border-radius:17px;background:linear-gradient(145deg,rgba(255,255,255,.025),rgba(0,0,0,.13));text-align:left}
+.kyc-member-next-kicker{margin:0 0 7px;color:var(--gold);font-size:.64rem;font-weight:850;letter-spacing:.16em}
+.kyc-member-next h3{margin:0 0 15px;color:#f7f1df;font-size:1.05rem;letter-spacing:-.02em}
+.kyc-member-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kyc-member-links>a{display:grid;grid-template-columns:34px minmax(0,1fr) 14px;align-items:start;gap:10px;min-width:0;padding:13px 11px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(8,8,10,.32);color:inherit;text-decoration:none;transition:transform .18s,border-color .18s,background .18s}
+.kyc-member-links>a:hover,.kyc-member-links>a:focus-visible{transform:translateY(-2px);border-color:rgba(230,199,92,.42);background:rgba(230,199,92,.055);outline:none}
+.kyc-member-link-icon{display:grid;place-items:center;width:34px;height:34px;border:1px solid rgba(230,199,92,.2);border-radius:10px;background:rgba(230,199,92,.08);color:var(--gold-bright);font-size:1.05rem}
+.kyc-member-links>a>span:nth-child(2){display:grid;gap:5px;min-width:0}
+.kyc-member-links strong{color:#f2ecdc;font-size:.8rem;line-height:1.4;overflow-wrap:anywhere}
+.kyc-member-links small{color:#a9a69d;font-size:.7rem;line-height:1.55;overflow-wrap:anywhere}
+.kyc-member-arrow{justify-self:end;color:var(--gold);font-size:.85rem}
+@media(max-width:760px){.kyc-member-links{grid-template-columns:1fr}.kyc-member-links>a{grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;padding:12px}.kyc-member-links small{font-size:.75rem}}
+@media(max-width:520px){.kyc-member-next{padding:15px 12px;margin-top:22px}.kyc-member-next h3{font-size:1rem}.kyc-member-links{gap:8px}}
+@media(prefers-reduced-motion:reduce){.kyc-member-links>a{transition:none}}
