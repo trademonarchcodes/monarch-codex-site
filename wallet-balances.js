@@ -3,11 +3,9 @@
   var selector = document.getElementById('balanceCurrency');
   var total = document.getElementById('totalBalance');
   var note = document.getElementById('balanceConversionNote');
-  var ngnNode = document.getElementById('walletNgn');
-  var usdNode = document.getElementById('walletUsd');
   if (!selector || !total) return;
 
-  var state = { ngn: 0, usd: 0, rate: null };
+  var state = { ngn: 0, usd: 0 };
   function format(amount, currency) {
     return new Intl.NumberFormat(currency === 'NGN' ? 'en-NG' : 'en-US', {
       minimumFractionDigits: 2,
@@ -24,15 +22,12 @@
   }
   function render() {
     if (selector.value === 'USD') {
-      var totalUsd = state.rate === null ? state.usd : state.usd + state.ngn / state.rate;
-      total.textContent = '$' + format(totalUsd, 'USD');
+      total.textContent = '$' + format(state.usd, 'USD');
+      if (note) note.textContent = 'Showing your separate USD wallet balance.';
     } else {
-      var totalNgn = state.rate === null ? state.ngn : state.ngn + state.usd * state.rate;
-      total.textContent = '₦' + format(totalNgn, 'NGN');
+      total.textContent = '₦' + format(state.ngn, 'NGN');
+      if (note) note.textContent = 'Showing your separate NGN wallet balance.';
     }
-    if (note) note.textContent = state.rate === null
-      ? 'The exchange rate is not configured, so the combined total cannot be converted yet.'
-      : 'Combined wallet total uses the current platform conversion rate.';
   }
   selector.addEventListener('change', function () { syncCurrencyToggle(); render(); });
   currencyButtons.forEach(function (button) {
@@ -51,10 +46,6 @@
     .then(function (data) {
       state.ngn = Number(data.ngn) || 0;
       state.usd = Number(data.usd) || 0;
-      state.rate = data.rate === null || data.rate === undefined || !Number.isFinite(Number(data.rate))
-        ? null : Number(data.rate);
-      if (ngnNode) ngnNode.textContent = '₦' + format(state.ngn, 'NGN');
-      if (usdNode) usdNode.textContent = '$' + format(state.usd, 'USD');
       render();
     })
     .catch(function () {
