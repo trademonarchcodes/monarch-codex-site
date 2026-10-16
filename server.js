@@ -529,7 +529,7 @@ app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urle
 app.get('/admin/deposits/:id/proof', requireFinanceAdmin, async (req,res,next) => {
   try {
     const id=String(req.params.id||'');
-    if (!/^\\d{1,20}$/.test(id)) return res.status(400).send(page('Invalid proof','<h1>Invalid payment proof</h1>'));
+    if (!/^\d{1,20}$/.test(id)) return res.status(400).send(page('Invalid proof','<h1>Invalid payment proof</h1>'));
     const [[row]]=await pool.execute('SELECT proof_storage_key,proof_mime_type FROM deposit_requests WHERE id=?',[id]);
     if (!row || !row.proof_storage_key) return res.status(404).send(page('Proof not found','<h1>Payment proof not found</h1><a class="btn" href="/admin/deposits">Return to deposits</a>'));
     const fileName=path.basename(row.proof_storage_key), filePath=path.resolve(depositProofDir,fileName);
@@ -1289,7 +1289,7 @@ app.get('/deposit', requireAuth, async (req,res,next) => {
     const baseRate=pricing && pricing.base_usd_ngn_rate!==null ? Number(pricing.base_usd_ngn_rate) : null;
     const effectiveRate=baseRate!==null ? baseRate*(1+Number(pricing.markup_percent)/100) : null;
     const methodsJson=JSON.stringify(methods.map(x=>({id:Number(x.id),method_type:x.method_type,currency:x.currency,label:x.label,bank_name:x.bank_name,account_name:x.account_name,account_number:x.account_number,bank_code:x.bank_code,wallet_network:x.wallet_network,wallet_asset:x.wallet_asset,wallet_address:x.wallet_address,instructions:x.instructions}))).replace(/</g,'\\u003c');
-    const pricingJson=JSON.stringify({configured:effectiveRate!==null,bankFeeUsd:Number(pricing.bank_fee_usd),walletFeeUsd:Number(pricing.wallet_fee_usd)}).replace(/</g,'\\u003c');
+    const pricingJson=JSON.stringify({configured:effectiveRate!==null,bankFeeUsd:Number(pricing && pricing.bank_fee_usd || 0),walletFeeUsd:Number(pricing && pricing.wallet_fee_usd || 0)}).replace(/</g,'\\u003c');
     const requestedDepositId=String(req.query.request||'');
     let submittedDeposit=null;
     if(req.query.submitted==='1' && /^\d{1,20}$/.test(requestedDepositId)){
