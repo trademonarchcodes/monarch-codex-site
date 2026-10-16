@@ -75,3 +75,32 @@ test('member referrals page has responsive invite panels and preserves copy/link
   assert.match(server, /prefers-reduced-motion:reduce/);
   assert.match(server, /Referral attribution is recorded when a new account successfully registers using your code/);
 });
+
+
+test('member profile redesign preserves secure account workflows and adds responsive presentation', () => {
+  assert.ok(server.includes("app.get('/profile', requireAuth"));
+  assert.match(server, /profile-experience/);
+  assert.match(server, /profile-hero/);
+  assert.match(server, /profile-form-grid/);
+  assert.ok(server.includes('action="/profile/photo"'));
+  assert.ok(server.includes('action="/profile/bank"'));
+  assert.ok(server.includes("action=\"/profile/bank/'+encodeURIComponent(b.id)+'/delete\""));
+  assert.match(server, /decryptProfileValue\(row\.details_ciphertext\)/);
+  assert.match(server, /slice\(-4\)/);
+  assert.match(server, /@media\(max-width:620px\)/);
+  assert.match(server, /prefers-reduced-motion:reduce/);
+});
+
+test('transaction history uses member-owned database records and mobile-friendly status cards', () => {
+  assert.ok(server.includes("app.get('/transactions', requireAuth"));
+  assert.match(server, /financial_transactions WHERE member_id=\?/);
+  assert.match(server, /deposit_requests d JOIN deposit_payment_methods p ON p\.id=d\.payment_method_id WHERE d\.member_id=\?/);
+  assert.match(server, /Completed transactions/);
+  assert.match(server, /Deposit requests/);
+  assert.match(server, /Awaiting review/);
+  assert.match(server, /data-label="Date"/);
+  assert.match(server, /tx-status-completed/);
+  assert.match(server, /@media\(max-width:680px\)/);
+  assert.match(server, /No completed transactions yet/);
+  assert.match(server, /No deposit requests yet/);
+});
