@@ -49,7 +49,7 @@ test('KYC status pages share the dedicated verification shell and normalize stor
   assert.ok(!server.includes("return res.send(memberPage('KYC verification','/kyc',m,pendingContent,req));"));
   assert.ok(server.includes('kyc-status-card'));
   assert.ok(server.includes('kyc-review-notice'));
-  assert.ok(server.includes('href="/kyc-wizard.css?v=20261016-rebuild1"'));
+  assert.ok(server.includes('href="/kyc-wizard.css?v=20261016-rebuild2"'));
 });
 
 test('KYC page styling is a single responsive design system for form and review states', () => {
