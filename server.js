@@ -758,12 +758,10 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
     const member = rows[0];
     if (!member) { req.session.destroy(() => res.redirect('/login')); return; }
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [member.id]);
-    let unreadNotificationCount = 0, dashboardNotifications = [];
+    let unreadNotificationCount = 0;
     try {
       const [[notificationCount]] = await pool.execute('SELECT COUNT(*) AS total FROM member_notifications WHERE member_id=? AND read_at IS NULL', [member.id]);
       unreadNotificationCount = Number(notificationCount && notificationCount.total) || 0;
-      const [notificationRows] = await pool.execute('SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=? ORDER BY created_at DESC LIMIT 3', [member.id]);
-      dashboardNotifications = notificationRows;
     } catch (e) {
       if (e.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
