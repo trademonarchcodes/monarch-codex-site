@@ -129,3 +129,17 @@ test('admin overview uses live database metrics and clearly labels unconnected f
   assert.match(server, /No verified investment, profit or bonus ledger is connected/);
   assert.match(server, /never filled with fake account or financial records/i);
 });
+
+test('Sovereign Desk setup screen diagnoses missing schema without modifying production data', () => {
+  const desk = fs.readFileSync(path.join(__dirname, '..', 'sovereign-desk.js'), 'utf8');
+  for (const table of ['sovereign_signals','sovereign_guidance','sovereign_desk_access','sovereign_access_requests','member_notifications','sovereign_announcements']) {
+    assert.ok(desk.includes("'" + table + "'"), 'setup diagnostics should check ' + table);
+  }
+  assert.match(desk, /SHOW TABLES/);
+  assert.match(desk, /SHOW COLUMNS FROM admin_users LIKE 'role'/);
+  assert.match(desk, /Do not run a migration twice/);
+  assert.match(desk, /004_admin_sovereign_desk\.sql/);
+  assert.match(desk, /005_member_dashboard_and_sovereign_desk\.sql/);
+  assert.match(desk, /010_sovereign_desk_announcements\.sql/);
+  assert.match(desk, /Read-only check/);
+});
