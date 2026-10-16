@@ -374,3 +374,57 @@
 @media(max-width:760px){.deposit-calculator-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.deposit-calc-item{padding:12px 10px}.deposit-calc-item>strong{font-size:1rem}}
 @media(max-width:580px){.deposit-input-grid{grid-template-columns:1fr;gap:2px}.deposit-destination-head{padding:14px;gap:10px}.deposit-destination-fields{grid-template-columns:1fr;padding:12px;gap:8px}.deposit-destination-field.is-address{grid-column:auto}.deposit-network-badge{max-width:100%;margin-left:auto;font-size:.63rem}.deposit-calculator-grid{grid-template-columns:1fr;gap:8px}.deposit-calc-item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:6px 10px;min-height:0;padding:13px}.deposit-calc-item>span{grid-column:1}.deposit-calc-item>strong{grid-column:2;grid-row:1;text-align:right;font-size:1.04rem}.deposit-calc-item>small{grid-column:1/-1}.deposit-calculator-heading{align-items:flex-start}.deposit-calculator-heading h3{font-size:1.05rem}.deposit-live-pill{font-size:.6rem;padding:5px 7px}.deposit-history-heading{align-items:flex-start}.member-main .deposit-history-card .ac-table{min-width:590px}}
 @media(prefers-reduced-motion:reduce){.deposit-copy-button{transition:none}}
+
+
+/* Three-stage deposit experience */
+.member-main .deposit-page-card{width:100%;max-width:none;box-sizing:border-box;padding:clamp(18px,3vw,36px);margin:0 0 22px}
+.member-main .deposit-page-intro{max-width:1000px;margin:0 auto 22px}
+.deposit-workflow{width:100%;max-width:none;margin:0 auto;padding:clamp(16px,2.8vw,32px);box-sizing:border-box;border:1px solid #423925;border-radius:20px;background:linear-gradient(145deg,#141418,#101013);box-shadow:0 18px 44px #0002}
+.deposit-progress{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;list-style:none;margin:0 0 clamp(24px,3vw,38px);padding:0;position:relative}
+.deposit-progress:before{content:"";position:absolute;left:16.5%;right:16.5%;top:19px;height:2px;background:#383326}
+.deposit-progress li{position:relative;display:flex;align-items:center;flex-direction:column;gap:9px;color:#8e897d;font-size:.78rem;text-align:center}
+.deposit-progress li>span{display:grid;place-items:center;width:39px;height:39px;border-radius:50%;border:1px solid #4c422b;background:#111115;color:#bdb6a4;font-weight:800;z-index:1}
+.deposit-progress li b{font-weight:650}
+.deposit-progress li.is-active,.deposit-progress li.is-done{color:#f3cf3c}
+.deposit-progress li.is-active>span,.deposit-progress li.is-done>span{background:#f3cf3c;border-color:#f3cf3c;color:#15130b;box-shadow:0 0 0 5px #f3cf3c18}
+.deposit-step[hidden]{display:none!important}
+.deposit-step-heading{margin-bottom:22px}
+.deposit-step-heading h3{margin:7px 0 8px;color:#f7f1e3;font-size:clamp(1.2rem,2vw,1.65rem);letter-spacing:-.025em}
+.deposit-step-heading p{max-width:850px;margin:0;color:#aaa69b;line-height:1.65}
+.deposit-step-kicker{color:#e9c84b;font-size:.7rem;font-weight:850;letter-spacing:.14em}
+.deposit-step .deposit-input-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:12px}
+.deposit-step .deposit-field{min-width:0}
+.deposit-step .deposit-field input,.deposit-step .deposit-field select{width:100%;box-sizing:border-box}
+.deposit-summary-strip,.deposit-final-summary{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 17px;margin:0 0 16px;border:1px solid #49402d;border-radius:13px;background:#1b1a16}
+.deposit-summary-strip>span,.deposit-final-summary span{color:#aaa394;font-size:.84rem}
+.deposit-summary-strip>strong,.deposit-final-summary strong{color:#f4d65b;font-size:1.02rem;overflow-wrap:anywhere}
+.deposit-text-button{border:0;background:transparent;color:#f3cf3c;font:inherit;font-size:.8rem;cursor:pointer;text-decoration:underline}
+.deposit-step .deposit-method-switch{margin:18px 0}
+.deposit-destination-picker{max-width:100%;margin:0 0 10px}
+.deposit-destination-picker label{display:block;margin-bottom:8px}
+.deposit-destination-picker select{width:100%;max-width:100%;box-sizing:border-box}
+.deposit-inline-notice{padding:12px 14px;margin:12px 0;border:1px solid #6e5824;border-radius:11px;background:#2a2211;color:#f5dda0;font-size:.88rem;line-height:1.55}
+.deposit-step-actions{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-top:26px;padding-top:20px;border-top:1px solid #302d27}
+.deposit-step-actions .btn,.deposit-step-actions .deposit-next{width:auto;min-width:190px;display:inline-flex;justify-content:center;align-items:center;gap:10px}
+.deposit-back,.deposit-cancel-link{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 15px;border:1px solid #4b4330;border-radius:11px;background:transparent;color:#ddd5c3;text-decoration:none;font:inherit;font-size:.88rem;cursor:pointer}
+.deposit-cancel-link{border:0}
+.deposit-final-summary{align-items:stretch;margin:0 0 22px}
+.deposit-final-summary>div{display:flex;flex:1;min-width:0;flex-direction:column;gap:7px}
+.deposit-final-summary>div+div{padding-left:16px;border-left:1px solid #49402d}
+.deposit-confirm-check{display:flex;align-items:flex-start;gap:10px;margin:18px 0;padding:14px;border:1px solid #4b422f;border-radius:12px;background:#171611;color:#d8d1c1;font-size:.88rem;line-height:1.5}
+.deposit-confirm-check input{width:18px;height:18px;flex:0 0 auto;margin-top:2px;accent-color:#f3cf3c}
+.deposit-final-note{margin:14px 0 0;line-height:1.6}
+.deposit-copy-button{display:inline-flex;align-items:center;justify-content:center;align-self:flex-start;max-width:100%;min-height:35px;margin-top:5px;padding:7px 11px;border:1px solid #65552c;border-radius:9px;background:#292213;color:#f3d65c;font-size:.75rem;font-weight:750;cursor:pointer;overflow-wrap:anywhere}
+.deposit-copy-button:hover,.deposit-copy-button.is-copied{background:#3b3016;border-color:#b79a39}
+.deposit-success-panel{width:100%;box-sizing:border-box;padding:clamp(24px,5vw,52px);margin:0 0 24px;text-align:center;border:1px solid #5b4a25;border-radius:22px;background:radial-gradient(ellipse at top,#45371855,transparent 60%),linear-gradient(145deg,#181816,#101013)}
+.deposit-success-icon{display:grid;place-items:center;width:62px;height:62px;margin:0 auto 20px;border-radius:50%;background:#f3cf3c;color:#17140a;font-size:2rem;font-weight:900}
+.deposit-success-panel h2{margin:8px 0 12px;color:#f8f0d9;font-size:clamp(1.45rem,3vw,2rem)}
+.deposit-success-panel>p:not(.deposit-eyebrow){max-width:720px;margin:0 auto;color:#bdb6a7;line-height:1.75}
+.deposit-success-actions{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:14px;margin-top:25px}
+.deposit-secondary-link{color:#f3cf3c;text-decoration:none}
+.deposit-secondary-link:hover{text-decoration:underline}
+.deposit-history-card{width:100%;box-sizing:border-box;margin-top:22px}
+.member-main .deposit-history-card .ac-table-wrap{width:100%;max-width:100%}
+.member-main .deposit-history-card .ac-table{min-width:650px}
+@media(max-width:760px){.deposit-workflow{padding:18px 14px}.deposit-step .deposit-input-grid{grid-template-columns:1fr;gap:10px}.deposit-final-summary{flex-direction:column;gap:14px}.deposit-final-summary>div+div{padding:14px 0 0;border-left:0;border-top:1px solid #49402d}.deposit-step-actions .btn,.deposit-step-actions .deposit-next{min-width:0;flex:1}.deposit-back,.deposit-cancel-link{padding:10px 11px}.deposit-progress li{font-size:.72rem}}
+@media(max-width:430px){.deposit-progress li>span{width:34px;height:34px}.deposit-progress:before{top:16px}.deposit-step-actions{gap:8px;align-items:stretch}.deposit-step-actions .btn,.deposit-step-actions .deposit-next{font-size:.82rem;padding:12px 10px}.deposit-back{font-size:.78rem;padding:9px 8px}.deposit-summary-strip{flex-wrap:wrap}.deposit-summary-strip .deposit-text-button{margin-left:auto}}
