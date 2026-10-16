@@ -249,7 +249,7 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
       pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
         .then(([admins]) => {
           const destination = admins.length ? (admins[0].role === 'sovereign_desk_admin' ? '/sovereign-admin' : '/admin') : '/dashboard';
-          req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect(destination));
+          req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/assets/login-intro.html?next=' + encodeURIComponent(destination)));
         })
         .catch(next);
     });
