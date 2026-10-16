@@ -11,11 +11,30 @@ function createSovereignDeskRouter(deps) {
   const statusLabel = value => esc(String(value || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
   const dateLabel = value => value ? esc(value instanceof Date ? value.toISOString().replace('T', ' ').slice(0, 16) : value) : '—';
   const moneyText = value => esc(String(value || ''));
-  const dbUnavailable = (res, next, error, title) => {
-    if (error && error.code === 'ER_NO_SUCH_TABLE') {
-      return res.status(503).send('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Desk setup required</title><body style="font:16px system-ui;background:#0b0b0c;color:#eee;padding:24px"><h1>'+esc(title || 'Sovereign Desk setup required')+'</h1><p>The Sovereign Desk tables are not available yet. Back up the production database, then apply <code>migrations/004_admin_sovereign_desk.sql</code>, <code>migrations/005_member_dashboard_and_sovereign_desk.sql</code> and <code>migrations/010_sovereign_desk_announcements.sql</code> in order where not already applied. Do not run a migration twice without checking the schema.</p><a href="/admin">Return to admin</a></body></html>');
-    }
-    return next(error);
+  const dbUnavailable = async (res, next, error, title) => {
+    if (!error || !['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_COLUMN'].includes(error.code)) return next(error);
+    const requirements = [
+      ['sovereign_signals', '004_admin_sovereign_desk.sql'],
+      ['sovereign_guidance', '004_admin_sovereign_desk.sql'],
+      ['sovereign_desk_access', '004_admin_sovereign_desk.sql'],
+      ['sovereign_access_requests', '004_admin_sovereign_desk.sql'],
+      ['member_notifications', '005_member_dashboard_and_sovereign_desk.sql'],
+      ['sovereign_announcements', '010_sovereign_desk_announcements.sql']
+    ];
+    let present = new Set(), roleType = '', checkFailed = false;
+    try {
+      const [rows] = await pool.execute('SHOW TABLES');
+      present = new Set(rows.map(row => Object.values(row)[0]));
+      const [columns] = await pool.execute("SHOW COLUMNS FROM admin_users LIKE 'role'");
+      roleType = columns[0] ? String(columns[0].Type || '') : '';
+    } catch (_) { checkFailed = true; }
+    const rows = requirements.map(([name, migration]) => '<tr><td><code>'+esc(name)+'</code></td><td>'+esc(migration)+'</td><td><span class="status '+(checkFailed?'unknown':present.has(name)?'ready':'missing')+'">'+(checkFailed?'Could not verify':present.has(name)?'Found':'Missing')+'</span></td></tr>').join('');
+    const roleReady = roleType.includes('sovereign_desk_admin');
+    const roleRow = '<tr><td><code>admin_users.role</code></td><td>005_member_dashboard_and_sovereign_desk.sql</td><td><span class="status '+(checkFailed?'unknown':roleReady?'ready':'missing')+'">'+(checkFailed?'Could not verify':roleReady?'Role supported':'Role not confirmed')+'</span></td></tr>';
+    const intro = checkFailed ? 'The schema check could not complete. Confirm the application is connected to the intended database and that the database user can inspect its tables.' : 'This page checks the database without changing it. Missing tables or an unsupported administrator role can prevent the workspace from opening.';
+    const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title||'Sovereign Desk setup required')+'</title><style>:root{color-scheme:dark;--gold:#f3cf3c}*{box-sizing:border-box}body{margin:0;padding:20px;background:radial-gradient(circle at top,#252111,#0b0b0c 55%);color:#f7f5ef;font:16px/1.6 system-ui,sans-serif}.wrap{max-width:1000px;margin:10px auto}.brand{color:var(--gold);font-weight:900;letter-spacing:.12em;text-decoration:none}.panel{margin-top:18px;padding:clamp(16px,3vw,32px);border:1px solid #55491e;border-radius:18px;background:#17171cf5}h1{font-size:clamp(1.7rem,5vw,2.4rem);line-height:1.2}h2{font-size:1.1rem;margin-top:24px}code{color:var(--gold);overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:10px;border-bottom:1px solid #39352a;vertical-align:top}.status{display:inline-block;border:1px solid;border-radius:99px;padding:2px 9px;font-size:.8rem;font-weight:800}.ready{color:#a6e3b1;border-color:#326b43}.missing{color:#ffb4a9;border-color:#754138}.unknown{color:#e5d9a1;border-color:#75652e}.notice{margin:18px 0;padding:14px;border:1px solid #75652e;border-radius:12px;background:#28220f}.muted{color:#b8b6c0}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.btn{display:inline-block;padding:11px 17px;border-radius:99px;background:var(--gold);color:#111;font-weight:850;text-decoration:none}.secondary{background:#1a1914;color:var(--gold);border:1px solid #66551e}li{margin:8px 0}@media(max-width:600px){body{padding:12px}.panel{padding:14px}th,td{padding:7px 5px;font-size:.86rem}}</style></head><body><main class="wrap"><a class="brand" href="/">MONARCH CODEX</a><section class="panel"><p class="muted">WORKSPACE HEALTH CHECK</p><h1>'+esc(title||'Sovereign Desk setup required')+'</h1><p>'+intro+'</p><div class="notice"><strong>Before changing production:</strong> take a verified full database backup. Do not run a migration twice without inspecting its effects; migration 005 contains an ALTER TABLE statement.</div><h2>Database requirements</h2><div style="overflow-x:auto"><table><thead><tr><th>Table / role</th><th>Migration</th><th>Status</th></tr></thead><tbody>'+rows+roleRow+'</tbody></table></div><h2>Safe recovery order</h2><ol><li>Confirm Hostinger phpMyAdmin is showing the same database configured for the website.</li><li>Back up the database and confirm the export completed.</li><li>Compare the table statuses above with each migration file. Apply only missing changes in dependency order: <code>004_admin_sovereign_desk.sql</code>, required changes from <code>005_member_dashboard_and_sovereign_desk.sql</code>, then <code>010_sovereign_desk_announcements.sql</code>.</li><li>Before migration 005, inspect <code>admin_users.role</code> and its other tables. Do not repeat its ALTER TABLE blindly.</li><li>Restart the Node app and reload this page.</li></ol><p class="muted">Read-only check: no tables, roles, member accounts or financial records are changed here.</p><div class="actions"><a class="btn" href="/sovereign-admin">Recheck Sovereign Desk</a><a class="btn secondary" href="/admin">Return to admin</a></div></section></main></body></html>';
+    res.set('Cache-Control', 'no-store, private');
+    return res.status(503).send(html);
   };
   const adminOnly = (req, res, next) => {
     if (req.adminRole === 'sovereign_desk_admin' || ['super_admin', 'main_admin'].includes(req.adminRole)) return next();
