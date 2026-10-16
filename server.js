@@ -1211,7 +1211,88 @@ app.post('/deposit', requireAuth, parseDepositProof, csrfCheck, async (req,res,n
     res.redirect('/deposit?submitted=1&request='+encodeURIComponent(insertResult.insertId));
   } catch(e) { if(req.file) fs.unlink(req.file.path,()=>{}); if(e.code==='ER_DUP_ENTRY') return res.status(409).send(formError('Reference already submitted','This payment reference has already been submitted for your account. Check your deposit history or contact support.','/deposit')); if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit')); next(e); }
 });
-app.get('/withdraw', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [rows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);const banks=rows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));const body='<div class="member-card"><h2>Withdrawal requests</h2><p class="muted">Choose a saved payout account for a future withdrawal request. Withdrawals remain disabled until KYC approval, payout processing, and the transaction ledger are operational.</p>'+(banks.length?'<form><label for="withdrawBank">Saved bank account</label><select id="withdrawBank" name="bankAccountId" disabled required>'+banks.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.bankName)+' — '+esc(b.bankAccountName)+' (••••'+esc(String(b.bankAccountNumber||'').slice(-4))+')</option>').join('')+'</select><p class="muted">Account selection will be enabled when withdrawal requests go live.</p></form>':'<p>No bank accounts saved yet. <a href="/profile">Add a bank account in your profile</a>.</p>')+'<p><a class="btn" href="/profile">Manage bank accounts</a></p><strong>Withdrawals are currently locked</strong></div>';res.send(memberPage('Withdraw','/withdraw',m,body,req));}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'<div class="member-card"><h2>Withdrawals temporarily unavailable</h2><p>Please try again later.</p></div>',req));next(e)}});
+app.get('/withdraw', requireAuth, async (req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [rows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);
+    const banks=rows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));
+    const bankCards=banks.length ? banks.map((b,i)=>'<div class="withdraw-payout-row"><span class="withdraw-bank-mark" aria-hidden="true">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-payout-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-account-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-default">RECENT</span>':'')+'</div>').join('') : '<div class="withdraw-empty"><span class="withdraw-empty-icon" aria-hidden="true">＋</span><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready when withdrawals become available.</p><a class="withdraw-secondary" href="/profile">Add bank account <span aria-hidden="true">↗</span></a></div>';
+    const body=`<style>
+      .withdraw-page{--wd-gold:#d8b45a;--wd-gold-soft:rgba(216,180,90,.12);--wd-border:rgba(216,180,90,.22);display:grid;gap:22px;color:var(--text,#f5f1e8)}
+      .withdraw-hero{position:relative;overflow:hidden;isolation:isolate;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.17),transparent 42%),linear-gradient(135deg,#171714 0%,#10100f 65%,#1b1810 100%);box-shadow:0 18px 50px rgba(0,0,0,.16)}
+      .withdraw-hero:after{content:"";position:absolute;z-index:-1;width:210px;height:210px;right:-65px;bottom:-110px;border:1px solid rgba(216,180,90,.2);border-radius:50%;box-shadow:0 0 0 24px rgba(216,180,90,.025),0 0 0 48px rgba(216,180,90,.02)}
+      .withdraw-eyebrow{display:inline-flex;align-items:center;gap:8px;color:var(--wd-gold);font-size:11px;font-weight:800;letter-spacing:.17em;text-transform:uppercase}
+      .withdraw-eyebrow:before{content:"";width:18px;height:1px;background:currentColor}
+      .withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.035em;margin:14px 0 10px;color:#fff}
+      .withdraw-hero p{max-width:600px;margin:0;color:#bdb8aa;line-height:1.7;font-size:14px}
+      .withdraw-status{display:inline-flex;align-items:center;gap:8px;margin-top:22px;padding:9px 12px;border-radius:999px;background:rgba(216,180,90,.1);border:1px solid rgba(216,180,90,.24);color:#e9ce86;font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+      .withdraw-status-dot{width:7px;height:7px;border-radius:50%;background:#d8b45a;box-shadow:0 0 0 4px rgba(216,180,90,.12)}
+      .withdraw-layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(250px,.8fr);gap:20px;align-items:start}
+      .withdraw-panel{min-width:0;border:1px solid var(--wd-border);border-radius:20px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012));padding:clamp(17px,2.5vw,25px)}
+      .withdraw-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:20px}
+      .withdraw-kicker{margin:0 0 7px;color:var(--wd-gold);font-size:10px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
+      .withdraw-panel h3{margin:0;color:var(--text,#f5f1e8);font-size:19px;letter-spacing:-.02em}
+      .withdraw-panel-sub{margin:7px 0 0;color:var(--muted,#a7a397);font-size:13px;line-height:1.6}
+      .withdraw-count{white-space:nowrap;padding:6px 9px;border-radius:9px;background:var(--wd-gold-soft);color:var(--wd-gold);font-size:11px;font-weight:800}
+      .withdraw-payout-list{display:grid;gap:10px}
+      .withdraw-payout-row{display:flex;align-items:center;gap:12px;min-width:0;padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:15px;background:rgba(0,0,0,.15)}
+      .withdraw-bank-mark{display:grid;place-items:center;flex:0 0 42px;width:42px;height:42px;border:1px solid var(--wd-border);border-radius:13px;background:var(--wd-gold-soft);color:var(--wd-gold);font-size:17px;font-weight:800}
+      .withdraw-payout-copy{display:grid;gap:4px;min-width:0;flex:1}
+      .withdraw-payout-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text,#f5f1e8)}
+      .withdraw-payout-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted,#a7a397);font-size:12px}
+      .withdraw-account-mask{white-space:nowrap;color:#e7e1d3;font-size:12px;font-weight:700;letter-spacing:.04em}
+      .withdraw-default{padding:4px 6px;border-radius:6px;background:rgba(216,180,90,.1);color:var(--wd-gold);font-size:9px;font-weight:800;letter-spacing:.06em}
+      .withdraw-empty{padding:25px 16px;text-align:center;border:1px dashed rgba(216,180,90,.28);border-radius:16px}
+      .withdraw-empty-icon{display:grid;place-items:center;width:42px;height:42px;margin:0 auto 13px;border-radius:14px;background:var(--wd-gold-soft);color:var(--wd-gold);font-size:25px}
+      .withdraw-empty strong{font-size:14px}
+      .withdraw-empty p{max-width:340px;margin:8px auto 16px;color:var(--muted,#a7a397);font-size:12px;line-height:1.65}
+      .withdraw-secondary{display:inline-flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold);text-decoration:none;font-size:12px;font-weight:800}
+      .withdraw-secondary:hover{background:var(--wd-gold-soft)}
+      .withdraw-lock-panel{position:relative;overflow:hidden;background:linear-gradient(150deg,rgba(216,180,90,.08),rgba(255,255,255,.015))}
+      .withdraw-lock-icon{display:grid;place-items:center;width:46px;height:46px;margin-bottom:17px;border:1px solid var(--wd-border);border-radius:15px;background:var(--wd-gold-soft);color:var(--wd-gold)}
+      .withdraw-lock-icon svg{width:22px;height:22px}
+      .withdraw-checklist{display:grid;gap:14px;margin:22px 0 0;padding:0;list-style:none}
+      .withdraw-checklist li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:11px;align-items:start}
+      .withdraw-step{display:grid;place-items:center;width:28px;height:28px;border:1px solid rgba(255,255,255,.12);border-radius:9px;color:var(--wd-gold);font-size:11px;font-weight:800}
+      .withdraw-checklist strong{display:block;margin:1px 0 4px;font-size:12px}
+      .withdraw-checklist small{display:block;color:var(--muted,#a7a397);font-size:11px;line-height:1.55}
+      .withdraw-footnote{display:flex;align-items:flex-start;gap:11px;padding:15px 17px;border:1px solid rgba(216,180,90,.18);border-radius:14px;background:rgba(216,180,90,.055);color:var(--muted,#b4afa3);font-size:12px;line-height:1.65}
+      .withdraw-footnote svg{flex:0 0 18px;width:18px;height:18px;margin-top:1px;color:var(--wd-gold)}
+      @media(max-width:760px){.withdraw-layout{grid-template-columns:1fr}.withdraw-hero{border-radius:19px}.withdraw-panel{border-radius:17px}.withdraw-payout-row{gap:9px;padding:11px}.withdraw-bank-mark{flex-basis:36px;width:36px;height:36px}.withdraw-account-mask{font-size:11px}.withdraw-default{display:none}}
+      @media(prefers-reduced-motion:reduce){.withdraw-secondary{transition:none!important}}
+    </style>
+    <div class="withdraw-page">
+      <section class="withdraw-hero">
+        <span class="withdraw-eyebrow">Member finance · Payout centre</span>
+        <h2>Withdrawals, with clarity.</h2>
+        <p>Your payout details and withdrawal readiness in one secure place. We’ll show the next available step here when the withdrawal service is fully enabled.</p>
+        <span class="withdraw-status"><span class="withdraw-status-dot"></span> Withdrawals temporarily locked</span>
+      </section>
+      <div class="withdraw-layout">
+        <section class="withdraw-panel">
+          <div class="withdraw-panel-head"><div><p class="withdraw-kicker">Payout destination</p><h3>Your bank accounts</h3><p class="withdraw-panel-sub">Only your saved payout details are shown here. Account numbers remain masked for privacy.</p></div><span class="withdraw-count">${banks.length} saved</span></div>
+          <div class="withdraw-payout-list">${bankCards}</div>
+          ${banks.length?'<div style="margin-top:17px"><a class="withdraw-secondary" href="/profile">Manage payout details <span aria-hidden="true">↗</span></a></div>':''}
+        </section>
+        <aside class="withdraw-panel withdraw-lock-panel">
+          <div class="withdraw-lock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/></svg></div>
+          <p class="withdraw-kicker">Before you can withdraw</p><h3>Security comes first</h3>
+          <p class="withdraw-panel-sub">Withdrawal requests are not being accepted yet. This page will not submit a request or imply a payout has been initiated.</p>
+          <ol class="withdraw-checklist">
+            <li><span class="withdraw-step">01</span><div><strong>Complete identity verification</strong><small>Your KYC review must be approved.</small></div></li>
+            <li><span class="withdraw-step">02</span><div><strong>Confirm payout details</strong><small>Keep your bank account details current in your profile.</small></div></li>
+            <li><span class="withdraw-step">03</span><div><strong>Withdrawal service activation</strong><small>Secure payout processing and the transaction ledger must be operational.</small></div></li>
+          </ol>
+        </aside>
+      </div>
+      <div class="withdraw-footnote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg><span><strong style="color:var(--wd-gold)">Important:</strong> Withdrawals remain disabled until KYC approval, payout processing, and the transaction ledger are operational. No withdrawal request or payment has been created.</span></div>
+    </div>`;
+    res.send(memberPage('Withdraw','/withdraw',m,body,req));
+  } catch(e) {
+    if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'<div class="member-card"><h2>Withdrawals temporarily unavailable</h2><p>Please try again later.</p><a class="btn" href="/profile">Manage bank accounts</a></div>',req));
+    next(e);
+  }
+});
 app.get('/transactions', requireAuth, async (req,res,next) => {
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
