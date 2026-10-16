@@ -1466,7 +1466,79 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
-app.get('/referrals', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [counts]=await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?',[m.id]);const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\/+$/,'');const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);const content='<div class="member-card"><p class="muted small">YOUR MONARCH UID</p><div class="copy-value"><strong id="pageUid">'+esc(m.monarch_uid)+'</strong><button class="copy-btn" type="button" data-copy-target="pageUid">Copy UID</button></div><p class="muted small">YOUR PERSONAL REFERRAL LINK</p><div class="copy-value"><input id="pageReferralLink" value="'+esc(link)+'" readonly><button class="copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="muted small">Referral attribution is recorded when a new account successfully registers using your code.</p></div><div class="grid"><div class="stat"><span class="muted small">Registered referrals</span><strong>'+Number(counts[0].total||0)+'</strong></div></div>';res.send(memberPage('Referrals','/referrals',m,content,req));}catch(e){next(e)}});
+app.get('/referrals', requireAuth, async (req,res,next)=>{
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [m.id]);
+    const base = String(process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\\/+$/, '');
+    const link = base + '/register?ref=' + encodeURIComponent(m.monarch_uid);
+    const total = Number(counts[0].total || 0);
+    const content = `<style>
+.referral-experience{display:grid;gap:18px;min-width:0}
+.referral-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 112px;align-items:center;gap:22px;padding:clamp(22px,4vw,36px);border:1px solid rgba(223,189,98,.25);border-radius:22px;background:radial-gradient(ellipse at 88% 12%,rgba(223,189,98,.19),transparent 36%),linear-gradient(135deg,#1b1a16 0%,#111113 58%,#19160e 100%)}
+.referral-hero:after{content:"";position:absolute;z-index:-1;width:210px;height:210px;right:-82px;bottom:-125px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 22px rgba(223,189,98,.025),0 0 0 44px rgba(223,189,98,.02)}
+.referral-kicker{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:#e5c66f;font-size:10px;font-weight:850;letter-spacing:.17em;text-transform:uppercase}
+.referral-kicker:before{content:"";width:20px;height:1px;background:#dfbd62}
+.referral-hero h3{max-width:620px;margin:0;color:#fff8e8;font-size:clamp(25px,3.6vw,37px);line-height:1.12;letter-spacing:-.045em}
+.referral-hero p{max-width:590px;margin:12px 0 0;color:#bdb8aa;font-size:13px;line-height:1.75}
+.referral-hero-art{display:grid;place-items:center;width:100px;height:100px;justify-self:center;border:1px solid rgba(223,189,98,.32);border-radius:28px;background:linear-gradient(145deg,rgba(223,189,98,.16),rgba(223,189,98,.025));box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 35px rgba(0,0,0,.18);transform:rotate(3deg)}
+.referral-hero-art svg{width:48px;height:48px;fill:none;stroke:#f1d98d;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.referral-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.referral-stat-card{position:relative;min-width:0;overflow:hidden;padding:21px;border:1px solid #383328;border-radius:17px;background:linear-gradient(145deg,#18181b,#111113)}
+.referral-stat-card:after{content:"";position:absolute;width:90px;height:90px;right:-42px;top:-44px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 12px rgba(223,189,98,.025)}
+.referral-stat-label{display:flex;align-items:center;gap:8px;color:#aaa79e;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.referral-stat-label svg{width:16px;height:16px;stroke:#dfbd62;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.referral-stat-number{display:block;margin:14px 0 6px;color:#f6e7b3;font-size:clamp(28px,4vw,38px);font-weight:850;letter-spacing:-.045em;line-height:1.1;overflow-wrap:anywhere}
+.referral-stat-note{margin:0;color:#99958b;font-size:11px;line-height:1.6}
+.referral-share-card{min-width:0;padding:clamp(18px,3vw,26px);border:1px solid rgba(223,189,98,.23);border-radius:19px;background:linear-gradient(150deg,rgba(28,27,23,.98),rgba(16,16,18,.98))}
+.referral-card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:20px}
+.referral-card-heading h3{margin:0;color:#f8f2e3;font-size:18px;letter-spacing:-.025em}
+.referral-card-heading p{margin:6px 0 0;color:#a8a397;font-size:12px;line-height:1.65}
+.referral-secure-pill{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:7px 9px;border:1px solid rgba(223,189,98,.19);border-radius:999px;background:rgba(223,189,98,.07);color:#e4ca7c;font-size:9px;font-weight:800;letter-spacing:.06em}
+.referral-secure-pill:before{content:"";width:5px;height:5px;border-radius:50%;background:#dfbd62}
+.referral-field{display:grid;gap:8px;margin-top:17px;min-width:0}
+.referral-field:first-of-type{margin-top:0}
+.referral-field label{color:#c7c1b3;font-size:10px;font-weight:850;letter-spacing:.11em;text-transform:uppercase}
+.referral-field-row{display:flex;align-items:stretch;gap:9px;min-width:0}
+.referral-value{display:flex;align-items:center;min-width:0;flex:1;padding:12px 14px;border:1px solid #3d382a;border-radius:12px;background:#0c0c0e;color:#f2e6be;font-size:14px;font-weight:800;letter-spacing:.035em;overflow-wrap:anywhere}
+.referral-value input{width:100%;min-width:0;padding:0;border:0;outline:none;background:transparent;color:#f2e6be;font:inherit;font-size:12px;letter-spacing:0}
+.referral-copy-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;min-width:112px;padding:11px 14px;border:1px solid #dfbd62;border-radius:12px;background:linear-gradient(135deg,#f1d98d,#d5ae4d);color:#17140b;font:inherit;font-size:11px;font-weight:900;cursor:pointer;transition:transform .18s,filter .18s}
+.referral-copy-btn:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.referral-copy-btn:focus-visible{outline:2px solid #f5e6b5;outline-offset:3px}
+.referral-copy-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.referral-field-help{margin:0;color:#8f8b82;font-size:11px;line-height:1.65}
+.referral-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.referral-step{min-width:0;padding:17px;border:1px solid #302d25;border-radius:15px;background:rgba(19,19,21,.76)}
+.referral-step-num{display:grid;place-items:center;width:30px;height:30px;margin-bottom:12px;border:1px solid rgba(223,189,98,.28);border-radius:10px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:11px;font-weight:900}
+.referral-step h4{margin:0 0 6px;color:#e9e2d2;font-size:12px}
+.referral-step p{margin:0;color:#99958b;font-size:11px;line-height:1.65}
+.referral-footnote{display:flex;align-items:flex-start;gap:10px;padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(255,255,255,.018);color:#99958b;font-size:11px;line-height:1.7}
+.referral-footnote svg{flex:0 0 17px;width:17px;height:17px;margin-top:1px;fill:none;stroke:#dfbd62;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:650px){.referral-hero{grid-template-columns:minmax(0,1fr) 68px;gap:12px;padding:22px 18px}.referral-hero-art{width:64px;height:64px;border-radius:19px}.referral-hero-art svg{width:34px;height:34px}.referral-stat-grid{gap:10px}.referral-stat-card{padding:16px}.referral-card-heading{display:grid}.referral-secure-pill{justify-self:start}.referral-steps{grid-template-columns:1fr}.referral-step{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:11px;padding:14px}.referral-step-num{grid-row:span 2;margin:0}.referral-step h4{align-self:end}.referral-step p{align-self:start}}
+@media(max-width:420px){.referral-hero{grid-template-columns:1fr}.referral-hero-art{display:none}.referral-stat-grid{grid-template-columns:1fr}.referral-field-row{flex-direction:column}.referral-copy-btn{width:100%;min-height:44px}.referral-value{min-height:45px}.referral-share-card{padding:17px 14px}}
+@media(prefers-reduced-motion:reduce){.referral-copy-btn{transition:none}.referral-copy-btn:hover{transform:none}}
+</style>
+<div class="referral-experience">
+  <section class="referral-hero">
+    <div><p class="referral-kicker">Grow your circle</p><h3>Good things are better when shared.</h3><p>Invite people into Monarch Codex with your personal referral link. Your account keeps track of members who register with your code.</p></div>
+    <div class="referral-hero-art" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="18" cy="15" r="6"/><path d="M6 36v-3a9 9 0 0 1 9-9h6a9 9 0 0 1 9 9v3"/><circle cx="34" cy="17" r="4"/><path d="M33 25h2a7 7 0 0 1 7 7v4M29 9l3-3 3 3M32 6v7"/></svg></div>
+  </section>
+  <section class="referral-stat-grid" aria-label="Referral summary">
+    <article class="referral-stat-card"><span class="referral-stat-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg> Registered referrals</span><strong class="referral-stat-number">${total.toLocaleString('en-US')}</strong><p class="referral-stat-note">Members linked to your referral code.</p></article>
+    <article class="referral-stat-card"><span class="referral-stat-label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4M7 13h10M16 9h1"/></svg> Your member code</span><strong class="referral-stat-number" style="font-size:clamp(20px,3vw,28px)">${esc(m.monarch_uid)}</strong><p class="referral-stat-note">Your unique identity across Monarch Codex.</p></article>
+  </section>
+  <section class="referral-share-card">
+    <div class="referral-card-heading"><div><h3>Your personal invite link</h3><p>Copy your link or code and share it with someone you trust.</p></div><span class="referral-secure-pill">Personal invite</span></div>
+    <div class="referral-field"><label for="pageReferralLink">Referral link</label><div class="referral-field-row"><div class="referral-value"><input id="pageReferralLink" value="${esc(link)}" readonly aria-label="Your personal referral link"></div><button class="referral-copy-btn" type="button" data-copy-target="pageReferralLink"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy invite link</button></div><p class="referral-field-help">The link opens registration with your referral code attached.</p></div>
+    <div class="referral-field"><label for="pageUid">Member referral code</label><div class="referral-field-row"><div class="referral-value" id="pageUid">${esc(m.monarch_uid)}</div><button class="referral-copy-btn" type="button" data-copy-target="pageUid"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy code</button></div><p class="referral-field-help">Friends can enter this code during registration if they don't use your link.</p></div>
+  </section>
+  <section class="referral-steps" aria-label="How referrals work"><article class="referral-step"><span class="referral-step-num">01</span><h4>Share your link</h4><p>Send your personal invite link or referral code to a friend.</p></article><article class="referral-step"><span class="referral-step-num">02</span><h4>They register</h4><p>Your code is attached when they successfully create their account.</p></article><article class="referral-step"><span class="referral-step-num">03</span><h4>Track your circle</h4><p>See the number of registered members linked to your account above.</p></article></section>
+  <p class="referral-footnote"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Referral attribution is recorded when a new account successfully registers using your code. This page reports registered referrals; it does not promise rewards or commissions.</span></p>
+</div>`;
+    res.send(memberPage('Referrals','/referrals',m,content,req));
+  } catch(e) { next(e); }
+});
 app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
   if (err) return next(err);
   res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
