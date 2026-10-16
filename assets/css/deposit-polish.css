@@ -1,0 +1,27 @@
+/* Deposit experience refinement: full-width layout, responsive totals and member notification bell. */
+.member-workspace{width:100%;box-sizing:border-box}
+.member-page-heading{min-width:0}
+.member-heading-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-shrink:0}
+.member-notification-bell{position:relative;display:grid;place-items:center;width:44px;height:44px;border:1px solid #4a4026;border-radius:14px;background:linear-gradient(145deg,#211b0e,#151518);color:#f3d65c;text-decoration:none;box-shadow:0 8px 22px #0002;transition:background .18s,border-color .18s,transform .18s}
+.member-notification-bell:hover{background:#302611;border-color:#a88936;transform:translateY(-1px)}
+.member-notification-bell:focus-visible{outline:2px solid #f3cf3c;outline-offset:3px}
+.member-notification-bell svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.member-notification-bell [data-member-notification-count]:not([hidden]){position:absolute;top:-5px;right:-5px;display:grid;place-items:center;min-width:19px;height:19px;padding:0 4px;border:2px solid #101013;border-radius:999px;background:#f3cf3c;color:#17140a;font-size:.64rem;font-weight:900;line-height:1}
+.member-main>.deposit-page-card,.member-main>.deposit-history-card{width:100%;max-width:none;box-sizing:border-box}
+.member-main .deposit-page-intro{width:100%;max-width:none}
+.member-main .deposit-workflow{width:100%;max-width:none;box-sizing:border-box}
+.member-main .deposit-step-heading p{max-width:90ch}
+.member-main .deposit-calculator{width:100%;max-width:none;box-sizing:border-box}
+.member-main .deposit-calculator-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
+.member-main .deposit-calc-item{min-width:0}
+.member-main .deposit-calc-item strong,.member-main .deposit-calc-item small{overflow-wrap:anywhere}
+.member-main .deposit-destination-instructions{padding:0 20px 17px;margin:0;color:#bdb5a4;font-size:.83rem;line-height:1.65;overflow-wrap:anywhere}
+.deposit-success-panel.is-approved{border-color:#456b42;background:radial-gradient(ellipse at top,#24452255,transparent 60%),linear-gradient(145deg,#151b15,#101013)}
+.deposit-success-panel.is-approved .deposit-success-icon{background:#8bd17c;color:#10200d}
+.deposit-success-panel.is-rejected{border-color:#75453c;background:radial-gradient(ellipse at top,#51251f55,transparent 60%),linear-gradient(145deg,#1a1515,#101013)}
+.deposit-success-panel.is-rejected .deposit-success-icon{background:#e9a08d;color:#2b100c}
+.deposit-inline-notice{max-width:none}
+@media(max-width:850px){.member-heading-actions{gap:0}.member-heading-actions .member-heading-status{display:none}.member-notification-bell{width:41px;height:41px}.member-main>.deposit-page-card{padding:clamp(16px,3vw,26px)}}
+@media(max-width:760px){.member-main .deposit-calculator-grid{grid-template-columns:1fr}.member-main .deposit-calc-item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:7px 12px;min-height:0;padding:14px}.member-main .deposit-calc-item>span{grid-column:1}.member-main .deposit-calc-item>strong{grid-column:2;grid-row:1;text-align:right}.member-main .deposit-calc-item>small{grid-column:1/-1}.deposit-step-actions{flex-wrap:wrap}.deposit-step-actions .deposit-cancel-link{padding-left:4px;padding-right:4px}}
+@media(max-width:520px){.member-page-heading{align-items:flex-start;gap:10px}.member-heading-actions{padding-top:4px}.member-notification-bell{width:39px;height:39px;border-radius:12px}.member-main .deposit-workflow{padding:17px 12px}.member-main .deposit-page-intro{margin-bottom:17px}.member-main .deposit-destination-head{gap:9px}.member-main .deposit-destination-fields{grid-template-columns:1fr}.member-main .deposit-destination-field.is-address{grid-column:auto}.member-main .deposit-destination-instructions{padding:0 13px 14px}.member-main .deposit-calculator{padding:14px!important}.member-main .deposit-step-actions .btn,.member-main .deposit-step-actions .deposit-next{flex:1;min-width:0}.member-main .deposit-history-card{padding:14px 12px}.member-main .deposit-success-panel{padding:25px 16px}}
+@media(prefers-reduced-motion:reduce){.member-notification-bell{transition:none}}
