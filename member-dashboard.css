@@ -204,3 +204,41 @@
 @media(max-width:1100px){.dashboard-layout{gap:16px;padding-inline:14px}.quick-action-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.dashboard-metrics{gap:10px}}
 @media(max-width:850px){.dashboard-content>.panel{padding:20px 16px}.dashboard-section{margin-top:28px}.dashboard-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.quick-action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.member-main{padding:20px 0}.member-main .member-card{padding:17px}.member-main .member-card .section-card .grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.dashboard-layout{padding-inline:8px}.dashboard-content>.panel{padding:17px 12px}.dashboard-topline{margin-bottom:20px}.dashboard-section{margin-top:24px}.dashboard-metrics{gap:8px}.dashboard-metrics .stat{min-height:96px;padding:12px 10px}.quick-action-grid{gap:8px}.quick-action-grid a{padding:12px 10px;min-height:94px}.member-workspace{padding-inline:12px}.member-page-heading{padding:22px 0 18px}.member-main .member-card{padding:14px 12px;margin-bottom:15px}.member-main .member-card .section-card{padding:13px}.member-main .member-card .section-card .grid{grid-template-columns:1fr}.member-main .member-card th,.member-main .member-card td{padding:10px 8px}}
+
+
+/* Polished payment destination cards shared across the member and admin experience */
+.deposit-payment-details{margin:15px 0 8px;padding:0;overflow:hidden;border:1px solid #4a4028;border-radius:16px;background:radial-gradient(ellipse at top right,#282315 0%,#151518 52%,#111114 100%);color:#eee9da}
+.deposit-destination-head{display:flex;align-items:center;gap:12px;padding:17px 18px;border-bottom:1px solid #373126}
+.deposit-asset-icon{display:grid;place-items:center;flex:0 0 44px;width:44px;height:44px;border:1px solid #69572b;border-radius:13px;background:linear-gradient(145deg,#332b17,#1c1a15);color:#f0d16a;font-size:.83rem;font-weight:850;letter-spacing:-.03em;overflow:hidden}
+.deposit-destination-title{display:flex;flex:1;min-width:0;flex-direction:column;gap:4px}
+.deposit-destination-title strong{font-size:1rem;color:#fff8e7;overflow-wrap:anywhere}
+.deposit-destination-title span{font-size:.76rem;color:#a9a294}
+.deposit-network-badge{max-width:44%;padding:7px 10px;border:1px solid #50462e;border-radius:999px;background:#201d16;color:#e5cc79;font-size:.7rem;line-height:1.35;text-align:center;overflow-wrap:anywhere}
+.deposit-destination-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:15px 18px}
+.deposit-destination-field{display:flex;min-width:0;flex-direction:column;gap:6px;padding:12px;border:1px solid #302e2a;border-radius:11px;background:#101013}
+.deposit-destination-field>span{font-size:.72rem;color:#a6a19a}
+.deposit-destination-field strong,.deposit-destination-field code{color:#f5f0e4;font-size:.88rem;line-height:1.5;overflow-wrap:anywhere;word-break:break-word}
+.deposit-destination-field.is-address{grid-column:1/-1;border-color:#51452a;background:#0d0d0f}
+.deposit-destination-field code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem}
+.deposit-copy-button{align-self:flex-start;margin-top:5px!important;padding:8px 12px;min-height:35px!important;border:1px solid #75602c;border-radius:9px;background:#282216;color:#f2d46c;font:inherit;font-size:.78rem;font-weight:750;cursor:pointer}
+.deposit-copy-button:hover{background:#362d18}
+.deposit-destination-instructions{margin:0;padding:12px 18px 15px;border-top:1px solid #302c23;color:#b9b2a2;font-size:.78rem;line-height:1.6;overflow-wrap:anywhere}
+.member-main .member-card .deposit-destination-fields{padding:15px 18px}
+.member-main .member-card .deposit-destination-field{margin:0}
+.member-main .member-card .deposit-destination-field>span{margin:0}
+.member-main .member-card .deposit-destination-field strong,.member-main .member-card .deposit-destination-field code{display:block;width:auto;min-height:0;padding:0;border:0;background:transparent}
+.member-main .member-card .deposit-destination-field .deposit-copy-button{width:auto}
+.member-main .member-card .section-card{border-color:#3b3527;background:linear-gradient(145deg,#151518,#101013)}
+.member-main .member-card .section-card .stat{border:1px solid #302d26;background:#0e0e11}
+.member-main .member-card .section-card .stat strong{display:block;margin-top:6px;color:#f3d76d;font-size:1.05rem}
+.member-main .member-card .section-card .stat span{display:block}
+.member-main .member-card .section-card .stat small{display:block;margin-top:5px;color:#a8a19a;overflow-wrap:anywhere}
+.member-main .member-card .ac-table tbody tr:hover{background:#ffffff04}
+.member-main .member-card .ac-table td .ac-pill{display:inline-flex;align-items:center;justify-content:center;max-width:100%;padding:5px 9px;border:1px solid #51472d;border-radius:999px;background:#211e17;color:#e9d27e;font-size:.7rem;font-weight:750;white-space:normal}
+.member-main .member-card .ac-table td small{display:inline-block;margin-top:4px;color:#9d98a0;line-height:1.5}
+.ac-panel .ac-table-wrap{max-width:100%;overflow-x:auto}
+.ac-panel .ac-table td{overflow-wrap:anywhere;vertical-align:top}
+.ac-panel .ac-table td details{max-width:360px}
+.ac-panel .ac-table td details>summary{padding:9px 11px;border:1px solid #39342a;border-radius:9px;background:#171612;color:#e9d27e;cursor:pointer}
+.ac-panel .ac-table td details form{padding:12px 0}
+@media(max-width:600px){.deposit-destination-head{align-items:flex-start;flex-wrap:wrap;padding:14px}.deposit-asset-icon{width:38px;height:38px;flex-basis:38px;border-radius:11px}.deposit-network-badge{max-width:100%;margin-left:50px}.deposit-destination-fields{grid-template-columns:1fr;padding:12px;gap:8px}.deposit-destination-field.is-address{grid-column:auto}.deposit-destination-instructions{padding:11px 13px 13px}.member-main .member-card .deposit-destination-fields{padding:12px}.deposit-destination-title strong{font-size:.92rem}}
