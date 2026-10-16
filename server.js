@@ -249,10 +249,44 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
       pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
         .then(([admins]) => {
           const destination = admins.length ? (admins[0].role === 'sovereign_desk_admin' ? '/sovereign-admin' : '/admin') : '/dashboard';
-          req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/assets/login-intro.html?next=' + encodeURIComponent(destination)));
+          req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect('/login-intro?next=' + encodeURIComponent(destination)));
         })
         .catch(next);
     });
+  } catch (e) { next(e); }
+});
+
+
+// Post-authentication welcome transition. Only allow known internal destinations.
+app.get('/login-intro', async (req, res, next) => {
+  if (!req.session.memberId) return res.redirect('/login');
+  const requested = String(req.query.next || '/dashboard');
+  const destination = ['/dashboard', '/admin', '/sovereign-admin'].includes(requested) ? requested : '/dashboard';
+  try {
+    const [rows] = await pool.execute('SELECT full_name FROM members WHERE id = ? LIMIT 1', [req.session.memberId]);
+    if (!rows.length) {
+      return req.session.destroy(() => res.redirect('/login'));
+    }
+    const firstName = String(rows[0].full_name || '').trim().split(/\\s+/)[0] || 'Monarch';
+    const safeName = esc(firstName);
+    const safeDestination = esc(destination);
+    const body = '<main class="welcome-screen"><div class="welcome-card">' +
+      '<div class="welcome-mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M9 46 5 17l15 12L31 7l12 22 16-12-5 29H9Z"/><path d="M12 52h40M15 58h34"/></svg></div>' +
+      '<div class="welcome-brand">MONARCH CODEX</div>' +
+      '<div class="welcome-tagline">BUILD WEALTH. BUILD A KINGDOM.</div>' +
+      '<div class="welcome-rule"><span></span></div>' +
+      '<p class="welcome-eyebrow">YOUR NEXT CHAPTER STARTS HERE</p>' +
+      '<h1>Welcome back, ' + safeName + '.</h1>' +
+      '<p class="welcome-copy">Your journey continues. Step into your space and keep building your legacy.</p>' +
+      '<a class="welcome-cta" href="' + safeDestination + '">Enter Your Kingdom <span aria-hidden="true">→</span></a>' +
+      '<p class="welcome-foot">Wealth with purpose. A legacy that lasts.</p>' +
+      '<div class="welcome-progress" aria-hidden="true"><span></span></div>' +
+      '<p class="welcome-redirect">Preparing your kingdom…</p>' +
+      '</div></main>' +
+      '<style>.wrap{width:100%;max-width:none;margin:0;padding:0}.welcome-screen{min-height:100svh;display:grid;place-items:center;padding:24px 16px;background:radial-gradient(ellipse at 50% 25%,#332a12 0,rgba(18,17,14,.92) 34%,#08090c 72%)}.welcome-card{position:relative;overflow:hidden;width:min(100%,620px);padding:clamp(28px,6vw,58px) clamp(22px,6vw,60px);text-align:center;border:1px solid rgba(243,207,60,.35);border-radius:28px;background:linear-gradient(150deg,rgba(29,28,26,.98),rgba(12,13,16,.98));box-shadow:0 30px 100px #0009,0 0 70px #d7ad2410;animation:welcome-in .75s cubic-bezier(.2,.8,.2,1) both}.welcome-card:before{content:"";position:absolute;inset:0 15% auto;height:1px;background:linear-gradient(90deg,transparent,#f3cf3c,transparent)}.welcome-mark{width:70px;height:70px;margin:0 auto 18px;display:grid;place-items:center;border:1px solid #6b5924;border-radius:22px;background:linear-gradient(145deg,#342a10,#15140f);box-shadow:0 0 38px #e2bd351b}.welcome-mark svg{width:44px;height:44px;fill:none;stroke:#f3cf3c;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}.welcome-brand{font-size:.8rem;font-weight:900;letter-spacing:.23em;color:#f3cf3c}.welcome-tagline{margin-top:10px;color:#e7e1ce;font-size:clamp(.66rem,2vw,.78rem);font-weight:800;letter-spacing:.17em}.welcome-rule{display:flex;justify-content:center;margin:27px 0}.welcome-rule span{width:72px;height:2px;background:linear-gradient(90deg,transparent,#f3cf3c,transparent)}.welcome-eyebrow{margin:0 0 12px;color:#c8ad53;font-size:.68rem;font-weight:800;letter-spacing:.18em}.welcome-card h1{margin:0;font-size:clamp(2rem,7vw,3.35rem);letter-spacing:-.045em;line-height:1.08}.welcome-copy{max-width:390px;margin:18px auto 0;color:#c2c0c7;font-size:1rem;line-height:1.8}.welcome-cta{display:flex;align-items:center;justify-content:center;gap:14px;width:100%;min-height:54px;margin:30px auto 0;padding:14px 20px;border-radius:999px;background:linear-gradient(100deg,#f5d95b,#d9ae26);color:#17140a;text-decoration:none;font-weight:900;box-shadow:0 10px 28px #e7bd3020;transition:transform .2s ease,box-shadow .2s ease}.welcome-cta:hover,.welcome-cta:focus-visible{transform:translateY(-2px);box-shadow:0 14px 34px #e7bd3035;outline:2px solid #fff2a5;outline-offset:3px}.welcome-foot{margin:24px 0 0;color:#8f8c95;font-size:.82rem;letter-spacing:.025em}.welcome-progress{height:2px;max-width:180px;margin:27px auto 0;background:#34312a;overflow:hidden;border-radius:2px}.welcome-progress span{display:block;width:100%;height:100%;background:#f3cf3c;transform-origin:left;animation:welcome-progress 3.8s linear forwards}.welcome-redirect{margin:9px 0 0;color:#77747d;font-size:.72rem}@keyframes welcome-in{from{opacity:0;transform:translateY(14px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes welcome-progress{to{transform:scaleX(0)}}@media(prefers-reduced-motion:reduce){.welcome-card,.welcome-progress span{animation:none}.welcome-cta{transition:none}}@media(max-width:420px){.welcome-screen{padding:14px}.welcome-card{border-radius:22px}.welcome-copy{font-size:.94rem}}</style>' +
+      '<script>document.addEventListener("DOMContentLoaded",function(){var link=document.querySelector(".welcome-cta");window.setTimeout(function(){if(link)window.location.replace(link.href)},3800)});</script>';
+    res.set('Cache-Control', 'no-store');
+    return res.send(page('Welcome back, Monarch', body));
   } catch (e) { next(e); }
 });
 
