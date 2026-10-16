@@ -9,8 +9,8 @@ const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '009_withdrawal_requests.sql'), 'utf8');
 
 test('KYC premium stylesheet is linked with a correctly closed href', () => {
-  assert.match(server, /<link rel="stylesheet" href="\/kyc-wizard\.css\?v=20261016-premium2">/);
-  assert.doesNotMatch(server, /href="\/kyc-wizard\.css\?v=20261016-premium2><div/);
+  assert.ok(server.includes('<link rel="stylesheet" href="/kyc-wizard.css?v=20261016-premium2">'));
+  assert.ok(!server.includes('href="/kyc-wizard.css?v=20261016-premium2><div'));
 });
 
 test('withdrawal readiness depends on approved KYC, a saved payout account and unreserved wallet funds', () => {
