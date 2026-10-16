@@ -106,10 +106,17 @@
     }
     if (current === 3) {
       var front = document.getElementById('kycFront');
+      var backImage = document.getElementById('kycBackImage');
       var consent = document.getElementById('kycConfirm');
+      var selectedDocType = docType ? docType.value : '';
       if (!front.files || !front.files.length) {
-        message.textContent = 'Choose or take a photo of the front of your ID.';
+        message.textContent = 'Choose a clear photo of the front of your identity document.';
         front.focus();
+        return false;
+      }
+      if (selectedDocType !== 'passport' && (!backImage.files || !backImage.files.length)) {
+        message.textContent = 'Add the back of your identity document to continue.';
+        backImage.focus();
         return false;
       }
       if (!selfieCaptured) {
@@ -218,8 +225,9 @@
       .then(function (response) { return response.json().catch(function () { return {}; }).then(function (body) { if (!response.ok) throw new Error(body.error || 'Submission failed.'); return body; }); })
       .then(function (body) {
         message.textContent = 'Verification submitted successfully. Reference: ' + body.submissionId + '.';
-        if (notice) notice.textContent = 'Your verification has been received and is pending administrator review.';
+        if (notice) notice.textContent = 'Your verification has been received and is pending administrator review. Opening your review status…';
         next.textContent = 'Submitted';
+        window.setTimeout(function () { window.location.assign('/kyc'); }, 700);
       })
       .catch(function (error) {
         message.textContent = error.message || 'Secure submission failed. Please try again later.';
