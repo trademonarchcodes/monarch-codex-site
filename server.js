@@ -384,6 +384,26 @@ app.get('/admin', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Overview','/admin',content,req));
   } catch(e) { next(e); }
 });
+// Read-only transaction operations backed by existing database records.
+app.get('/admin/transactions', requireFinanceAdmin, async (req,res,next) => {
+  try {
+    const [transactions] = await pool.query('SELECT t.id,t.member_id,t.transaction_type,t.currency,t.amount,t.reference,t.created_at,m.username,m.full_name,m.email FROM financial_transactions t JOIN members m ON m.id=t.member_id ORDER BY t.created_at DESC LIMIT 200');
+    const [deposits] = await pool.query("SELECT d.id,d.member_id,d.currency,d.amount,d.payment_reference,d.status,d.created_at,m.username,m.full_name,m.email FROM deposit_requests d JOIN members m ON m.id=d.member_id WHERE d.status='pending' ORDER BY d.created_at ASC LIMIT 100");
+    const [withdrawals] = await pool.query("SELECT w.id,w.member_id,w.currency,w.amount,w.status,w.created_at,m.username,m.full_name,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id WHERE w.status IN ('pending','approved') ORDER BY w.created_at ASC LIMIT 100");
+    const money=(currency,amount)=>esc(String(currency||'')+' '+Number(amount||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}));
+    const date=value=>esc(value instanceof Date?value.toISOString().replace('T',' ').slice(0,19):String(value||'—'));
+    const member=row=>'<strong>'+esc(row.full_name||row.username||('Member #'+row.member_id))+'</strong><br><small>'+esc(row.email||'')+'</small>';
+    const ledgerRows=transactions.map(t=>'<tr><td>#'+Number(t.id)+'<br><small>'+date(t.created_at)+'</small></td><td>'+member(t)+'</td><td>'+esc(String(t.transaction_type||'').replace(/_/g,' '))+'</td><td><strong>'+money(t.currency,t.amount)+'</strong></td><td>'+esc(t.reference||'—')+'</td><td><span class="ac-pill">Recorded</span></td></tr>').join('')||'<tr><td colspan="6">No posted financial transactions have been recorded.</td></tr>';
+    const depositRows=deposits.map(d=>'<tr><td>#'+Number(d.id)+'<br><small>'+date(d.created_at)+'</small></td><td>'+member(d)+'</td><td>'+money(d.currency,d.amount)+'</td><td>'+esc(d.payment_reference||'—')+'</td><td><span class="ac-pill">Pending review</span></td><td><a class="btn" href="/admin/deposits">Review deposit</a></td></tr>').join('')||'<tr><td colspan="6">No pending deposit requests.</td></tr>';
+    const withdrawalRows=withdrawals.map(w=>'<tr><td>#'+Number(w.id)+'<br><small>'+date(w.created_at)+'</small></td><td>'+member(w)+'</td><td>'+money(w.currency,w.amount)+'</td><td>'+esc(w.status)+'</td><td><span class="ac-pill">Manual processing</span></td><td><a class="btn" href="/admin/withdrawals">Review withdrawal</a></td></tr>').join('')||'<tr><td colspan="6">No open withdrawal requests.</td></tr>';
+    const table=(heading,description,headers,rows)=>'<section class="ac-panel" style="margin-top:16px"><div class="ac-page-head"><div><h2>'+heading+'</h2><p class="muted">'+description+'</p></div></div><div class="ac-table-wrap"><table class="ac-table"><thead><tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table></div></section>';
+    const content='<section class="ac-overview-hero"><div><p class="ac-hero-kicker">Finance operations · Read-only ledger</p><h2>Transaction activity</h2><p>Review posted deposit credits alongside pending deposit and withdrawal requests. This view does not create transactions, alter balances, or approve payments.</p></div><span class="ac-hero-mark" aria-hidden="true">↔</span></section><section class="ac-stats"><article class="ac-stat"><span>Posted credits</span><strong>'+transactions.length+'</strong><small>Latest 200 ledger entries</small></article><article class="ac-stat"><span>Pending deposits</span><strong>'+deposits.length+'</strong><small>Awaiting administrator review</small></article><article class="ac-stat"><span>Open withdrawals</span><strong>'+withdrawals.length+'</strong><small>Pending or approved, not yet paid</small></article></section>'+table('Posted financial transactions','Entries recorded in financial_transactions.',['Date / ID','Member','Type','Amount','Reference','Status'],ledgerRows)+table('Pending deposits','Requests remain pending until payment evidence is reviewed.',['Date / ID','Member','Amount','Payment reference','Status','Action'],depositRows)+table('Open withdrawals','Confirm an actual transfer before marking paid.',['Date / ID','Member','Amount','Request status','Processing','Action'],withdrawalRows);
+    res.send(adminControlPage('Transactions','/admin/transactions',content,req));
+  } catch(e) {
+    if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Transaction view setup required','migrations/006_deposit_payment_workflow.sql and migrations/009_withdrawal_requests.sql'));
+    next(e);
+  }
+});
 // Administrative sections are intentionally explicit: unsupported workflows are labelled as not connected,
 // never filled with fake account or financial records. Main admin sections remain protected by requireAdmin.
 const adminSectionInfo = {
@@ -398,7 +418,7 @@ const adminSectionInfo = {
   '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']};
 for (const [route, info] of Object.entries(adminSectionInfo)) {
-  if (['/admin/deposits','/admin/withdrawals','/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
+  if (['/admin/deposits','/admin/withdrawals','/admin/transactions','/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
   app.get(route, requireAdmin, async (req,res,next) => {
     if (req.adminRole === 'sovereign_desk_admin') return res.status(403).send(page('Access denied','<h1>Access denied</h1><p class="muted">This section is reserved for Main Admin.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
     try {
