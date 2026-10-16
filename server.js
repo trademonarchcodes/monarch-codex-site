@@ -1466,7 +1466,76 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
-app.get('/referrals', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [counts]=await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?',[m.id]);const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\/+$/,'');const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);const content='<div class="member-card"><p class="muted small">YOUR MONARCH UID</p><div class="copy-value"><strong id="pageUid">'+esc(m.monarch_uid)+'</strong><button class="copy-btn" type="button" data-copy-target="pageUid">Copy UID</button></div><p class="muted small">YOUR PERSONAL REFERRAL LINK</p><div class="copy-value"><input id="pageReferralLink" value="'+esc(link)+'" readonly><button class="copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="muted small">Referral attribution is recorded when a new account successfully registers using your code.</p></div><div class="grid"><div class="stat"><span class="muted small">Registered referrals</span><strong>'+Number(counts[0].total||0)+'</strong></div></div>';res.send(memberPage('Referrals','/referrals',m,content,req));}catch(e){next(e)}});
+app.get('/referrals', requireAuth, async (req,res,next)=>{
+  try {
+    const m=await getMemberForPage(req,res);
+    if(!m)return;
+    const [counts]=await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?',[m.id]);
+    const total=Number(counts[0].total||0);
+    const base=String(process.env.APP_BASE_URL||'https://monarchcodex.online').replace(/\\/+$/,'');
+    const link=base+'/register?ref='+encodeURIComponent(m.monarch_uid);
+    const content=`<style>
+.referral-page{--rf-gold:#e4c66f;--rf-soft:#f7e8b5;--rf-muted:#a9a69b;display:grid;gap:18px;min-width:0;color:#f7f3e9}
+.referral-page *{box-sizing:border-box}
+.referral-page .rf-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(220px,.75fr);gap:24px;align-items:center;padding:clamp(22px,4vw,38px);border:1px solid rgba(228,198,111,.25);border-radius:24px;background:radial-gradient(ellipse at 92% 8%,rgba(228,198,111,.2),transparent 38%),linear-gradient(135deg,#1d1b14 0%,#121214 64%,#19160e 100%)}
+.referral-page .rf-hero:after{content:"";position:absolute;z-index:-1;width:220px;height:220px;right:-72px;bottom:-125px;border:1px solid rgba(228,198,111,.16);border-radius:50%;box-shadow:0 0 0 24px rgba(228,198,111,.025),0 0 0 48px rgba(228,198,111,.02)}
+.referral-page .rf-eyebrow{margin:0 0 10px;color:var(--rf-gold);font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}
+.referral-page .rf-hero h2{max-width:560px;margin:0;color:#fff9e9;font-size:clamp(27px,4.2vw,42px);line-height:1.08;letter-spacing:-.045em}
+.referral-page .rf-hero-copy{max-width:520px;margin:13px 0 0;color:#c0bcaf;font-size:13px;line-height:1.8}
+.referral-page .rf-hero-stat{justify-self:stretch;padding:22px;border:1px solid rgba(228,198,111,.2);border-radius:18px;background:rgba(8,8,9,.38);backdrop-filter:blur(8px)}
+.referral-page .rf-stat-label{display:flex;align-items:center;gap:9px;color:#c8c1ae;font-size:11px;font-weight:750}
+.referral-page .rf-stat-icon{display:grid;place-items:center;width:35px;height:35px;border-radius:11px;background:rgba(228,198,111,.12);color:var(--rf-gold);font-size:18px}
+.referral-page .rf-stat-number{display:block;margin:14px 0 4px;color:var(--rf-soft);font-size:clamp(38px,5vw,54px);font-weight:850;line-height:1;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.referral-page .rf-stat-note{margin:0;color:var(--rf-muted);font-size:11px;line-height:1.6}
+.referral-page .rf-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:2px 0 0}
+.referral-page .rf-section-head h3{margin:0;color:#f5efdf;font-size:17px;letter-spacing:-.025em}
+.referral-page .rf-section-head p{margin:5px 0 0;color:var(--rf-muted);font-size:12px;line-height:1.6}
+.referral-page .rf-invite-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.referral-page .rf-card{min-width:0;padding:clamp(17px,2.6vw,24px);border:1px solid rgba(255,255,255,.085);border-radius:18px;background:linear-gradient(150deg,rgba(28,28,31,.98),rgba(17,17,19,.98))}
+.referral-page .rf-card-top{display:flex;align-items:center;gap:11px;margin-bottom:17px}
+.referral-page .rf-card-icon{display:grid;place-items:center;width:40px;height:40px;flex:0 0 40px;border:1px solid rgba(228,198,111,.22);border-radius:12px;background:rgba(228,198,111,.08);color:var(--rf-gold);font-size:18px}
+.referral-page .rf-card-top h3{margin:0;color:#f6f0df;font-size:14px}
+.referral-page .rf-card-top p{margin:3px 0 0;color:var(--rf-muted);font-size:11px;line-height:1.5}
+.referral-page .rf-field-label{display:block;margin:0 0 8px;color:#c4bdac;font-size:10px;font-weight:850;letter-spacing:.09em;text-transform:uppercase}
+.referral-page .rf-code-box{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:12px 13px;border:1px solid rgba(228,198,111,.18);border-radius:12px;background:#0d0d0f}
+.referral-page .rf-code-box strong{min-width:0;overflow-wrap:anywhere;color:var(--rf-soft);font-size:16px;letter-spacing:.06em}
+.referral-page .rf-copy-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto;min-height:38px;padding:9px 12px;border:1px solid rgba(228,198,111,.3);border-radius:10px;background:rgba(228,198,111,.1);color:var(--rf-soft);font:inherit;font-size:11px;font-weight:850;cursor:pointer;transition:background .18s,border-color .18s,transform .18s}
+.referral-page .rf-copy-btn:hover,.referral-page .rf-copy-btn:focus-visible{background:rgba(228,198,111,.18);border-color:rgba(228,198,111,.6);outline:2px solid rgba(228,198,111,.28);outline-offset:2px}
+.referral-page .rf-link-field{display:flex;gap:8px;min-width:0}
+.referral-page .rf-link-field input{min-width:0;flex:1;width:100%;height:42px;padding:10px 11px;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#0d0d0f;color:#c9c5b9;font:inherit;font-size:11px}
+.referral-page .rf-help{margin:10px 0 0;color:var(--rf-muted);font-size:11px;line-height:1.65}
+.referral-page .rf-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.referral-page .rf-step{min-width:0;padding:18px;border:1px solid rgba(255,255,255,.075);border-radius:16px;background:linear-gradient(150deg,#19191c,#111113)}
+.referral-page .rf-step-no{display:grid;place-items:center;width:30px;height:30px;margin-bottom:13px;border:1px solid rgba(228,198,111,.26);border-radius:10px;background:rgba(228,198,111,.09);color:var(--rf-gold);font-size:11px;font-weight:900}
+.referral-page .rf-step h4{margin:0 0 7px;color:#f1ead8;font-size:13px}
+.referral-page .rf-step p{margin:0;color:var(--rf-muted);font-size:11px;line-height:1.75}
+.referral-page .rf-footnote{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border:1px solid rgba(228,198,111,.14);border-radius:13px;background:rgba(228,198,111,.045);color:#b9b3a4;font-size:11px;line-height:1.7}
+.referral-page .rf-footnote span{color:var(--rf-gold);font-size:15px;line-height:1.4}
+@media(max-width:760px){.referral-page .rf-hero{grid-template-columns:1fr;gap:20px}.referral-page .rf-hero-stat{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 14px;padding:17px}.referral-page .rf-stat-label{grid-column:1/-1}.referral-page .rf-stat-number{margin:4px 0 0}.referral-page .rf-stat-note{max-width:150px;text-align:right}.referral-page .rf-invite-grid{grid-template-columns:1fr}.referral-page .rf-steps{grid-template-columns:1fr}.referral-page .rf-step{display:grid;grid-template-columns:34px minmax(0,1fr);column-gap:12px;padding:15px}.referral-page .rf-step-no{grid-row:1/3;margin:0}.referral-page .rf-step h4{align-self:end}.referral-page .rf-step p{margin-top:4px}}
+@media(max-width:420px){.referral-page .rf-hero{padding:21px 17px;border-radius:19px}.referral-page .rf-hero h2{font-size:29px}.referral-page .rf-card{padding:16px}.referral-page .rf-link-field{flex-direction:column}.referral-page .rf-link-field .rf-copy-btn{width:100%}.referral-page .rf-code-box{align-items:flex-start;flex-direction:column}.referral-page .rf-code-box .rf-copy-btn{width:100%}.referral-page .rf-stat-note{max-width:118px}}
+</style>
+<div class="referral-page">
+  <section class="rf-hero">
+    <div><p class="rf-eyebrow">MONARCH CODEX · GROW TOGETHER</p><h2>Your network.<br>Built by invitation.</h2><p class="rf-hero-copy">Invite people into your Monarch Codex community with your personal referral code. Keep your link close and follow your registered referrals from one place.</p></div>
+    <div class="rf-hero-stat"><div class="rf-stat-label"><span class="rf-stat-icon">♧</span> Your registered referrals</div><strong class="rf-stat-number">${total.toLocaleString('en-US')}</strong><p class="rf-stat-note">Accounts attributed to your invitation</p></div>
+  </section>
+  <div class="rf-section-head"><div><h3>Your invitation details</h3><p>Share your code or send the direct registration link.</p></div></div>
+  <section class="rf-invite-grid">
+    <div class="rf-card"><div class="rf-card-top"><span class="rf-card-icon">◇</span><div><h3>Your referral code</h3><p>Your unique Monarch member ID</p></div></div><span class="rf-field-label">Personal referral code</span><div class="rf-code-box"><strong id="pageUid">${esc(m.monarch_uid)}</strong><button class="rf-copy-btn" type="button" data-copy-target="pageUid">Copy code</button></div><p class="rf-help">Share this code with someone joining Monarch Codex.</p></div>
+    <div class="rf-card"><div class="rf-card-top"><span class="rf-card-icon">↗</span><div><h3>Direct invitation link</h3><p>Ready to copy and share</p></div></div><label class="rf-field-label" for="pageReferralLink">Your personal link</label><div class="rf-link-field"><input id="pageReferralLink" value="${esc(link)}" readonly aria-label="Your personal referral link"><button class="rf-copy-btn" type="button" data-copy-target="pageReferralLink">Copy link</button></div><p class="rf-help">The referral code is included automatically when a new member opens this link.</p></div>
+  </section>
+  <div class="rf-section-head"><div><h3>How referrals work</h3><p>Three simple steps to invite your community.</p></div></div>
+  <section class="rf-steps">
+    <article class="rf-step"><span class="rf-step-no">01</span><h4>Share your invitation</h4><p>Send your personal link or referral code to someone you know.</p></article>
+    <article class="rf-step"><span class="rf-step-no">02</span><h4>They create an account</h4><p>Your referral is attributed when a new account successfully registers with your code.</p></article>
+    <article class="rf-step"><span class="rf-step-no">03</span><h4>Track your network</h4><p>Your registered referral count updates as accounts are linked to your member ID.</p></article>
+  </section>
+  <div class="rf-footnote"><span>ⓘ</span><div>This page shows registered referral attribution only. It does not represent earnings, commissions, or a guaranteed reward.</div></div>
+</div>`;
+    res.set('Cache-Control','no-store');
+    res.send(memberPage('Referrals','/referrals',m,content,req));
+  } catch(e) { next(e); }
+});
 app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
   if (err) return next(err);
   res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
