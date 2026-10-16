@@ -1067,8 +1067,8 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
             !['national_id','passport','drivers_license','voters_card'].includes(b.documentType) ||
             !['NG','GH','KE','ZA'].includes(b.documentIssuerCountry) || !validKycText(docNumber,80) ||
             (b.documentType === 'national_id' && b.documentIssuerCountry === 'NG' && !/^\d{11}$/.test(docNumber)) ||
-            !front || !selfie || b.confirmOwnership !== 'yes') {
-          return res.status(400).json({ error: 'Check all required fields, the NIN length, consent, and required images.' });
+            !front || (!back && b.documentType !== 'passport') || !selfie || b.confirmOwnership !== 'yes') {
+          return res.status(400).json({ error: 'Check all required fields, the NIN length, consent, and required document images. A passport back image is optional.' });
         }
         if (![front,back,selfie].filter(Boolean).every(f => ['image/jpeg','image/png'].includes(f.mimetype))) return res.status(400).json({ error: 'Only JPG and PNG images are accepted.' });
         const stored = [];
