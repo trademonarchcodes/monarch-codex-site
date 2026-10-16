@@ -458,7 +458,7 @@ app.get('/admin/deposits/:id/proof', requireFinanceAdmin, async (req,res,next) =
     res.set('Content-Disposition','attachment; filename="payment-proof-'+id+'"');
     res.set('X-Content-Type-Options','nosniff');
     res.sendFile(filePath);
-  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit')); next(e); }
 });
 app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
   const id=String(req.params.id||''), decision=String(req.body.decision||''), note=String(req.body.reviewer_note||'').trim().slice(0,1000);
@@ -874,7 +874,7 @@ app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
     await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
     await pool.execute('INSERT INTO member_profiles (member_id,phone_number) VALUES (?,?) ON DUPLICATE KEY UPDATE phone_number=VALUES(phone_number)',[req.session.memberId,phone||null]);
     res.redirect('/profile');
-  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Profile setup required','<h1>Profile updates are not configured yet</h1><p class="muted">The site owner must apply the member profile migration first.</p>'));next(e);}
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Profile temporarily unavailable','<h1>Profile updates are temporarily unavailable</h1><p class="muted">Please try again later.</p>'));next(e);}
 });
 app.post('/profile/bank', requireAuth, csrfCheck, async(req,res,next)=>{
   try{
@@ -883,7 +883,7 @@ app.post('/profile/bank', requireAuth, csrfCheck, async(req,res,next)=>{
     const ciphertext=encryptProfileValue(JSON.stringify({bankName,bankAccountName,bankAccountNumber}));
     await pool.execute('INSERT INTO member_bank_accounts (member_id,details_ciphertext) VALUES (?,?)',[req.session.memberId,ciphertext]);
     res.redirect('/profile');
-  }catch(e){if(e.code==='ER_NO_SUCH_TABLE'||e.status===503)return res.status(503).send(page('Profile setup required','<h1>Bank accounts are not configured yet</h1><p class="muted">The site owner must apply the bank-account migration first.</p><a class="btn" href="/profile">Back to profile</a>'));next(e);}
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE'||e.status===503)return res.status(503).send(page('Profile temporarily unavailable','<h1>Bank account updates are temporarily unavailable</h1><p class="muted">Please try again later.</p><a class="btn" href="/profile">Back to profile</a>'));next(e);}
 });
 app.post('/profile/bank/:id/delete', requireAuth, csrfCheck, async(req,res,next)=>{
   try{
@@ -891,7 +891,7 @@ app.post('/profile/bank/:id/delete', requireAuth, csrfCheck, async(req,res,next)
     if(!Number.isSafeInteger(id)||id<1)return res.status(400).send(page('Invalid bank account','<h1>Invalid bank account</h1><a class="btn" href="/profile">Back to profile</a>'));
     await pool.execute('UPDATE member_bank_accounts SET deleted_at=CURRENT_TIMESTAMP WHERE id=? AND member_id=? AND deleted_at IS NULL',[id,req.session.memberId]);
     res.redirect('/profile');
-  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Bank accounts not configured','<h1>Apply the bank-account migration first</h1><a class="btn" href="/profile">Back to profile</a>'));next(e);}
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Bank accounts temporarily unavailable','<h1>Bank account updates are temporarily unavailable</h1><a class="btn" href="/profile">Back to profile</a>'));next(e);}
 });
 app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,res,async err=>{
   if(err)return res.status(400).send(page('Photo upload failed','<h1>Choose a JPG, PNG or WebP image under 3 MB.</h1><a class="btn" href="/profile">Back to profile</a>'));
@@ -1028,7 +1028,7 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
           return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
         } catch (e) {
           for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
-          if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'KYC database migration has not been applied.' });
+          if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'Secure verification is temporarily unavailable. Please try again later.' });
           console.error('[kyc submission]', e && e.code ? e.code : 'submission_failed');
           return res.status(500).json({ error:'Could not save verification securely. Please try again later.' });
         }
@@ -1061,7 +1061,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
       kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';
     } catch (readinessError) {
       if (readinessError && readinessError.code === 'ER_NO_SUCH_TABLE') {
-        kycReadinessMessage = 'Secure verification setup is incomplete because the KYC database migration has not been applied. Your information and documents will not be submitted.';
+        kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted. Please try again later.';
       } else if (readinessError && ['ER_ACCESS_DENIED_ERROR','ECONNREFUSED','ETIMEDOUT','ENOTFOUND'].includes(readinessError.code)) {
         kycReadinessMessage = 'Secure verification cannot connect to its database right now. Your information and documents will not be submitted.';
       } else if (readinessError && readinessError.status === 503) {
@@ -1192,7 +1192,7 @@ app.post('/deposit', requireAuth, parseDepositProof, csrfCheck, async (req,res,n
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
     const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
-    if(!pricing || pricing.base_usd_ngn_rate===null || Number(pricing.base_usd_ngn_rate)<=0) return res.status(503).send(formError('Deposits not open','The administrator has not configured the current exchange rate yet.','/deposit'));
+    if(!pricing || pricing.base_usd_ngn_rate===null || Number(pricing.base_usd_ngn_rate)<=0) return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit'));
     const [[method]]=await pool.execute('SELECT id,method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
     if(!method || !Number(method.is_active) || method.currency!==currency) return res.status(400).send(formError('Payment destination unavailable','Choose an active payment destination for the selected currency.','/deposit'));
     const base=Number(pricing.base_usd_ngn_rate), rate=base*(1+Number(pricing.markup_percent)/100), feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd), fee=currency==='NGN'?feeUsd*rate:feeUsd, total=amount+fee;
@@ -1200,7 +1200,7 @@ app.post('/deposit', requireAuth, parseDepositProof, csrfCheck, async (req,res,n
     res.redirect('/deposit?submitted=1&request='+encodeURIComponent(insertResult.insertId));
   } catch(e) { if(req.file) fs.unlink(req.file.path,()=>{}); if(e.code==='ER_DUP_ENTRY') return res.status(409).send(formError('Reference already submitted','This payment reference has already been submitted for your account. Check your deposit history or contact support.','/deposit')); if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.get('/withdraw', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [rows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);const banks=rows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));const body='<div class="member-card"><h2>Withdrawal requests</h2><p class="muted">Choose a saved payout account for a future withdrawal request. Withdrawals remain disabled until KYC approval, payout processing, and the transaction ledger are operational.</p>'+(banks.length?'<form><label for="withdrawBank">Saved bank account</label><select id="withdrawBank" name="bankAccountId" disabled required>'+banks.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.bankName)+' — '+esc(b.bankAccountName)+' (••••'+esc(String(b.bankAccountNumber||'').slice(-4))+')</option>').join('')+'</select><p class="muted">Account selection will be enabled when withdrawal requests go live.</p></form>':'<p>No bank accounts saved yet. <a href="/profile">Add a bank account in your profile</a>.</p>')+'<p><a class="btn" href="/profile">Manage bank accounts</a></p><strong>Withdrawals are currently locked</strong></div>';res.send(memberPage('Withdraw','/withdraw',m,body,req));}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'Withdrawals are unavailable until the bank-account database migration is applied.',req));next(e)}});
+app.get('/withdraw', requireAuth, async (req,res,next)=>{try{const m=await getMemberForPage(req,res);if(!m)return;const [rows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);const banks=rows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));const body='<div class="member-card"><h2>Withdrawal requests</h2><p class="muted">Choose a saved payout account for a future withdrawal request. Withdrawals remain disabled until KYC approval, payout processing, and the transaction ledger are operational.</p>'+(banks.length?'<form><label for="withdrawBank">Saved bank account</label><select id="withdrawBank" name="bankAccountId" disabled required>'+banks.map(b=>'<option value="'+esc(b.id)+'">'+esc(b.bankName)+' — '+esc(b.bankAccountName)+' (••••'+esc(String(b.bankAccountNumber||'').slice(-4))+')</option>').join('')+'</select><p class="muted">Account selection will be enabled when withdrawal requests go live.</p></form>':'<p>No bank accounts saved yet. <a href="/profile">Add a bank account in your profile</a>.</p>')+'<p><a class="btn" href="/profile">Manage bank accounts</a></p><strong>Withdrawals are currently locked</strong></div>';res.send(memberPage('Withdraw','/withdraw',m,body,req));}catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'<div class="member-card"><h2>Withdrawals temporarily unavailable</h2><p>Please try again later.</p></div>',req));next(e)}});
 app.get('/transactions', requireAuth, async (req,res,next) => {
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
