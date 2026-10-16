@@ -9,8 +9,8 @@ const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '009_withdrawal_requests.sql'), 'utf8');
 
 test('KYC premium stylesheet is linked with a correctly closed href', () => {
-  assert.match(server, /<link rel="stylesheet" href="\/kyc-wizard\.css\?v=20261016-premium">/);
-  assert.doesNotMatch(server, /href="\/kyc-wizard\.css\?v=20261016-premium><div/);
+  assert.ok(server.includes('<link rel="stylesheet" href="/kyc-wizard.css?v=20261016-premium2">'));
+  assert.ok(!server.includes('href="/kyc-wizard.css?v=20261016-premium2><div'));
 });
 
 test('withdrawal readiness depends on approved KYC, a saved payout account and unreserved wallet funds', () => {
@@ -29,4 +29,13 @@ test('withdrawal admin workflow requires approval before recording a verified pa
   assert.match(migration, /CREATE TABLE IF NOT EXISTS withdrawal_requests/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS withdrawal_ledger_entries/);
   assert.match(migration, /UNIQUE KEY uq_withdrawal_ledger_request/);
+});
+
+
+test('approved KYC renders through the dedicated premium page shell', () => {
+  assert.match(server, /if \(existingKycStatus === 'approved'\)/);
+  assert.match(server, /return res\.send\(wizardPage\('KYC Verification',approvedContent,req\)\)/);
+  assert.match(server, /kyc-approved-card/);
+  assert.match(server, /Continue to withdrawals/);
+  assert.match(server, /res\.set\('Cache-Control','no-store'\);\s*if \(existingKycStatus === 'approved'\)/);
 });
