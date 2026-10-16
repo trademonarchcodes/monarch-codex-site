@@ -89,3 +89,31 @@
 @media(max-width:680px){.member-main .deposit-progress{gap:8px;padding-bottom:20px;margin-bottom:28px}.member-main .deposit-progress:before{top:18px;left:10%;right:10%}.member-main .deposit-progress li{flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;text-align:center}.member-main .deposit-progress li>span{flex-basis:37px}.member-main .deposit-progress li>div{gap:3px}.member-main .deposit-progress li b{font-size:.77rem}.member-main .deposit-progress li small{font-size:.62rem;max-width:105px}.member-main .deposit-step .deposit-input-grid{grid-template-columns:1fr;gap:12px}.member-main .deposit-step .deposit-field{padding:15px}.member-main .deposit-method-switch{grid-template-columns:1fr 1fr;gap:9px}.member-main .deposit-method-tab{min-height:100px;padding:12px 10px}.member-main .deposit-destination-fields{grid-template-columns:1fr;padding:13px}.member-main .deposit-destination-field.is-address{grid-column:auto}.member-main .deposit-calc-item{min-height:0;padding:14px}.member-main .deposit-step-actions{gap:10px}.member-main .deposit-step-actions .btn,.member-main .deposit-step-actions .deposit-next{min-width:0;flex:1}.member-main .deposit-page-intro{margin-bottom:20px}}
 @media(max-width:420px){.member-main .deposit-page-card{padding:14px!important}.member-main .deposit-workflow{padding:14px 11px}.member-main .deposit-progress li small{display:none}.member-main .deposit-progress li b{font-size:.73rem}.member-main .deposit-progress li>span{width:34px;height:34px;flex-basis:34px}.member-main .deposit-progress:before{top:16px}.member-main .deposit-step-actions{flex-wrap:wrap}.member-main .deposit-step-actions .deposit-next{width:100%;flex-basis:100%}}
 @media(prefers-reduced-motion:reduce){.member-main .deposit-step:not([hidden]){animation:none}}
+
+
+/* Full-width member workspace: remove the generic narrow page shell around authenticated pages. */
+.wrap.member-wrap{width:calc(100% - 32px);max-width:1600px;margin:12px auto 28px}
+.wrap.member-wrap>.brand,.wrap.member-wrap>footer{display:none}
+.wrap.member-wrap>.panel{width:100%;max-width:none;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.wrap.member-wrap .member-experience{width:100%;max-width:none;margin:0;min-height:calc(100vh - 42px)}
+.wrap.member-wrap .member-workspace{min-width:0}
+.wrap.member-wrap .member-main{width:100%;max-width:none}
+.wrap.member-wrap .member-main>.deposit-page-card,
+.wrap.member-wrap .member-main>.deposit-history-card{width:100%;max-width:none}
+.wrap.member-wrap .member-main .deposit-workflow{width:100%;max-width:none}
+.wrap.member-wrap .member-main .deposit-step-actions{gap:14px}
+.wrap.member-wrap .member-main .deposit-copy-button{white-space:normal}
+.wrap.member-wrap .member-main input:focus-visible,
+.wrap.member-wrap .member-main select:focus-visible,
+.wrap.member-wrap .member-main textarea:focus-visible,
+.wrap.member-wrap .member-main button:focus-visible{outline:2px solid #f3cf3c;outline-offset:3px}
+@media(max-width:850px){
+ .wrap.member-wrap{width:calc(100% - 16px);margin:8px auto 18px}
+ .wrap.member-wrap .member-experience{min-height:calc(100vh - 32px)}
+}
+@media(max-width:480px){
+ .wrap.member-wrap{width:calc(100% - 10px);margin:5px auto 14px}
+ .wrap.member-wrap .member-experience{border-radius:14px}
+ .wrap.member-wrap .member-main .deposit-page-card{padding:16px 12px!important}
+ .wrap.member-wrap .member-main .deposit-workflow{padding:18px 13px}
+}
