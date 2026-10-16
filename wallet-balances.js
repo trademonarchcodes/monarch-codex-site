@@ -22,30 +22,7 @@
   }
   function render() {
     if (selector.value === 'USD') {
-      total.textContent = '
-  selector.addEventListener('change', function () { syncCurrencyToggle(); render(); });
-  currencyButtons.forEach(function (button) {
-    button.addEventListener('click', function () {
-      selector.value = button.getAttribute('data-currency-toggle');
-      syncCurrencyToggle();
-      render();
-    });
-  });
-  syncCurrencyToggle();
-  fetch('/api/wallet-balances', { credentials: 'same-origin', cache: 'no-store' })
-    .then(function (response) {
-      if (!response.ok) throw new Error('Wallet balance request failed');
-      return response.json();
-    })
-    .then(function (data) {
-      state.ngn = Number(data.ngn) || 0;
-      state.usd = Number(data.usd) || 0;
-      render();
-    })
-    .catch(function () {
-      if (note) note.textContent = 'Wallet balances are temporarily unavailable. Refresh the page to try again.';
-    });
-})(); + format(state.usd, 'USD');
+      total.textContent = '$' + format(state.usd, 'USD');
       if (note) note.textContent = 'Showing your separate USD wallet balance.';
     } else {
       total.textContent = '₦' + format(state.ngn, 'NGN');
@@ -69,10 +46,6 @@
     .then(function (data) {
       state.ngn = Number(data.ngn) || 0;
       state.usd = Number(data.usd) || 0;
-      state.rate = data.rate === null || data.rate === undefined || !Number.isFinite(Number(data.rate))
-        ? null : Number(data.rate);
-      if (ngnNode) ngnNode.textContent = '₦' + format(state.ngn, 'NGN');
-      if (usdNode) usdNode.textContent = '$' + format(state.usd, 'USD');
       render();
     })
     .catch(function () {
