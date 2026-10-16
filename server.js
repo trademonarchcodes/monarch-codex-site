@@ -197,8 +197,7 @@ app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
       const token = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       await pool.execute('UPDATE email_verification_tokens SET verified_at = NOW() WHERE member_id = ? AND verified_at IS NULL', [insertedId]);
-      await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [insertedId, tokenHash]);
-      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
+      await pool.execute('INSERT INTO email_verification_tokens (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))', [insertedId, tokenHash]);      const verifyLink = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/verify-email?token=' + token;      await sendAppEmail({ to: email, subject: 'Verify your Monarch Codex email', text: 'Hello ' + fullName + ',\n\nVerify your email address within 24 hours using this link: ' + verifyLink + '\n\nIf you did not create this account, you can ignore this email.' });
     })().catch(e => console.error('[mail] Verification email failed:', e.message));
     delete req.session.registrationReferralCode;
     return res.redirect('/verification-pending');
@@ -250,7 +249,7 @@ app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
       req.session.memberId = member.id; req.session.csrf = crypto.randomBytes(32).toString('hex');
       pool.execute('SELECT role FROM admin_users WHERE member_id = ? AND is_active = 1 LIMIT 1',[member.id])
         .then(([admins]) => {
-          const destination = admins.length ? '/admin' : '/dashboard';
+          const destination = admins.length ? (admins[0].role === 'sovereign_desk_admin' ? '/sovereign-admin' : '/admin') : '/dashboard';
           req.session.save(saveErr => saveErr ? next(saveErr) : res.redirect(destination));
         })
         .catch(next);
@@ -397,8 +396,7 @@ const adminSectionInfo = {
   '/admin/earnings': ['Profits & bonuses','Review separately recorded profit and bonus operations.','No verified profit/bonus ledger is connected. Do not use this page to promise or fabricate earnings.'],
   '/admin/referrals': ['Referral monitoring','Review platform referral activity and eligible earnings.','Referral attribution exists in member registration, but platform-wide earnings and audit reporting are not yet connected here.'],
   '/admin/academy': ['Academy management','Manage learning content and eligible access.','The existing Academy management data source has not yet been connected to this control centre.'],
-  '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],
-  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
+  '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']
 };
 for (const [route, info] of Object.entries(adminSectionInfo)) {
@@ -597,8 +595,7 @@ app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:fa
     const rawVideoUrl = String(req.body.video_url || '').trim().slice(0,1000);
     let videoUrl = null;
     if (rawVideoUrl) {      try { const parsed = new URL(rawVideoUrl); if (!['http:','https:'].includes(parsed.protocol)) throw new Error('Unsupported URL protocol'); videoUrl = parsed.toString(); }
-      catch (_) { return res.status(400).send(page('Invalid video URL','<h1>Enter a valid HTTPS or HTTP video URL</h1><a class="btn" href="/admin/academy">Return to Academy</a>')); }
-    }
+      catch (_) { return res.status(400).send(page('Invalid video URL','<h1>Enter a valid HTTPS or HTTP video URL</h1><a class="btn" href="/admin/academy">Return to Academy</a>')); }    }
     if (!title || !content) return res.status(400).send(page('Lesson details required','<h1>Enter a lesson title and content</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
     await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);
     res.redirect('/admin/academy');
@@ -797,8 +794,7 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
       }
       if (notification && kycApplicant.email) {        try {
           const sent = await sendAppEmail({ to: kycApplicant.email, ...notification });
-          emailStatus = sent ? 'sent' : 'skipped';
-        } catch(e) {
+          emailStatus = sent ? 'sent' : 'skipped';        } catch(e) {
           emailStatus = 'failed';
           console.error('[mail] KYC notification failed:', e.message);
         }
@@ -997,8 +993,7 @@ app.get('/profile', requireAuth, async (req,res,next)=>{
         '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">◉</span><div><h4>Profile picture</h4><p class="profile-card-intro">Make your member profile easy to recognise.</p></div></div><form method="post" action="/profile/photo" enctype="multipart/form-data"><div class="profile-upload-row"><div><label for="profilePhoto">Choose an image</label><input id="profilePhoto" name="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" required><p class="profile-hint">JPG, PNG or WebP · Maximum 3 MB. Displayed on your public profile.</p></div><button class="btn profile-save" type="submit">Upload picture</button></div>'+csrfField(req)+'</form></section>'+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">▤</span><div><h4>Saved bank accounts</h4><p class="profile-card-intro">Private account details are encrypted and shown only in masked form.</p></div></div><div class="profile-bank-list">'+(savedBanks.length?savedBanks.map(b=>'<div class="saved-bank-row"><div class="saved-bank-main"><span class="saved-bank-icon" aria-hidden="true">▤</span><div><strong>'+esc(b.bankName)+'</strong><p class="profile-hint">'+esc(b.bankAccountName)+' · ending '+esc(String(b.bankAccountNumber||'').slice(-4))+'</p></div></div><form method="post" action="/profile/bank/'+encodeURIComponent(b.id)+'/delete">'+csrfField(req)+'<button class="profile-remove" type="submit" aria-label="Remove bank account">Remove</button></form></div>').join(''):'<div class="profile-empty">No saved bank accounts yet.<br>Add an account below to keep your withdrawal details ready.</div>')+'</div></section>'+
         '<form method="post" action="/profile/bank" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">＋</span><div><h4>Add a bank account</h4><p class="profile-card-intro">Enter the details exactly as registered with your bank.</p></div></div><div class="profile-form-grid"><div><label for="bankName">Bank name</label><input id="bankName" name="bankName" maxlength="120" required></div><div><label for="bankAccountName">Account name</label><input id="bankAccountName" name="bankAccountName" maxlength="160" required></div><div class="full"><label for="bankAccountNumber">Account number</label><input id="bankAccountNumber" name="bankAccountNumber" inputmode="numeric" maxlength="34" autocomplete="off" required></div></div><p class="profile-hint">Saving bank details does not initiate a payment. You can remove a saved account at any time.</p><button class="btn profile-save" type="submit">Save bank account</button></form>'+
         '<div class="profile-private-note"><span aria-hidden="true">◆</span><span><strong>Privacy note:</strong> Your bank account is never displayed in full here. Only the final four digits are shown for recognition.</span></div>'+
-      '</div>';
-    res.send(memberPage('Profile','/profile',m,content,req));
+      '</div>';    res.send(memberPage('Profile','/profile',m,content,req));
   } catch(e){next(e);}
 });
 app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
@@ -1197,8 +1192,7 @@ app.get('/kyc', requireAuth, async (req,res,next) => {
       await pool.execute('SELECT 1 FROM kyc_submissions LIMIT 0');
       await pool.execute('SELECT 1 FROM kyc_review_events LIMIT 0');
       kycReady = true;
-      kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';
-    } catch (readinessError) {
+      kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';    } catch (readinessError) {
       if (readinessError && readinessError.code === 'ER_NO_SUCH_TABLE') {
         kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted. Please try again later.';
       } else if (readinessError && ['ER_ACCESS_DENIED_ERROR','ECONNREFUSED','ETIMEDOUT','ENOTFOUND'].includes(readinessError.code)) {
@@ -1397,8 +1391,7 @@ app.get('/withdraw', requireAuth, async (req,res,next)=>{
 .withdraw-page .withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}
 .withdraw-page .withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}
 .withdraw-page .withdraw-bank-copy strong,.withdraw-page .withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.withdraw-page .withdraw-bank-copy strong{font-size:12px;color:#f4f0e7}
-.withdraw-page .withdraw-bank-copy small,.withdraw-page .withdraw-mask{font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-bank-copy strong{font-size:12px;color:#f4f0e7}.withdraw-page .withdraw-bank-copy small,.withdraw-page .withdraw-mask{font-size:11px;color:#bdb8aa}
 .withdraw-page .withdraw-mask{white-space:nowrap}
 .withdraw-page .withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}
 .withdraw-page .withdraw-empty{padding:24px 16px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px;background:rgba(0,0,0,.12)}
@@ -1597,8 +1590,7 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
-app.get('/referrals', requireAuth, async (req,res,next)=>{
-  try {
+app.get('/referrals', requireAuth, async (req,res,next)=>{  try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
     const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [m.id]);
