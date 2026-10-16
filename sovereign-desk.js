@@ -74,7 +74,7 @@ function createSovereignDeskRouter(deps) {
   router.post('/sovereign-admin/signals', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
     const title=clean(req.body.title,180), asset=clean(req.body.asset_pair,40), direction=clean(req.body.direction,10), explanation=clean(req.body.explanation,12000);
     if(!title||!asset||!['buy','sell','neutral'].includes(direction)||!explanation)return res.status(400).send('Please provide a title, asset/pair, direction and analysis.');
-    const expires=clean(req.body.expires_at,30);
+    const expiresRaw=clean(req.body.expires_at,30), expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
     try{
       await pool.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,\'draft\',?, ?, ?)',
       [title,asset,direction,clean(req.body.entry_zone,160)||null,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,clean(req.body.take_profit_2,100)||null,clean(req.body.timeframe,40)||null,explanation,expires||null,req.session.memberId,req.session.memberId]);
@@ -93,7 +93,7 @@ function createSovereignDeskRouter(deps) {
 
   router.post('/sovereign-admin/signals/:id/update', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
     if(!idOk(req.params.id))return res.status(400).send('Invalid signal id.');
-    const title=clean(req.body.title,180),asset=clean(req.body.asset_pair,40),direction=clean(req.body.direction,10),explanation=clean(req.body.explanation,12000),expires=clean(req.body.expires_at,30);
+    const title=clean(req.body.title,180),asset=clean(req.body.asset_pair,40),direction=clean(req.body.direction,10),explanation=clean(req.body.explanation,12000),expiresRaw=clean(req.body.expires_at,30),expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
     if(!title||!asset||!['buy','sell','neutral'].includes(direction)||!explanation)return res.status(400).send('Please provide a title, asset/pair, direction and analysis.');
     try{
       const [result]=await pool.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,entry_zone=?,stop_loss=?,take_profit_1=?,take_profit_2=?,timeframe=?,explanation=?,expires_at=?,updated_by=? WHERE id=?',
