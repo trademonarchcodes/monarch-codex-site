@@ -6,54 +6,74 @@
 <meta name="theme-color" content="#080808">
 <title>Monarch Codex</title>
 <style>
-:root{color-scheme:dark;--gold:#dfbd62;--gold-bright:#f6df9b;--bg:#080808}
+:root{color-scheme:dark;--gold:#dfb54e;--gold-light:#ffe5a0;--bg:#030303}
 *{box-sizing:border-box}
 html,body{width:100%;height:100%;margin:0}
-body{display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 48%,#211b0d 0,#10100d 24%,var(--bg) 68%);color:#fff;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
-.intro{width:min(94vw,780px);text-align:center;animation:scene-in .55s ease both}
-.mark{display:grid;place-items:center;width:54px;height:54px;margin:0 auto 25px;border:1px solid #8d743a;border-radius:17px;color:var(--gold-bright);font-size:25px;font-weight:800;box-shadow:0 0 45px #dfbd621c;opacity:0;animation:mark-in .65s .12s cubic-bezier(.2,.8,.2,1) forwards}
-.wordmark{display:flex;justify-content:center;flex-wrap:wrap;gap:0 .27em;margin:0;color:#f8f5ec;font-size:clamp(27px,7vw,58px);font-weight:850;letter-spacing:clamp(.07em,1vw,.18em);line-height:1.2}
-.word{display:inline-flex;white-space:nowrap}
-.letter{display:inline-block;opacity:0;transform:translateY(.7em) rotate(5deg);filter:blur(5px);animation:letter-in .48s cubic-bezier(.18,.75,.25,1) forwards}
-.word:nth-child(2){color:var(--gold-bright)}
-.rule{width:0;height:1px;margin:24px auto 0;background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:rule-in .6s 1.05s ease forwards}
-.tagline{margin:15px 0 0;color:#9c9788;font-size:10px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;opacity:0;animation:fade-in .45s 1.15s ease forwards}
-@keyframes scene-in{from{opacity:0}to{opacity:1}}
-@keyframes mark-in{from{opacity:0;transform:translateY(9px) scale(.86)}to{opacity:1;transform:translateY(0) scale(1)}}
-@keyframes letter-in{to{opacity:1;transform:translateY(0) rotate(0);filter:blur(0)}}
-@keyframes rule-in{to{width:min(230px,48vw)}}
+body{display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 48%,#17130b 0,#090909 38%,var(--bg) 76%);color:#fff;font-family:Inter,"Arial Rounded MT Bold",ui-rounded,system-ui,-apple-system,"Segoe UI",sans-serif}
+.intro{width:min(96vw,900px);padding:24px;text-align:center}
+.brand-lockup{display:flex;align-items:center;justify-content:center;gap:clamp(13px,3vw,28px);min-height:100px}
+.mark-wrap{flex:0 0 auto;opacity:0;transform:translateX(64px) scale(.9);animation:logo-arrive .78s cubic-bezier(.18,.78,.22,1) .12s forwards}
+.mark{display:block;width:clamp(54px,12vw,88px);height:clamp(54px,12vw,88px);filter:drop-shadow(0 5px 22px #dfb54e25)}
+.divider{width:2px;height:0;flex:0 0 2px;border-radius:2px;background:linear-gradient(180deg,transparent,var(--gold-light) 18%,var(--gold) 82%,transparent);box-shadow:0 0 16px #dfb54e65;opacity:0;animation:line-grow .42s ease 0.62s forwards}
+.wordmark{display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin:0;text-align:left;font-size:clamp(25px,6.5vw,56px);font-weight:850;line-height:.98;letter-spacing:clamp(.025em,.55vw,.085em);font-family:"Arial Rounded MT Bold",ui-rounded,Inter,system-ui,sans-serif}
+.word{display:flex;white-space:nowrap}
+.letter{display:inline-block;opacity:0;transform:translateX(10px);filter:blur(3px);animation:letter-reveal .28s cubic-bezier(.2,.7,.25,1) forwards}
+.word:nth-child(2){color:var(--gold-light)}
+.word:nth-child(1) .letter:nth-child(1){animation-delay:.82s}
+.word:nth-child(1) .letter:nth-child(2){animation-delay:.88s}
+.word:nth-child(1) .letter:nth-child(3){animation-delay:.94s}
+.word:nth-child(1) .letter:nth-child(4){animation-delay:1s}
+.word:nth-child(1) .letter:nth-child(5){animation-delay:1.06s}
+.word:nth-child(1) .letter:nth-child(6){animation-delay:1.12s}
+.word:nth-child(1) .letter:nth-child(7){animation-delay:1.18s}
+.word:nth-child(2) .letter:nth-child(1){animation-delay:1.3s}
+.word:nth-child(2) .letter:nth-child(2){animation-delay:1.36s}
+.word:nth-child(2) .letter:nth-child(3){animation-delay:1.42s}
+.word:nth-child(2) .letter:nth-child(4){animation-delay:1.48s}
+.word:nth-child(2) .letter:nth-child(5){animation-delay:1.54s}
+.word:nth-child(2) .letter:nth-child(6){animation-delay:1.6s}
+.tagline{margin:28px 0 0;color:#a59b83;font-size:10px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;opacity:0;animation:fade-in .4s 1.75s ease forwards}
+@keyframes logo-arrive{0%{opacity:0;transform:translateX(64px) scale(.9)}70%{opacity:1;transform:translateX(-5px) scale(1.02)}100%{opacity:1;transform:translateX(0) scale(1)}}
+@keyframes line-grow{from{height:0;opacity:0}to{height:clamp(58px,12vw,88px);opacity:1}}
+@keyframes letter-reveal{to{opacity:1;transform:translateX(0);filter:blur(0)}}
 @keyframes fade-in{to{opacity:1}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important}.letter{opacity:1;transform:none;filter:none}.mark,.tagline{opacity:1}.rule{width:min(230px,48vw)}}
+@media(max-width:380px){.brand-lockup{gap:10px}.wordmark{font-size:clamp(22px,6.3vw,27px);letter-spacing:.015em}.mark{width:48px;height:48px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0ms!important;animation-iteration-count:1!important}.mark-wrap,.divider,.letter,.tagline{opacity:1;transform:none;filter:none}.divider{height:64px}}
 </style>
 </head>
 <body>
 <main class="intro" aria-label="Monarch Codex">
-<div class="mark" aria-hidden="true">M</div>
-<h1 class="wordmark" aria-label="Monarch Codex"><span class="word" aria-hidden="true" data-word="MONARCH"></span><span class="word" aria-hidden="true" data-word="CODEX"></span></h1>
-<div class="rule" aria-hidden="true"></div>
+<div class="brand-lockup">
+  <div class="mark-wrap" aria-hidden="true">
+    <svg class="mark" viewBox="0 0 100 100" role="presentation">
+      <defs><linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe7a0"/><stop offset=".48" stop-color="#d9a93d"/><stop offset="1" stop-color="#8e6721"/></linearGradient><linearGradient id="onyx" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#383838"/><stop offset="1" stop-color="#080808"/></linearGradient></defs>
+      <path d="M12 19 Q12 10 22 10 L42 10 Q46 10 50 14 L77 36 L61 52 L30 29 L30 78 Q30 88 20 88 L12 88 Z" fill="url(#gold)"/>
+      <path d="M88 19 Q88 10 78 10 L65 10 Q59 10 55 14 L29 37 L45 53 L70 31 L70 78 Q70 88 80 88 L88 88 Z" fill="url(#onyx)" stroke="#555" stroke-width=".7"/>
+      <path d="M31 60 L48 44 L65 60 L50 76 Q47 79 43 76 Z" fill="url(#gold)"/>
+    </svg>
+  </div>
+  <div class="divider" aria-hidden="true"></div>
+  <h1 class="wordmark" aria-label="Monarch Codex"><span class="word" aria-hidden="true" data-word="MONARCH"></span><span class="word" aria-hidden="true" data-word="CODEX"></span></h1>
+</div>
 <p class="tagline">Your workspace. Your next move.</p>
 </main>
 <script>
 (function(){
   var words=document.querySelectorAll('[data-word]');
-  var delay=240;
   words.forEach(function(word){
     Array.from(word.dataset.word).forEach(function(char){
       var span=document.createElement('span');
       span.className='letter';
       span.textContent=char;
-      span.style.animationDelay=delay+'ms';
       word.appendChild(span);
-      delay+=65;
     });
-    delay+=70;
   });
   var reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var params=new URLSearchParams(window.location.search);
   var next=params.get('next')||'/dashboard';
   // Only allow local paths, preventing open redirects.
   if(!next.startsWith('/')||next.startsWith('//')||next.indexOf('\\')!==-1) next='/dashboard';
-  window.setTimeout(function(){window.location.replace(next);},reduced?350:1900);
+  window.setTimeout(function(){window.location.replace(next);},reduced?350:2600);
 })();
 </script>
 </body>
