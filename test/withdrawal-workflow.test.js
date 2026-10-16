@@ -14,8 +14,8 @@ test('KYC premium stylesheet is linked with a correctly closed href', () => {
 });
 
 test('withdrawal readiness depends on approved KYC, a saved payout account and unreserved wallet funds', () => {
-  assert.match(server, /const kycApproved = kycStatus === 'approved'/);
-  assert.match(server, /const canRequest = kycApproved && banks\.length > 0 && hasAvailableBalance/);
+  assert.match(server, /kycApproved=kycStatus==='approved'/);
+  assert.match(server, /canRequest=kycApproved&&banks\.length>0&&hasFunds/);
   assert.match(server, /app\.post\('\/withdraw'/);
   assert.match(server, /status IN \('pending','approved'\)/);
   assert.doesNotMatch(server, /Withdrawals temporarily locked/);
