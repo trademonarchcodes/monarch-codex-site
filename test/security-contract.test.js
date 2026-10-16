@@ -61,3 +61,17 @@ test('KYC decisions use explicit rejection reasons and notify the member', () =>
   assert.match(server, /Congratulations .*Your identity verification has been approved/);
   assert.match(server, /found\[0\]\.status === 'approved' && status !== 'approved'/);
 });
+
+test('member referrals page has responsive invite panels and preserves copy/link attribution', () => {
+  assert.match(server, /app\.get\('\/referrals', requireAuth/);
+  assert.match(server, /referral-hero/);
+  assert.match(server, /referral-stat-grid/);
+  assert.match(server, /id="pageReferralLink" value="\$\{esc\(link\)\}"/);
+  assert.match(server, /data-copy-target="pageReferralLink"/);
+  assert.match(server, /data-copy-target="pageUid"/);
+  assert.match(server, /\/register\?ref=/);
+  assert.match(server, /@media\(max-width:650px\)/);
+  assert.match(server, /@media\(max-width:420px\)/);
+  assert.match(server, /prefers-reduced-motion:reduce/);
+  assert.match(server, /Referral attribution is recorded when a new account successfully registers using your code/);
+});
