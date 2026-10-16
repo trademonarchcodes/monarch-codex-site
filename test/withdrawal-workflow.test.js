@@ -35,7 +35,7 @@ test('withdrawal admin workflow requires approval before recording a verified pa
 test('approved KYC renders through the dedicated premium page shell', () => {
   assert.match(server, /if \(existingKycStatus === 'approved'\)/);
   assert.match(server, /return res\.send\(wizardPage\('KYC Verification',approvedContent,req\)\)/);
-  assert.match(server, /kyc-approved-card/);
+  assert.match(server, /kyc-status-card/);
   assert.match(server, /Continue to withdrawals/);
   assert.match(server, /res\.set\('Cache-Control','no-store'\);\s*if \(existingKycStatus === 'approved'\)/);
 });
@@ -53,7 +53,7 @@ test('KYC status pages share the dedicated verification shell and normalize stor
 
 test('KYC page styling is a single responsive design system for form and review states', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'kyc-wizard.css'), 'utf8');
-  assert.ok(css.includes('.kyc-status-approved'));
+  assert.ok(css.includes('.kyc-status-card'));
   assert.ok(css.includes('.kyc-status-pending'));
   assert.ok(css.includes('.kyc-review-notice.is-rejected'));
   assert.ok(css.includes('@media(max-width:520px)'));
