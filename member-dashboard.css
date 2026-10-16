@@ -439,3 +439,16 @@
 .dashboard-overview-bell{margin-left:auto;flex-shrink:0}
 @media(max-width:760px){.dashboard-overview-bell{width:42px;height:42px;flex-basis:42px;border-radius:13px}}
 @media(prefers-reduced-motion:reduce){.member-notification-bell{transition:none}}
+
+/* Unified dashboard responsive polish and light theme */
+html[data-theme="light"]{color-scheme:light;--mc-bg:#f5f6f8;--mc-surface:#fff;--mc-text:#191b20;--mc-muted:#737782;--mc-line:#e4e5e9;--mc-gold:#98701b}
+.mc-theme-toggle{position:fixed;z-index:1200;top:12px;right:14px;display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 12px;border:1px solid var(--mc-line,#393326);border-radius:999px;background:var(--mc-surface,#151515);color:var(--mc-text,#f5f2ea);font:700 12px system-ui;cursor:pointer;box-shadow:0 5px 22px #0001}
+.mc-theme-toggle:focus-visible{outline:2px solid var(--mc-gold,#d7b56d);outline-offset:3px}
+html[data-theme="light"] body,html[data-theme="light"] .member-experience{background:#f5f6f8!important;color:#191b20!important}
+html[data-theme="light"] .member-rail{background:#fff!important;border-color:#e5e6ea!important;box-shadow:0 8px 28px #16161608!important}
+html[data-theme="light"] .member-rail a,html[data-theme="light"] .member-brand,html[data-theme="light"] .member-page-heading h1,html[data-theme="light"] .member-content-heading h2{color:#191b20!important}
+html[data-theme="light"] .member-page-heading p,html[data-theme="light"] .member-footer,html[data-theme="light"] .member-overline{color:#737782!important}
+html[data-theme="light"] .member-main .panel,html[data-theme="light"] .member-main .section-card,html[data-theme="light"] .member-main .stat,html[data-theme="light"] .member-main .card,html[data-theme="light"] .member-main .member-card{background:#fff!important;color:#191b20!important;border-color:#e5e6ea!important;box-shadow:0 8px 28px #16161608!important}
+html[data-theme="light"] .member-main input,html[data-theme="light"] .member-main select,html[data-theme="light"] .member-main textarea{background:#fff!important;color:#191b20!important;border-color:#dfe1e6!important}
+@media(max-width:760px){.member-experience{width:100%!important;max-width:none!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important}.member-workspace{min-width:0!important;width:100%!important;padding-left:clamp(14px,4vw,22px)!important;padding-right:clamp(14px,4vw,22px)!important}.member-main{min-width:0!important}}
+@media(prefers-reduced-motion:reduce){.member-experience *{transition:none!important}}
