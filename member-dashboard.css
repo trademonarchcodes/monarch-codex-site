@@ -322,3 +322,55 @@
 .deposit-calculator-note{margin:13px 0 0;line-height:1.6}
 @media(max-width:620px){.deposit-method-switch{gap:8px}.deposit-method-tab{grid-template-columns:30px 1fr;column-gap:8px;padding:11px 9px}.deposit-method-tab>span{width:30px;height:30px}.deposit-method-tab strong{font-size:.78rem}.deposit-method-tab small{font-size:.65rem}.deposit-calculator-grid{grid-template-columns:1fr;gap:8px}.deposit-calc-item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:6px 10px;padding:12px}.deposit-calc-item>span{grid-column:1}.deposit-calc-item>strong{grid-column:2;grid-row:1;text-align:right;font-size:1.05rem}.deposit-calc-item>small{grid-column:1/-1}.deposit-calculator-heading h3{font-size:1.03rem}.deposit-live-pill{font-size:.6rem;padding:5px 7px}}
 @media(prefers-reduced-motion:reduce){.deposit-method-tab{transition:none}}
+
+
+/* Full-width deposit workspace, responsive account details and clear dual-currency totals */
+.member-main .deposit-page-card{width:100%;max-width:none;margin:0;padding:clamp(18px,2.5vw,30px);border-color:#4a4028;background:radial-gradient(ellipse at 100% 0%,#3a2d1245,transparent 38%),linear-gradient(145deg,#17171b,#101013)}
+.member-main .deposit-page-intro{max-width:920px;margin-bottom:24px}
+.deposit-page-intro h2{font-size:clamp(1.55rem,2.6vw,2rem)}
+.deposit-input-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 4px}
+.deposit-field{min-width:0}
+#depositForm label{display:block;margin:14px 0 7px;color:#e7e1d4;font-size:.83rem;font-weight:700}
+#depositForm input,#depositForm select,#depositForm textarea{display:block;width:100%;min-width:0;min-height:47px;padding:12px 13px;border:1px solid #45413a;border-radius:11px;background:#0d0d10;color:#f4f0e7;font:inherit;outline:none}
+#depositForm textarea{resize:vertical;min-height:96px}
+#depositForm input:focus,#depositForm select:focus,#depositForm textarea:focus{border-color:#b89a42;box-shadow:0 0 0 3px #c6a23b20}
+.deposit-field-hint{display:block;margin-top:7px;color:#8f8a80;font-size:.73rem;line-height:1.5}
+.member-main .deposit-method-switch{margin:22px 0 16px}
+.member-main #depositMethod{margin-bottom:16px}
+.member-main .deposit-payment-details{width:100%;margin:16px 0 8px;overflow:hidden;border:1px solid #51452c;border-radius:16px;background:linear-gradient(145deg,#1b1a16,#101013);box-shadow:0 12px 28px #0002}
+.deposit-destination-head{display:flex;align-items:center;gap:13px;min-width:0;padding:18px 20px;border-bottom:1px solid #353027;background:linear-gradient(110deg,#282112,#171619)}
+.deposit-destination-title{display:grid;gap:5px;flex:1;min-width:0}
+.deposit-destination-title strong{color:#f5efdf;font-size:1rem;overflow-wrap:anywhere}
+.deposit-destination-title>span{color:#aaa394;font-size:.77rem}
+.deposit-network-badge{max-width:42%;padding:7px 10px;border:1px solid #62512c;border-radius:999px;background:#201b10;color:#ebd17b;font-size:.68rem;font-weight:800;text-align:center;overflow-wrap:anywhere}
+.deposit-destination-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:18px 20px}
+.deposit-destination-field{display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-width:0;padding:14px;border:1px solid #302d28;border-radius:12px;background:#111114}
+.deposit-destination-field>span{color:#9d978a;font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.deposit-destination-field strong,.deposit-destination-field code{max-width:100%;color:#f5f0e4;font-size:.91rem;line-height:1.5;overflow-wrap:anywhere;word-break:break-word}
+.deposit-destination-field.is-address{grid-column:1/-1;border-color:#5c4b27;background:#0c0c0f}
+.deposit-destination-field.is-address code{font-size:clamp(.82rem,1.2vw,.98rem);letter-spacing:.01em}
+.deposit-copy-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;margin-top:4px;padding:9px 13px;min-height:38px;border:1px solid #8b712f;border-radius:10px;background:linear-gradient(135deg,#332912,#201b10);color:#f3d66d;font:inherit;font-size:.76rem;font-weight:800;cursor:pointer;transition:background .18s,border-color .18s}
+.deposit-copy-button:hover{border-color:#e3c357;background:#403217}
+.deposit-copy-button:focus-visible{outline:2px solid #f3cf3c;outline-offset:3px}
+.deposit-calculator{width:100%;margin:22px 0;padding:clamp(16px,2.2vw,24px)!important}
+.deposit-calculator-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.deposit-calc-item{min-height:128px;justify-content:space-between}
+.deposit-calc-item>span{font-size:.76rem}
+.deposit-calc-item>strong{font-size:clamp(1rem,1.5vw,1.4rem);font-variant-numeric:tabular-nums}
+.deposit-calc-item>small{font-variant-numeric:tabular-nums}
+.deposit-calculator-note{max-width:1000px}
+#depositForm>label[for="paymentReference"],#depositForm>label[for="paymentProof"],#depositForm>label[for="memberNote"]{margin-top:20px}
+#depositForm>p.muted.small{line-height:1.6}
+#depositForm>.btn{width:100%;min-height:50px;margin-top:12px;border-radius:12px;font-weight:800}
+.member-main .deposit-history-card{width:100%;max-width:none;margin-top:22px;padding:clamp(16px,2.4vw,26px);border-color:#39342a;background:linear-gradient(145deg,#151518,#101013)}
+.deposit-history-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.deposit-history-heading h2{margin:5px 0 0;font-size:1.2rem}
+.deposit-history-count{flex-shrink:0;padding:7px 10px;border:1px solid #403a2b;border-radius:999px;background:#171612;color:#c9bd98;font-size:.7rem;font-weight:750}
+.member-main .deposit-history-card .ac-table{width:100%;min-width:620px;border-collapse:collapse}
+.member-main .deposit-history-card .ac-table th,.member-main .deposit-history-card .ac-table td{padding:13px 12px;text-align:left;vertical-align:top;border-bottom:1px solid #302e2a;line-height:1.55}
+.member-main .deposit-history-card .ac-table th{color:#c9b66b;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase}
+.member-main .deposit-history-card .ac-table td{color:#e1ddd3;font-size:.82rem;overflow-wrap:anywhere}
+.member-main .deposit-history-card .ac-table td small{color:#99949b}
+@media(max-width:760px){.deposit-calculator-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.deposit-calc-item{padding:12px 10px}.deposit-calc-item>strong{font-size:1rem}}
+@media(max-width:580px){.deposit-input-grid{grid-template-columns:1fr;gap:2px}.deposit-destination-head{padding:14px;gap:10px}.deposit-destination-fields{grid-template-columns:1fr;padding:12px;gap:8px}.deposit-destination-field.is-address{grid-column:auto}.deposit-network-badge{max-width:100%;margin-left:auto;font-size:.63rem}.deposit-calculator-grid{grid-template-columns:1fr;gap:8px}.deposit-calc-item{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:6px 10px;min-height:0;padding:13px}.deposit-calc-item>span{grid-column:1}.deposit-calc-item>strong{grid-column:2;grid-row:1;text-align:right;font-size:1.04rem}.deposit-calc-item>small{grid-column:1/-1}.deposit-calculator-heading{align-items:flex-start}.deposit-calculator-heading h3{font-size:1.05rem}.deposit-live-pill{font-size:.6rem;padding:5px 7px}.deposit-history-heading{align-items:flex-start}.member-main .deposit-history-card .ac-table{min-width:590px}}
+@media(prefers-reduced-motion:reduce){.deposit-copy-button{transition:none}}
