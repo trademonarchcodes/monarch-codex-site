@@ -1014,6 +1014,12 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
         investment_purchase: { label: 'Investment activity', icon: '◇', tone: 'gold' }
       })[type] || { label: 'Account update', icon: '•', tone: 'gold' };
       let safeTarget = null;
+      if (type === 'kyc_review') safeTarget = '/kyc';
+      else if (type === 'deposit_review') safeTarget = titleLower.includes('approved') ? '/transactions' : '/deposit';
+      else if (type === 'withdrawal_review') safeTarget = titleLower.includes('paid') ? '/transactions' : '/withdraw';
+      else if (type === 'investment_purchase') safeTarget = '/investments';
+      else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications'].includes(n.target_url)) safeTarget = n.target_url;
+      let messageHtml = '';
       if (type === 'kyc_review' && /not approved|unable to approve|needs attention|resubmission|required/i.test(rawBody + ' ' + title)) {
         const reasonMatch = rawBody.match(/Reason(?: for the decision)?:\s*([\s\S]*?)(?=\n\nReview team feedback:|\n\nAdditional details:|\s+Additional details:|\s+Please review the feedback|$)/i);
         const feedbackMatch = rawBody.match(/(?:Review team feedback:|Additional details:)\s*([\s\S]*?)(?=\n\nNext steps:|\s+Please review the feedback|$)/i);
