@@ -571,10 +571,10 @@ app.get('/admin/investments', requireFinanceAdmin, async (req,res,next) => {
 });
 app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
   const id=String(req.body.id||'').trim(),name=String(req.body.name||'').trim().slice(0,120),description=String(req.body.description||'').trim().slice(0,1000),currency=String(req.body.currency||''),priceText=String(req.body.price||'').trim(),durationText=String(req.body.duration_days||'').trim(),terms=String(req.body.terms||'').trim().slice(0,2000),status=String(req.body.status||'draft');
-  if(!name||!['NGN','USD'].includes(currency)||!/^\\d{1,12}(?:\\.\\d{1,8})?$/.test(priceText)||Number(priceText)<=0||!(durationText===''||/^\\d{1,5}$/.test(durationText))||!['draft','active','inactive'].includes(status)||!terms) return res.status(400).send(formError('Check package details','Provide a name, valid positive price, currency, optional duration and clear terms.','/admin/investments'));
+  if(!name||!['NGN','USD'].includes(currency)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(priceText)||Number(priceText)<=0||!(durationText===''||/^\d{1,5}$/.test(durationText))||!['draft','active','inactive'].includes(status)||!terms) return res.status(400).send(formError('Check package details','Provide a name, valid positive price, currency, optional duration and clear terms.','/admin/investments'));
   try {
     if(id){
-      if(!/^\\d{1,20}$/.test(id)) return res.status(400).send(formError('Invalid package','Refresh the package list and try again.','/admin/investments'));
+      if(!/^\d{1,20}$/.test(id)) return res.status(400).send(formError('Invalid package','Refresh the package list and try again.','/admin/investments'));
       await pool.execute('UPDATE investment_packages SET name=?,description=?,currency=?,price=?,duration_days=?,terms=?,status=? WHERE id=?',[name,description,currency,priceText,durationText||null,terms,status,id]);
     } else {
       await pool.execute('INSERT INTO investment_packages (name,description,currency,price,duration_days,terms,status,created_by) VALUES (?,?,?,?,?,?,?,?)',[name,description,currency,priceText,durationText||null,terms,status,req.session.memberId]);
