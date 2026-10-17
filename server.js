@@ -351,13 +351,27 @@ async function requireAdmin(req, res, next) {
     next(e);
   }
 }
+
+app.get('/admin/profile', requireAdmin, async (req,res,next)=>{
+  try {
+    const [[admin]] = await pool.query(
+      'SELECT m.id,m.full_name,m.username,m.email,m.monarch_uid,au.role,mp.avatar_key,mp.phone_number FROM admin_users au JOIN members m ON m.id=au.member_id LEFT JOIN member_profiles mp ON mp.member_id=m.id WHERE au.member_id=? AND au.is_active=1 LIMIT 1',
+      [req.session.memberId]
+    );
+    if(!admin) return res.status(404).send(page('Admin profile unavailable','<h1>Admin profile unavailable</h1><p>Contact the system owner.</p>'));
+    const photo=admin.avatar_key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(admin.avatar_key))?'/member-avatar/'+encodeURIComponent(admin.avatar_key):'/assets/images/monarch-codex-logo.svg';
+    const content='<section class="ac-panel"><h2>Administrator profile</h2><p class="muted">Manage the profile shown in the control centre. This is your administrator profile; you do not need to open the member dashboard to manage it.</p><div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:18px 0"><img src="'+photo+'" alt="Administrator profile photo" style="width:104px;height:104px;object-fit:cover;border-radius:50%;border:3px solid #dfbd62"><div><h3 style="margin:0">'+esc(admin.full_name||'Administrator')+'</h3><p class="muted">@'+esc(admin.username||'')+'</p><span class="ac-readiness-tag is-ready">'+esc(String(admin.role||'admin').replace(/_/g,' '))+'</span></div></div><dl class="ac-profile-details"><dt>Email</dt><dd>'+esc(admin.email||'—')+'</dd><dt>Administrator role</dt><dd>'+esc(String(admin.role||'admin').replace(/_/g,' '))+'</dd><dt>Account ID</dt><dd>'+esc(admin.monarch_uid||'—')+'</dd></dl><p class="muted">To change your name, contact details, or profile photo, use the secured account profile editor. Administrator access remains separate from member permissions.</p><a class="btn" href="/profile">Edit account details and photo</a></section>';
+    res.send(adminControlPage('My admin profile','/admin/profile',content,req));
+  } catch(e){next(e);}
+});
+
 function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin';
   const groups = deskOnly ? [
     {label:'Desk overview',links:[['/sovereign-admin','Overview','◫']]},
     {label:'Signals & learning',links:[['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦']]},
     {label:'People & access',links:[['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/activity','My activity','◷']]},
-    {label:'Account',links:[['/dashboard','Member view','↗']]}
+    {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
     {label:'Control centre',links:[['/admin','Overview','◫']]},
     {label:'People & compliance',links:[['/admin/members','Monarchs','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/kyc','KYC review','◇']]},
@@ -365,7 +379,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Growth & content',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
     {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
     {label:'System & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Settings','⚙']]},
-    {label:'Account',links:[['/dashboard','Member view','↗']]}
+    {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ];
   const nav = groups.map(group => '<div class="ac-nav-group"><div class="ac-nav-group-label">'+esc(group.label)+'</div>'+group.links.map(([url,label,icon]) => '<a class="ac-nav '+((active===url || (url !== '/admin' && active.startsWith(url+'/')))?'is-active':'')+'" href="'+url+'"'+((active===url || (url !== '/admin' && active.startsWith(url+'/')))?' aria-current="page"':'')+'><span class="ac-nav-icon" aria-hidden="true">'+icon+'</span><b>'+label+'</b><span class="ac-nav-arrow" aria-hidden="true">↗</span></a>').join('')+'</div>').join('');
   const role = esc((req.adminRole || 'admin').replace(/_/g,' ').toUpperCase());
