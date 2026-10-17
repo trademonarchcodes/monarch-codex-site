@@ -33,7 +33,7 @@ test('purchase writes wallet debit, investment record and member notification in
 });
 
 test('purchase idempotency and wallet balance locks prevent repeat charges', () => {
-  assert.match(server, /UNIQUE KEY uq_member_investment_idempotency \(member_id,idempotency_key\)/);
+  assert.match(migration, /UNIQUE KEY uq_member_investment_idempotency \(member_id,idempotency_key\)/);
   assert.match(server, /idempotency_key=\? LIMIT 1 FOR UPDATE/);
   assert.match(server, /SELECT id,balance FROM member_wallets WHERE member_id=\? AND currency=\? LIMIT 1 FOR UPDATE/);
   assert.match(server, /purchase=already/);
