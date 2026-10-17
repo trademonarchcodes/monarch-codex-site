@@ -110,9 +110,9 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
 
   router.get('/api/public-monarchs', async (_req, res, next) => {
     try {
-      const [rows] = await pool.query("SELECT p.nickname,m.full_name,m.username,m.monarch_uid,mp.avatar_key,CASE WHEN au.role = 'main_admin' THEN 'Founder' ELSE 'Members' END AS title FROM monarch_public_profiles p JOIN members m ON m.id=p.member_id LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN kyc_submissions k ON k.member_id=m.id AND k.status='approved' AND k.id=(SELECT MAX(k2.id) FROM kyc_submissions k2 WHERE k2.member_id=m.id) WHERE p.approved=1 AND p.visible=1 AND p.requested=1 AND (au.member_id IS NOT NULL OR k.id IS NOT NULL) ORDER BY p.approved_at DESC,p.member_id DESC LIMIT 60");
+      const [rows] = await pool.query("SELECT p.nickname,m.monarch_uid,mp.avatar_key,CASE WHEN au.member_id IS NOT NULL THEN 'Founder' ELSE 'Members' END AS title FROM monarch_public_profiles p JOIN members m ON m.id=p.member_id LEFT JOIN admin_users au ON au.member_id=m.id AND au.is_active=1 LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN kyc_submissions k ON k.member_id=m.id AND k.status='approved' AND k.id=(SELECT MAX(k2.id) FROM kyc_submissions k2 WHERE k2.member_id=m.id) WHERE p.approved=1 AND p.visible=1 AND p.requested=1 AND (au.member_id IS NOT NULL OR k.id IS NOT NULL) ORDER BY p.approved_at DESC,p.member_id DESC LIMIT 60");
       res.set('Cache-Control', 'public, max-age=60');
-      res.json(rows.map(p => ({ nickname: p.nickname, name: p.full_name, username: p.username, title: p.title, photo: p.avatar_key ? '/member-avatar/' + encodeURIComponent(p.avatar_key) : '/assets/images/monarch-codex-logo.svg' })));
+      res.json(rows.map(p => ({ nickname: p.nickname, monarchId: p.monarch_uid, title: p.title, photo: p.avatar_key ? '/member-avatar/' + encodeURIComponent(p.avatar_key) : '/assets/images/monarch-codex-logo.svg' })));
     } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return res.json([]); next(e); }
   });
 
