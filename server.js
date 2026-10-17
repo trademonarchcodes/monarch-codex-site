@@ -1366,7 +1366,7 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
         try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
         const b = req.body || {};
         const [existingKycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
-        if (existingKycRows.length && ['pending','approved'].includes(String(existingKycRows[0].status || '').toLowerCase())) {
+        if (existingKycRows.length && ['pending','approved'].includes(existingKycRows[0].status)) {
           const alreadyApproved = String(existingKycRows[0].status || '').toLowerCase() === 'approved';
           return res.status(409).json({
             error: alreadyApproved ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',
