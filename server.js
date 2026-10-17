@@ -2204,7 +2204,6 @@ app.get('/', async (_req, res, next) => {
     <p class="monarchs-kicker">THE PEOPLE BEHIND THE KINGDOM</p>
     <h2 id="monarchs-title">MONARCHS</h2>
     <p class="monarchs-intro">Meet the members building with Monarch Codex.</p>
-    <a class="monarchs-request-cta" href="/profile/monarchs">Request to be featured <span aria-hidden="true">↗</span></a>
     <div class="monarchs-grid" id="monarchsGrid"><p class="monarchs-empty">Our featured Monarchs will appear here soon.</p></div>
   </div>
 </section>
@@ -2214,9 +2213,6 @@ app.get('/', async (_req, res, next) => {
 .monarchs-kicker{font-size:11px;letter-spacing:.2em;font-weight:800;color:#dfbd62}
 .monarchs-directory h2{font-size:clamp(34px,6vw,62px);line-height:1;margin:12px 0;color:#f6d56b;letter-spacing:.06em}
 .monarchs-intro{color:#aaa69b;margin:0 auto 22px;max-width:540px}
-.monarchs-request-cta{display:inline-flex;align-items:center;justify-content:center;gap:12px;margin:0 auto 32px;padding:13px 21px;border:1px solid #dfbd62;border-radius:999px;background:linear-gradient(110deg,#f4dc82,#d8ad3d);color:#17130a;text-decoration:none;font-weight:850;box-shadow:0 8px 24px #d8ad3d18;transition:transform .18s ease,box-shadow .18s ease}
-.monarchs-request-cta:hover{transform:translateY(-2px);box-shadow:0 12px 28px #d8ad3d30}
-.monarchs-request-cta:focus-visible{outline:3px solid #fff1b5;outline-offset:4px}
 .monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:24px;max-width:1000px;margin:auto}
 .monarch-card{padding:22px 14px;border:1px solid rgba(223,189,98,.2);border-radius:20px;background:linear-gradient(145deg,#191817,#101012);min-width:0}
 .monarch-card-photo{display:block;flex:0 0 auto;width:112px;height:112px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;object-fit:cover;object-position:50% 50%;border:3px solid #dfbd62;box-shadow:0 0 0 6px rgba(223,189,98,.08);background:#191919}
@@ -2229,7 +2225,9 @@ app.get('/', async (_req, res, next) => {
 <script>
 (async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Profile photo of '+p.name;const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.name;const nick=document.createElement('p');nick.className='monarch-card-nickname';nick.textContent=p.nickname?'“'+p.nickname+'”':'';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,nick,title);grid.append(card)}}catch(_){}})();
 </script>`;
-    if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
+    if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', monarchsSection + '<footer class="footer">');
+    else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
+    else if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
     else html += monarchsSection;
     res.type('html').send(html);
   } catch (e) { next(e); }
