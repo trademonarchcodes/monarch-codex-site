@@ -1732,7 +1732,7 @@ app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,n
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
-    const content = \`<style>
+    const content = `<style>
     .coop-member{display:grid;gap:20px;min-width:0;color:#f5f0e3}
     .coop-member-hero{padding:clamp(24px,4vw,42px);border:1px solid rgba(223,189,98,.3);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(223,189,98,.2),transparent 38%),linear-gradient(135deg,#1d1a13,#101114 72%)}
     .coop-member-kicker{color:#e6c66e;font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
@@ -1765,7 +1765,7 @@ app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,n
       <section class="coop-member-section"><h4>03 / Earning structure described</h4><div class="coop-member-bonuses"><div class="coop-member-bonus"><strong>10%</strong><span>Direct referral bonus on eligible contributions, as described</span></div><div class="coop-member-bonus"><strong>$1.00</strong><span>System placement bonus for qualifying placements, up to 10</span></div><div class="coop-member-bonus"><strong>$0.50</strong><span>Network depth bonus for qualifying wider-network members</span></div></div><p>Members can also benefit from the 10% monthly earning feature described by The Online Cooperative, even without direct referrals.</p></section>
       <section class="coop-member-section"><h4>04 / Features highlighted</h4><p>Members can track activity through the dashboard, build a direct network of up to 10 referrals, benefit from automatic placement, and work toward package milestones.</p></section>
       <div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Continue to Online Cooperative ↗</a><a class="secondary" href="/dashboard">Return to member overview</a></div>
-    </div>\`;
+    </div>`;
     res.send(memberPage('The Online Cooperative','/online-cooperative',m,content,req));
   } catch(e) { next(e); }
 });
