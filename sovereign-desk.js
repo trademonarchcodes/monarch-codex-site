@@ -257,6 +257,40 @@ function createSovereignDeskRouter(deps) {
     }catch(e){dbUnavailable(res,next,e,'Activity setup required');}
   });
 
+  // Desk inbox: each member has a private conversation with the Sovereign Desk.
+  router.get('/sovereign-admin/chat', requireAdmin, adminOnly, async(req,res,next)=>{
+    try{
+      const [rows]=await pool.execute("SELECT m.member_id,mem.full_name,mem.username,MAX(m.created_at) last_message,SUM(CASE WHEN m.sender_role='member' AND m.seen_at IS NULL THEN 1 ELSE 0 END) unread, SUBSTRING_INDEX(GROUP_CONCAT(m.body ORDER BY m.id DESC SEPARATOR '\\n'), '\\n', 1) preview FROM sovereign_chat_messages m JOIN members mem ON mem.id=m.member_id GROUP BY m.member_id,mem.full_name,mem.username ORDER BY MAX(m.created_at) DESC LIMIT 200");
+      const items=rows.map(x=>'<a class="sd-inbox-row" href="/sovereign-admin/chat/'+Number(x.member_id)+'"><span class="sd-inbox-avatar">'+esc(String(x.full_name||x.username||'M').slice(0,1).toUpperCase())+'</span><span class="sd-inbox-copy"><strong>'+esc(x.full_name||x.username||'Member')+'</strong><small>@'+esc(x.username||'member')+' · '+dateLabel(x.last_message)+'</small><span>'+esc(x.preview||'New conversation')+'</span></span>'+(Number(x.unread)>0?'<b class="sd-unread">'+Number(x.unread)+'</b>':'')+'</a>').join('');
+      const content='<style>.sd-inbox{display:grid;gap:9px}.sd-inbox-row{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid #383328;border-radius:15px;background:linear-gradient(120deg,#1b1914,#111113);text-decoration:none;color:#f4ead0}.sd-inbox-avatar{display:grid;place-items:center;width:43px;height:43px;flex:0 0 43px;border-radius:50%;background:linear-gradient(135deg,#f4d77d,#a87d24);color:#19150b;font-weight:950}.sd-inbox-copy{display:grid;gap:4px;min-width:0;flex:1}.sd-inbox-copy small,.sd-inbox-copy span{color:#aaa69b;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sd-unread{display:grid;place-items:center;min-width:23px;height:23px;padding:0 6px;border-radius:99px;background:#e5c46a;color:#17130a;font-size:11px}</style><section class="ac-panel"><div class="ac-page-head"><div><h2>Member conversations</h2><p class="muted">Private one-to-one conversations with members. Opening a thread marks their messages as seen by the Desk.</p></div></div><div class="sd-inbox">'+(items||'<p class="muted">No member messages yet. Conversations will appear here when a member writes to the Desk.</p>')+'</div></section>';
+      deskAdminPage(req,res,'Sovereign Desk · Chat','/sovereign-admin/chat',content);
+    }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
+  });
+  router.get('/sovereign-admin/chat/:memberId', requireAdmin, adminOnly, async(req,res,next)=>{
+    if(!idOk(req.params.memberId))return res.status(400).send('Invalid member id.');
+    try{
+      const [[member]]=await pool.execute('SELECT id,full_name,username,monarch_uid FROM members WHERE id=? LIMIT 1',[req.params.memberId]);
+      if(!member)return res.status(404).send('Member not found.');
+      await pool.execute("UPDATE sovereign_chat_messages SET seen_at=CURRENT_TIMESTAMP WHERE member_id=? AND sender_role='member' AND seen_at IS NULL",[member.id]);
+      const [messages]=await pool.execute('SELECT id,sender_role,body,created_at,seen_at FROM sovereign_chat_messages WHERE member_id=? ORDER BY id ASC LIMIT 500',[member.id]);
+      const bubbles=messages.map(x=>'<div class="sd-chat-line '+(x.sender_role==='desk'?'from-desk':'from-member')+'"><div class="sd-chat-bubble">'+esc(x.body).replace(/\n/g,'<br>')+'<small>'+dateLabel(x.created_at)+(x.sender_role==='desk'?' · '+(x.seen_at?'Seen ✓✓':'Sent ✓'):'')+'</small></div></div>').join('');
+      const form=postForm(req,'/sovereign-admin/chat/'+Number(member.id),' <label>Reply to '+esc(member.full_name||member.username)+'</label><textarea name="body" rows="3" maxlength="4000" required placeholder="Write a helpful reply…"></textarea>','Send reply');
+      const content='<style>.sd-chat-shell{display:grid;gap:14px}.sd-chat-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sd-chat-log{display:flex;flex-direction:column;gap:10px;min-height:220px;max-height:58vh;overflow:auto;padding:16px;border:1px solid #393326;border-radius:16px;background:radial-gradient(ellipse at top,#292316,#101012 70%)}.sd-chat-line{display:flex}.sd-chat-line.from-desk{justify-content:flex-end}.sd-chat-bubble{max-width:min(82%,560px);padding:11px 14px;border:1px solid #39352b;border-radius:15px 15px 15px 4px;background:#202024;color:#eee9dc;line-height:1.65;overflow-wrap:anywhere}.from-desk .sd-chat-bubble{border-color:#6e5b2a;border-radius:15px 15px 4px 15px;background:linear-gradient(135deg,#342a12,#211d14)}.sd-chat-bubble small{display:block;margin-top:5px;color:#b8ad8b;font-size:10px;text-align:right}.sd-chat-shell form{padding:14px;border:1px solid #393326;border-radius:15px;background:#151518}.sd-chat-shell textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:12px;background:#0d0d0f;color:#fff;font:inherit}.sd-chat-shell form .btn{margin-top:10px}@media(max-width:560px){.sd-chat-log{padding:10px;max-height:56vh}.sd-chat-bubble{max-width:92%}}</style><section class="ac-panel sd-chat-shell"><div class="sd-chat-toolbar"><div><h2>'+esc(member.full_name||member.username||'Member')+'</h2><p class="muted">'+esc(member.monarch_uid||'')+' · Private Desk conversation</p></div><a class="copy-btn" href="/sovereign-admin/chat">← All chats</a></div><div class="sd-chat-log">'+(bubbles||'<p class="muted">This conversation is ready. Send the first message below.</p>')+'</div>'+form+'</section>';
+      deskAdminPage(req,res,'Chat · '+(member.full_name||member.username),'/sovereign-admin/chat',content);
+    }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
+  });
+  router.post('/sovereign-admin/chat/:memberId', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
+    if(!idOk(req.params.memberId))return res.status(400).send('Invalid member id.');
+    const body=clean(req.body.body,4000);
+    if(!body)return res.redirect('/sovereign-admin/chat/'+req.params.memberId);
+    try{
+      const [[member]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[req.params.memberId]);
+      if(!member)return res.status(404).send('Member not found.');
+      await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'desk',?,?)",[member.id,req.session.memberId,body]);
+      res.redirect('/sovereign-admin/chat/'+Number(member.id)+'?sent=1');
+    }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
+  });
+
   const memberNav = (active) => '<nav class="sd-member-nav" aria-label="Sovereign Desk navigation">'+[['/sovereign-desk','Overview'],['/sovereign-desk/signals','Signals'],['/sovereign-desk/mentorship','Mentorship'],['/sovereign-desk/access','Access'],['/sovereign-desk/announcements','Announcements']].map(([u,t])=>'<a href="'+u+'"'+(active===u?' aria-current="page"':'')+'>'+t+'</a>').join('')+'</nav>';
   const memberStyles = '<style>.sd-member{display:grid;gap:17px;color:#eee9dc}.sd-member-hero{padding:clamp(20px,4vw,34px);border:1px solid #5b4a23;border-radius:20px;background:radial-gradient(ellipse at 90% 0,#d7b95722,transparent 42%),linear-gradient(135deg,#1c1a15,#111113)}.sd-member-hero .kicker{color:#dfbd62;font-size:10px;font-weight:900;letter-spacing:.16em}.sd-member-hero h2{margin:8px 0;color:#fff6df;font-size:clamp(24px,4vw,34px);letter-spacing:-.04em}.sd-member-hero p,.sd-member p{color:#aaa69b;line-height:1.75;font-size:13px}.sd-member-nav{display:flex;gap:8px;flex-wrap:wrap}.sd-member-nav a{padding:10px 13px;border:1px solid #383328;border-radius:11px;color:#cfc7b2;text-decoration:none;font-size:12px;font-weight:800}.sd-member-nav a[aria-current=page],.sd-member-nav a:hover{border-color:#8b7337;background:#241f12;color:#f1d77e}.sd-member-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.sd-member-card{min-width:0;padding:18px;border:1px solid #383328;border-radius:15px;background:linear-gradient(145deg,#19191a,#111113)}.sd-member-card h3{margin:0 0 8px;color:#f4e8bd;font-size:16px}.sd-member-card p{margin:6px 0}.sd-member-list{display:grid;gap:12px}.sd-member-item{padding:17px;border:1px solid #343025;border-radius:14px;background:#121214}.sd-member-item h3{margin:0 0 8px;color:#f0d681}.sd-member-item p{white-space:pre-wrap;overflow-wrap:anywhere}.sd-member-tag{display:inline-block;padding:6px 9px;border:1px solid #574a27;border-radius:99px;color:#e5cb7e;font-size:10px;font-weight:850}.sd-member form label{display:block;margin:12px 0 6px;color:#d9d0bb;font-size:12px;font-weight:750}.sd-member form input,.sd-member form textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:10px;background:#0d0d0f;color:#fff;font:inherit}.sd-member form textarea{min-height:95px}.sd-member .btn{width:auto;margin-top:12px}@media(max-width:560px){.sd-member-grid{grid-template-columns:1fr}.sd-member-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.sd-member-nav a{text-align:center}.sd-member-nav a:first-child{grid-column:1/-1}}@media(prefers-reduced-motion:reduce){.sd-member *{transition:none!important}}</style>';
   const renderMember = (req,res,m,title,active,body) => {
@@ -327,6 +361,26 @@ function createSovereignDeskRouter(deps) {
       await pool.execute("INSERT INTO sovereign_access_requests (member_id,requested_by,status,reason) VALUES (?,?,'pending',?)",[req.session.memberId,req.session.memberId,reason]);
       res.redirect('/sovereign-desk/access?requested=1');
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk access workflow is not configured yet.');next(e);}
+  });
+
+  router.get('/sovereign-desk/chat',requireAuth,requireApprovedKyc,async(req,res,next)=>{
+    try{
+      const m=await getMemberForPage(req,res);if(!m)return;
+      await pool.execute("UPDATE sovereign_chat_messages SET seen_at=CURRENT_TIMESTAMP WHERE member_id=? AND sender_role='desk' AND seen_at IS NULL",[m.id]);
+      const [messages]=await pool.execute('SELECT id,sender_role,body,created_at,seen_at FROM sovereign_chat_messages WHERE member_id=? ORDER BY id ASC LIMIT 500',[m.id]);
+      const bubbles=messages.map(x=>'<div class="sd-chat-line '+(x.sender_role==='member'?'from-member':'from-desk')+'"><div class="sd-chat-bubble">'+esc(x.body).replace(/\n/g,'<br>')+'<small>'+dateLabel(x.created_at)+(x.sender_role==='member'?' · '+(x.seen_at?'Seen ✓✓':'Sent ✓'):'')+'</small></div></div>').join('');
+      const form=postForm(req,'/sovereign-desk/chat','<label>Message the Sovereign Desk</label><textarea name="body" rows="3" maxlength="4000" required placeholder="Ask a question or send a message…"></textarea>','Send message');
+      const body='<section class="sd-member-hero"><span class="kicker">PRIVATE MESSAGES</span><h2>Chat with Sovereign Desk</h2><p>Message the Desk team directly. ✓ Sent · ✓✓ Seen when the team opens your message.</p></section><style>.sd-chat-shell{display:grid;gap:14px}.sd-chat-log{display:flex;flex-direction:column;gap:10px;min-height:220px;max-height:55vh;overflow:auto;padding:14px;border:1px solid #393326;border-radius:16px;background:radial-gradient(ellipse at top,#292316,#101012 70%)}.sd-chat-line{display:flex}.sd-chat-line.from-member{justify-content:flex-end}.sd-chat-bubble{max-width:min(85%,560px);padding:11px 14px;border:1px solid #39352b;border-radius:15px 15px 15px 4px;background:#202024;color:#eee9dc;line-height:1.65;overflow-wrap:anywhere}.from-member .sd-chat-bubble{border-color:#6e5b2a;border-radius:15px 15px 4px 15px;background:linear-gradient(135deg,#342a12,#211d14)}.sd-chat-bubble small{display:block;margin-top:5px;color:#b8ad8b;font-size:10px;text-align:right}.sd-chat-shell form{padding:14px;border:1px solid #393326;border-radius:15px;background:#151518}.sd-chat-shell textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:12px;background:#0d0d0f;color:#fff;font:inherit}.sd-chat-shell form .btn{margin-top:10px}@media(max-width:560px){.sd-chat-log{padding:10px}.sd-chat-bubble{max-width:93%}}</style><section class="sd-chat-shell"><div class="sd-chat-log">'+(bubbles||'<p class="muted">Welcome. Send your first message to start a private conversation with the Desk.</p>')+'</div>'+form+'</section>';
+      renderMember(req,res,m,'Chat with Sovereign Desk','/sovereign-desk/chat',body);
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Sovereign Desk chat is being configured. Please try again later.');next(e);}
+  });
+  router.post('/sovereign-desk/chat',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
+    const body=clean(req.body.body,4000);
+    if(!body)return res.redirect('/sovereign-desk/chat');
+    try{
+      await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'member',?,?)",[req.session.memberId,req.session.memberId,body]);
+      res.redirect('/sovereign-desk/chat?sent=1');
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Sovereign Desk chat is being configured. Please try again later.');next(e);}
   });
 
   return router;
