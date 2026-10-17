@@ -82,8 +82,8 @@ function createSovereignDeskRouter(deps) {
   router.get('/sovereign-admin/signals', requireAdmin, adminOnly, async (req,res,next) => {
     try {
       const [rows] = await pool.execute('SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,validation_status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100');
-      const tableRows = rows.map(s=>'<tr><td><strong>'+esc(s.title)+'</strong><br><small>'+esc(s.asset_pair)+' · '+esc(s.direction)+'</small><br><small>'+esc(s.explanation).slice(0,160)+'</small></td><td>'+statusLabel(s.status)+'</td><td>'+dateLabel(s.published_at || s.created_at)+'</td><td><div class="ac-actions"><a class="copy-btn" href="/sovereign-admin/signals/'+Number(s.id)+'/edit">Edit</a>'+postForm(req,'/sovereign-admin/signals/'+Number(s.id)+'/status','<select name="status" aria-label="Signal status"><option value="draft">Draft</option><option value="published">Publish</option><option value="closed">Close</option><option value="archived">Archive</option></select>','Update status')+'</div></td></tr>').join('');
-      const content = panel('Create a signal','Save as a draft first, then publish when ready. Only published signals are visible to members with active desk access.',signalForm(req)) +
+      const tableRows = rows.map(s=>'<tr><td><strong>'+esc(s.asset_pair)+' · '+esc(s.direction.toUpperCase())+'</strong><br><small>Price: '+esc(s.price||s.entry_zone||'—')+'</small><br><small>TP: '+esc(s.take_profit_1||'—')+' · SL: '+esc(s.stop_loss||'—')+'</small></td><td>'+statusLabel(s.validation_status||'pending')+'<br><small>Delivery: '+statusLabel(s.status)+'</small></td><td>'+dateLabel(s.published_at || s.created_at)+'</td><td><div class="ac-actions"><a class="copy-btn" href="/sovereign-admin/signals/'+Number(s.id)+'/edit">Edit / validate</a>'+postForm(req,'/sovereign-admin/signals/'+Number(s.id)+'/status','<select name="status" aria-label="Signal delivery status"><option value="draft">Keep hidden</option><option value="published">Publish (valid only)</option><option value="closed">Close</option><option value="archived">Archive</option></select>','Apply')+'</div></td></tr>').join('');
+      const content = panel('Create a signal','Enter the instrument, BUY/SELL action, price and optional take-profit/stop-loss. A signal stays hidden until explicitly marked VALID and published.',signalForm(req)) +
         panel('Saved signals','Signals are stored in the database; publishing timestamps and status are recorded.',table(['Signal','Status','Published / created','Actions'],tableRows,'No signals have been created yet.'));
       deskAdminPage(req,res,'Signals & analysis','/sovereign-admin/signals',notice(req.query.saved ? 'Signal saved.' : req.query.status ? 'Signal status updated.' : '')+content);
     } catch(e){dbUnavailable(res,next,e,'Signals setup required');}
@@ -124,9 +124,13 @@ function createSovereignDeskRouter(deps) {
   });
 
   router.post('/sovereign-admin/signals/:id/status', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
-    if(!idOk(req.params.id)||!['draft','published','closed','archived'].includes(req.body.status))return res.status(400).send('Invalid signal status.');
+    const requested=clean(req.body.status,20);
+    if(!idOk(req.params.id)||!['draft','published','closed','archived'].includes(requested))return res.status(400).send('Invalid signal status.');
     try{
-      const [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?",[req.body.status,req.body.status,req.session.memberId,req.params.id]);
+      const [[signal]]=await pool.execute('SELECT validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[req.params.id]);
+      if(!signal)return res.status(404).send('Signal not found.');
+      if(requested==='published'&&signal.validation_status!=='valid')return res.status(409).send('Mark this signal VALID before publishing it to members.');
+      const [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?",[requested,requested,req.session.memberId,req.params.id]);
       if(!result.affectedRows)return res.status(404).send('Signal not found.');
       res.redirect('/sovereign-admin/signals?status=updated');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
@@ -318,7 +322,7 @@ function createSovereignDeskRouter(deps) {
   });
   router.get('/sovereign-desk/signals',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return renderMember(req,res,m,'Desk signals','/sovereign-desk/signals',noAccessContent(m));
-      const [rows]=await pool.execute("SELECT title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100");
+      const [rows]=await pool.execute("SELECT title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND validation_status='valid' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100");
       const content='<section class="sd-member-hero"><span class="kicker">MARKET ANALYSIS</span><h2>Signals & market notes</h2><p>Published analysis from The Sovereign Desk. Use your own risk controls and independent judgment.</p></section><div class="sd-member-list">'+(rows.map(s=>'<article class="sd-member-item"><span class="sd-member-tag">'+esc(s.direction.toUpperCase())+' · '+esc(s.asset_pair)+'</span><h3>'+esc(s.title)+'</h3><p>'+esc(s.explanation)+'</p><div class="sd-member-grid"><div><small>Entry zone</small><p>'+esc(s.entry_zone||'Not specified')+'</p></div><div><small>Timeframe</small><p>'+esc(s.timeframe||'Not specified')+'</p></div><div><small>Stop loss</small><p>'+esc(s.stop_loss||'Not specified')+'</p></div><div><small>Targets</small><p>'+(s.take_profit_1?esc(s.take_profit_1):'—')+(s.take_profit_2?' / '+esc(s.take_profit_2):'')+'</p></div></div><small>Published '+dateLabel(s.published_at)+' · Expires '+dateLabel(s.expires_at)+'</small></article>').join('')||'<article class="sd-member-card"><h3>No published signals yet</h3><p>New signals will appear here after the desk team publishes them.</p></article>')+'</div>';
       renderMember(req,res,m,'Signals','/sovereign-desk/signals',content);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
