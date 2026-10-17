@@ -387,10 +387,11 @@ function adminControlPage(title, active, content, req) {
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
     {label:'Control centre',links:[['/admin','Overview','◫']]},
-    {label:'People & compliance',links:[['/admin/members','Monarchs','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/kyc','KYC review','◇']]},
-    {label:'Financial operations',links:[['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑'],['/admin/transactions','Transactions','◷'],['/admin/balances','Balance management','＋'],['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦']]},
-    {label:'Growth & content',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
+    {label:'Core operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
+    {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
+    {label:'People & compliance',links:[['/admin/members','Monarchs','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/kyc','KYC review','◇']]},
+    {label:'Growth & content',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
     {label:'System & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ];
