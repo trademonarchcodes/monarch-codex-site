@@ -626,6 +626,10 @@ app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:fa
     conn=await pool.getConnection(); await conn.beginTransaction();
     const [[member]]=await conn.execute('SELECT id,username,full_name FROM members WHERE id=? LIMIT 1 FOR UPDATE',[memberId]);
     if(!member){await conn.rollback();return res.status(404).send(formError('Member not found','Refresh the member list and try again.','/admin/earnings'));}
+    if(operation==='investment_profit'){
+      const [[matured]]=await conn.execute("SELECT COUNT(*) AS total FROM member_investments WHERE member_id=? AND currency=? AND matures_at IS NOT NULL AND matures_at<=CURRENT_TIMESTAMP AND status IN ('active','matured')",[memberId,currency]);
+      if(!Number(matured.total)){await conn.rollback();conn.release();conn=null;return res.status(409).send(formError('Investment not yet mature','Approved investment profit can only be credited after at least one matching-currency investment reaches its maturity date.','/admin/earnings'));}
+    }
     await conn.execute('INSERT INTO member_wallets (member_id,currency,balance) VALUES (?,?,0) ON DUPLICATE KEY UPDATE member_id=VALUES(member_id)',[memberId,currency]);
     const [[wallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[memberId,currency]);
     const amount=Number(amountText);
@@ -2020,7 +2024,7 @@ app.post('/withdraw', requireAuth, requireApprovedKyc, express.urlencoded({exten
 app.get('/transactions', requireAuth, async (req,res,next) => {
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
-    const [transactions]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const [transactions]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,admin_note,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
     const [requests]=await pool.execute('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 100',[m.id]);
     const [withdrawals]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
     const money=(currency,amount)=>esc(String(currency)+' '+Number(amount||0).toLocaleString('en-US',{maximumFractionDigits:8}));
@@ -2029,7 +2033,7 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     const withdrawalCount=withdrawals.length;
     const pendingCount=requests.filter(d=>['pending','submitted','under_review','processing'].includes(String(d.status||'').toLowerCase())).length + withdrawals.filter(w=>['pending','submitted','under_review','processing','approved'].includes(String(w.status||'').toLowerCase())).length;
     const statusClass=status=>String(status||'pending').toLowerCase().replace(/[^a-z0-9_-]/g,'-');
-    const txRows=transactions.map(t=>'<tr><td data-label="Date"><span class="tx-date">'+esc(t.created_at)+'</span></td><td data-label="Type"><span class="tx-type"><span class="tx-type-icon" aria-hidden="true">↗</span>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(t.currency,t.amount)+'</strong></td><td data-label="Reference"><span class="tx-reference">'+esc(t.reference)+'</span></td><td data-label="Status"><span class="tx-status tx-status-completed"><span></span>Completed</span></td></tr>').join('');
+    const txRows=transactions.map(t=>'<tr><td data-label="Date"><span class="tx-date">'+esc(t.created_at)+'</span></td><td data-label="Type"><span class="tx-type"><span class="tx-type-icon" aria-hidden="true">↗</span>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(t.currency,t.amount)+'</strong></td><td data-label="Reference"><span class="tx-reference">'+esc(t.reference)+(t.admin_note?'<br>'+esc(t.admin_note):'')+'</span></td><td data-label="Status"><span class="tx-status tx-status-completed"><span></span>Completed</span></td></tr>').join('');
     const reqRows=requests.map(d=>'<tr><td data-label="Date"><span class="tx-date">'+esc(d.created_at)+'</span></td><td data-label="Payment"><div class="tx-payment-name">'+esc(d.payment_label)+'</div><span class="tx-reference">'+esc(d.payment_reference)+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(d.currency,d.amount)+'</strong><span class="tx-fee">Fee '+money(d.currency,d.fee_amount)+' · Total '+money(d.currency,d.total_due)+'</span></td><td data-label="Status"><span class="tx-status tx-status-'+statusClass(d.status)+'"><span></span>'+esc(String(d.status||'pending').replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))+'</span>'+(d.reviewer_note?'<p class="tx-review-note">'+esc(d.reviewer_note)+'</p>':'')+'</td></tr>').join('');
     const body='<style>'+
       '.tx-experience{display:grid;gap:18px;min-width:0;color:#eee9dc}'+
