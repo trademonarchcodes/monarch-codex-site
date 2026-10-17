@@ -1025,7 +1025,7 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
 });
 
 function memberPage(title, active, member, content, req) {
-  const items = [['/dashboard','Overview','◫',false],['/profile','Profile','◎',false],['/kyc','Verification','◇',false],['/deposit','Deposit','＋',true],['/withdraw','Withdraw','↗',true],['/transactions','Transactions','↔',false],['/referrals','Referrals','♧',true]];
+  const items = [['/dashboard','Overview','◫',false],['/profile','Profile','◎',false],['/kyc','Verification','◇',false],['/deposit','Deposit','＋',true],['/withdraw','Withdraw','↗',true],['/transactions','Transactions','↔',false],['/referrals','Referrals','♧',true],['/online-cooperative','Online Cooperative','♙',true]];
   const nav = items.map(([href,label,mark,locked]) => '<a href="' + href + '"' + (href===active?' aria-current="page"':'') + (locked?' data-kyc-locked="true" aria-disabled="true"':'') + '><span class="member-nav-icon" aria-hidden="true">' + mark + '</span><span class="member-nav-label">' + label + '</span>' + (locked?'<span class="member-kyc-lock" aria-label="Locked until KYC is approved" title="Locked until KYC is approved">🔒</span>':'') + '</a>').join('');
   const firstName = esc((member.full_name || 'Member').split(' ')[0]);
   const uid = esc(member.monarch_uid || 'Pending');
@@ -1727,6 +1727,49 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
       '</div>';
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
+});
+app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,next)=>{
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const content = \`<style>
+    .coop-member{display:grid;gap:20px;min-width:0;color:#f5f0e3}
+    .coop-member-hero{padding:clamp(24px,4vw,42px);border:1px solid rgba(223,189,98,.3);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(223,189,98,.2),transparent 38%),linear-gradient(135deg,#1d1a13,#101114 72%)}
+    .coop-member-kicker{color:#e6c66e;font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
+    .coop-member h3{font-size:clamp(25px,4vw,38px);line-height:1.15;margin:12px 0;color:#fff6df;letter-spacing:-.035em}
+    .coop-member p{color:#bdb8aa;font-size:13px;line-height:1.85}
+    .coop-member-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .coop-member-card,.coop-member-section{padding:22px;border:1px solid rgba(223,189,98,.2);border-radius:16px;background:linear-gradient(145deg,#181814,#111216)}
+    .coop-member-card small{font-size:10px;letter-spacing:.13em;color:#e6c66e;font-weight:800}
+    .coop-member-card h4,.coop-member-section h4{margin:10px 0;font-size:18px;color:#fff4d5}
+    .coop-member-price{font-size:30px!important;font-weight:800;color:#ffe6a3!important;margin:4px 0}
+    .coop-member-card ul{padding-left:18px;color:#bdb8aa;font-size:12px;line-height:1.9}
+    .coop-member-bonuses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .coop-member-bonus{padding:17px;border-radius:12px;background:#1a1914;border:1px solid rgba(223,189,98,.14)}
+    .coop-member-bonus strong{display:block;color:#ffe6a3;font-size:25px;margin-bottom:5px}
+    .coop-member-bonus span{font-size:12px;color:#d6cebd}
+    .coop-member-notice{padding:16px 18px;border-left:3px solid #dfbd62;background:#dfbd620c;color:#c9c1b2;font-size:12px;line-height:1.9}
+    .coop-member-cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px}
+    .coop-member-cta a{display:inline-flex;align-items:center;justify-content:center;padding:13px 18px;border-radius:10px;font-size:12px;font-weight:800}
+    .coop-member-cta .primary{background:linear-gradient(120deg,#c49a47,#ffe6a3);color:#17130b}
+    .coop-member-cta .secondary{border:1px solid rgba(223,189,98,.35);color:#ffe6a3}
+    @media(max-width:760px){.coop-member-grid,.coop-member-bonuses{grid-template-columns:1fr}.coop-member-card,.coop-member-section{padding:19px}.coop-member-cta{flex-direction:column;align-items:stretch}.coop-member-cta a{width:100%}}
+    </style>
+    <div class="coop-member">
+      <section class="coop-member-hero"><div class="coop-member-kicker">Partner opportunity · separate platform</div><h3>The Online Cooperative</h3><p>Explore the package levels and network model described for The Online Cooperative. This opportunity is separate from Monarch Codex; this page is informational and registration takes place on the cooperative's own website.</p><div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Visit cooperative registration ↗</a><a class="secondary" href="#coop-packages">Explore packages ↓</a></div></section>
+      <section id="coop-packages"><div class="coop-member-kicker">01 / Packages</div><h3>Explore the three levels</h3><p>Figures below are from the supplied description and are not independently verified or guaranteed.</p><div class="coop-member-grid">
+      <article class="coop-member-card"><small>STARTER</small><h4>Starter Package</h4><p class="coop-member-price">$10</p><p>Described target: $150 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and dashboard access</li><li>Upgrade prompt at stated target</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      <article class="coop-member-card"><small>PROFESSIONAL</small><h4>Professional Package</h4><p class="coop-member-price">$100</p><p>Described target: $1,500 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and priority support</li><li>Higher earning potential, as described</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      <article class="coop-member-card"><small>ELITE</small><h4>Elite Package</h4><p class="coop-member-price">$1,000</p><p>Described target: $15,000 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and VIP support</li><li>Advertised unlimited earning potential</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      </div></section>
+      <section class="coop-member-section"><h4>02 / How the system is described</h4><p><strong>1. Contribute:</strong> choose a stated $10, $100 or $1,000 package. <strong>2. Placement:</strong> referred members are described as automatically placed, with up to 10 direct members per person. <strong>3. Earn:</strong> the description lists referral and network bonuses. <strong>4. Reach the target:</strong> an upgrade prompt is described when the target is reached. <strong>5. Upgrade:</strong> review the next tier and its conditions. <strong>6. Elite:</strong> the final level is described as offering VIP benefits.</p></section>
+      <section class="coop-member-section"><h4>03 / Earning structure described</h4><div class="coop-member-bonuses"><div class="coop-member-bonus"><strong>10%</strong><span>Direct referral bonus on eligible contributions, as described</span></div><div class="coop-member-bonus"><strong>$1.00</strong><span>System placement bonus for qualifying placements, up to 10</span></div><div class="coop-member-bonus"><strong>$0.50</strong><span>Network depth bonus for qualifying wider-network members</span></div></div><p>The overview also claims a 10% monthly earning feature without referrals. Ask the cooperative for written terms explaining how these amounts are calculated and funded.</p></section>
+      <section class="coop-member-section"><h4>04 / Features highlighted</h4><p>The supplied overview highlights transaction tracking, a 10-person direct network limit, automatic placement, multiple bonus categories, dashboard access and package milestones. Verify these features, actual payout rules and eligibility conditions directly with the provider.</p></section>
+      <div class="coop-member-notice"><strong>Important financial notice:</strong> The 15× targets, monthly earning claim, bonuses and benefits are not guaranteed returns and have not been independently verified by Monarch Codex. Before contributing, review official terms, fees, payout funding, withdrawal conditions, upgrade requirements and risks. Do not contribute money you cannot afford to lose.</div>
+      <div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Continue to Online Cooperative ↗</a><a class="secondary" href="/dashboard">Return to member overview</a></div>
+    </div>\`;
+    res.send(memberPage('The Online Cooperative','/online-cooperative',m,content,req));
+  } catch(e) { next(e); }
 });
 app.get('/referrals', requireAuth, requireApprovedKyc, async (req,res,next)=>{  try {
     const m = await getMemberForPage(req,res);
