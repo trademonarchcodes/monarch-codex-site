@@ -2213,17 +2213,17 @@ app.get('/', async (_req, res, next) => {
 .monarchs-kicker{font-size:11px;letter-spacing:.2em;font-weight:800;color:#dfbd62}
 .monarchs-directory h2{font-size:clamp(34px,6vw,62px);line-height:1;margin:12px 0;color:#f6d56b;letter-spacing:.06em}
 .monarchs-intro{color:#aaa69b;margin:0 auto 22px;max-width:540px}
-.monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:24px;max-width:1000px;margin:auto}
-.monarch-card{padding:22px 14px;border:1px solid rgba(223,189,98,.2);border-radius:20px;background:linear-gradient(145deg,#191817,#101012);min-width:0}
-.monarch-card-photo{display:block;flex:0 0 auto;width:112px;height:112px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;object-fit:cover;object-position:50% 50%;border:3px solid #dfbd62;box-shadow:0 0 0 6px rgba(223,189,98,.08);background:#191919}
-.monarch-card-name{font-size:17px;font-weight:850;margin:15px 0 3px;overflow-wrap:anywhere}
-.monarch-card-nickname{font-size:13px;color:#dfbd62;margin:0 0 8px}
-.monarch-card-title{display:inline-block;padding:5px 10px;border:1px solid #514421;border-radius:999px;color:#d8c58c;font-size:11px;font-weight:800}
+.monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,168px));justify-content:center;gap:16px;max-width:900px;margin:28px auto 0}
+.monarch-card{padding:16px 12px 14px;border:1px solid rgba(223,189,98,.2);border-radius:16px;background:linear-gradient(145deg,#191817,#101012);min-width:0;max-width:168px;width:100%;margin:auto;box-sizing:border-box}
+.monarch-card-photo{display:block;flex:0 0 auto;width:76px;height:76px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:50%;object-fit:cover;object-position:50% 50%;border:2px solid #dfbd62;box-shadow:0 0 0 4px rgba(223,189,98,.07);background:#191919}
+.monarch-card-name{font-size:15px;line-height:1.35;font-weight:800;margin:0 0 9px;overflow-wrap:anywhere;color:#f8f3e6}
+.monarch-card-id{display:inline-block;max-width:100%;padding:4px 7px;border:1px solid rgba(223,189,98,.22);border-radius:7px;color:#cbb46a;font-size:10px;line-height:1.35;font-weight:750;overflow-wrap:anywhere}
+.monarch-card-title{display:block;margin-top:9px;color:#aaa69b;font-size:10px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
 .monarchs-empty{grid-column:1/-1;color:#aaa69b;padding:25px}
-@media(max-width:480px){.monarchs-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.monarch-card{padding:17px 9px}.monarch-card-photo{width:88px;height:88px}}
+@media(max-width:380px){.monarchs-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.monarch-card{padding:13px 8px}.monarch-card-photo{width:68px;height:68px}.monarch-card-name{font-size:14px}}
 </style>
 <script>
-(async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Profile photo of '+p.name;const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.name;const nick=document.createElement('p');nick.className='monarch-card-nickname';nick.textContent=p.nickname?'“'+p.nickname+'”':'';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,nick,title);grid.append(card)}}catch(_){}})();
+(async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Approved profile picture';img.loading='lazy';const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.nickname||'Monarch';const uid=document.createElement('span');uid.className='monarch-card-id';uid.textContent=p.monarchId||'Monarch';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,uid,title);grid.append(card)}}catch(_){}})();
 </script>`;
     if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', monarchsSection + '<footer class="footer">');
     else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
