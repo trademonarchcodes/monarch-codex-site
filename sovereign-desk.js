@@ -1,6 +1,8 @@
 'use strict';
 
 const express = require('express');
+const fs = require('node:fs');
+const path = require('node:path');
 
 function createSovereignDeskRouter(deps) {
   const { pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc } = deps;
@@ -43,7 +45,34 @@ function createSovereignDeskRouter(deps) {
   };
   const deskAdminPage = (req, res, title, active, content) => {
     res.set('Cache-Control', 'no-store');
-    return res.send(adminControlPage(title, active, content, req));
+    const template = fs.readFileSync(path.join(__dirname, 'sovereign-admin.html'), 'utf8');
+    const links = [
+      ['/sovereign-admin', 'Overview', '◫'],
+      ['/sovereign-admin/signals', 'Signals', '↗'],
+      ['/sovereign-admin/mentorship', 'Guidance & content', '✦'],
+      ['/sovereign-admin/access', 'Desk access', '♙'],
+      ['/sovereign-admin/chat', 'Member chat', '◉'],
+      ['/sovereign-admin/announcements', 'Announcements', '▤'],
+      ['/sovereign-admin/activity', 'Workspace activity', '◷'],
+      ['/admin/profile', 'My admin profile', '◎']
+    ];
+    const nav = links.map(([url, label, symbol]) => {
+      const isActive = active === url || (url !== '/sovereign-admin' && active.startsWith(url + '/'));
+      return '<a href="' + url + '"' + (isActive ? ' aria-current="page"' : '') + '><span class="nav-icon" aria-hidden="true">' + symbol + '</span><span>' + label + '</span><span class="nav-arrow" aria-hidden="true">↗</span></a>';
+    }).join('');
+    const adminReturn = ['super_admin', 'main_admin'].includes(req.adminRole)
+      ? '<a href="/admin"><span class="nav-icon" aria-hidden="true">⌂</span><span>Main Admin Dashboard</span><span class="nav-arrow" aria-hidden="true">↗</span></a>'
+      : '';
+    const role = String(req.adminRole || 'sovereign_desk_admin').replace(/_/g, ' ').toUpperCase();
+    const replacements = {
+      '{{TITLE}}': esc(title),
+      '{{ROLE}}': esc(role),
+      '{{NAV}}': adminReturn + nav,
+      '{{CONTENT}}': content
+    };
+    let html = template;
+    for (const [key, value] of Object.entries(replacements)) html = html.split(key).join(value);
+    return res.send(html);
   };
   const panel = (title, description, inner) => '<section class="ac-panel"><h2>' + title + '</h2>' + (description ? '<p>' + description + '</p>' : '') + inner + '</section>';
   const table = (heads, rows, empty) => '<div class="ac-table-wrap"><table class="ac-table"><thead><tr>' + heads.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + (rows || '<tr><td colspan="' + heads.length + '">' + empty + '</td></tr>') + '</tbody></table></div>';
