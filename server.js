@@ -953,8 +953,8 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
       const notification = messages[status];
       const inAppMessages = {
         approved: { title: 'Identity verification approved', body: 'Good news, ' + kycApplicant.full_name + '. Your identity verification has been reviewed and approved. No further KYC action is required at this time. You can view your verification status in your account.', target: '/kyc' },
-        rejected: { title: 'Identity verification needs attention', body: 'We’re unable to approve your identity verification at this time.\\n\\nReason for the decision: ' + (reason ? reason.label : 'Please review the reviewer feedback below.') + '\\n\\nReview team feedback: ' + (submittedNote || (reason ? reason.message : 'Please review your details and documents.')) + '\\n\\nNext steps: Check that your full name, date of birth and NIN or other document details match your identity document exactly. Correct any inaccurate information and submit an updated verification. If you need assistance, contact our support team.', target: '/kyc' },
-        needs_resubmission: { title: 'Action required: update your identity verification', body: 'Our review team needs you to update your identity verification before it can be approved.\\n\\nReview team feedback: ' + (note || 'Please check your details and identity images carefully.') + '\\n\\nNext steps: Open the verification page, correct the requested information, and submit your updated application. If you need assistance, contact our support team.', target: '/kyc' }
+        rejected: { title: 'Identity verification needs attention', body: 'We’re unable to approve your identity verification at this time.\n\nReason for the decision: ' + (reason ? reason.label : 'Please review the reviewer feedback below.') + '\n\nReview team feedback: ' + (submittedNote || (reason ? reason.message : 'Please review your details and documents.')) + '\n\nNext steps: Check that your full name, date of birth and NIN or other document details match your identity document exactly. Correct any inaccurate information and submit an updated verification. If you need assistance, contact our support team.', target: '/kyc' },
+        needs_resubmission: { title: 'Action required: update your identity verification', body: 'Our review team needs you to update your identity verification before it can be approved.\n\nReview team feedback: ' + (note || 'Please check your details and identity images carefully.') + '\n\nNext steps: Open the verification page, correct the requested information, and submit your updated application. If you need assistance, contact our support team.', target: '/kyc' }
       };
       const inApp = inAppMessages[status];
       if (inApp) {
@@ -1018,11 +1018,11 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
       else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications'].includes(n.target_url)) safeTarget = n.target_url;
       let messageHtml = '';
       if (type === 'kyc_review' && /not approved|needs attention|resubmission|required/i.test(rawBody)) {
-        const reasonMatch = rawBody.match(/Reason(?: for the decision)?:\\s*([\\s\\S]*?)(?=\\n\\nReview team feedback:|\\n\\nAdditional details:|\\s+Additional details:|\\s+Please review the feedback|$)/i);
-        const feedbackMatch = rawBody.match(/(?:Review team feedback:|Additional details:)\\s*([\\s\\S]*?)(?=\\n\\nNext steps:|\\s+Please review the feedback|$)/i);
+        const reasonMatch = rawBody.match(/Reason(?: for the decision)?:\s*([\s\S]*?)(?=\n\nReview team feedback:|\n\nAdditional details:|\s+Additional details:|\s+Please review the feedback|$)/i);
+        const feedbackMatch = rawBody.match(/(?:Review team feedback:|Additional details:)\s*([\s\S]*?)(?=\n\nNext steps:|\s+Please review the feedback|$)/i);
         const reasonText = reasonMatch ? reasonMatch[1].trim() : '';
         let feedbackText = feedbackMatch ? feedbackMatch[1].trim() : '';
-        feedbackText = feedbackText.replace(/Thank for your cooperation\\.?/gi, 'Thank you for your cooperation.');
+        feedbackText = feedbackText.replace(/Thank for your cooperation\.?/gi, 'Thank you for your cooperation.');
         const lead = titleLower.includes('resubmission') || titleLower.includes('action required')
           ? 'Our review team needs you to update your identity verification before it can be approved.'
           : 'We’re unable to approve your identity verification at this time.';
@@ -1031,7 +1031,7 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
           (feedbackText ? '<div class="notification-detail"><span>Review team feedback</span><p>' + esc(feedbackText) + '</p></div>' : '') +
           '<div class="notification-next"><strong>What to do next</strong><p>Review your personal details and NIN or identity document information. Make sure they match your official document exactly, update any incorrect information, and submit the requested changes on the verification page. Contact support if you need help.</p></div>';
       } else {
-        messageHtml = rawBody.split(/\\n{2,}/).map(part => part.trim()).filter(Boolean).map(part => '<p>' + esc(part).replace(/\\n/g, '<br>') + '</p>').join('');
+        messageHtml = rawBody.split(/\n{2,}/).map(part => part.trim()).filter(Boolean).map(part => '<p>' + esc(part).replace(/\n/g, '<br>') + '</p>').join('');
       }
       const dateLabel = n.created_at ? esc(n.created_at) : 'Recent';
       return '<article class="member-card notification-card ' + (n.read_at ? 'is-read' : 'is-unread') + ' notification-tone-' + meta.tone + '"><div class="notification-card-top"><div class="notification-icon" aria-hidden="true">' + meta.icon + '</div><div class="notification-title-group"><span class="notification-category">' + esc(meta.label) + '</span><h3>' + esc(title) + '</h3><time class="notification-time">' + dateLabel + '</time></div><span class="notification-state ' + (n.read_at ? 'is-read' : 'is-new') + '">' + (n.read_at ? 'Read' : 'New') + '</span></div><div class="notification-message">' + messageHtml + '</div><div class="notification-actions">' + (safeTarget ? '<a class="notification-open" href="' + esc(safeTarget) + '">View details <span aria-hidden="true">→</span></a>' : '') + (!n.read_at ? '<form method="post" action="/notifications/' + encodeURIComponent(n.id) + '/read">' + csrfField(req) + '<button class="notification-mark-read" type="submit">Mark as read</button></form>' : '') + '</div></article>';
