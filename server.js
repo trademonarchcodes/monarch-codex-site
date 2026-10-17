@@ -2165,7 +2165,7 @@ app.get('/', async (_req, res, next) => {
 .monarchs-intro{color:#aaa69b;margin:0 auto 30px;max-width:540px}
 .monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:24px;max-width:1000px;margin:auto}
 .monarch-card{padding:22px 14px;border:1px solid rgba(223,189,98,.2);border-radius:20px;background:linear-gradient(145deg,#191817,#101012);min-width:0}
-.monarch-card-photo{width:112px;height:112px;border-radius:50%;object-fit:cover;border:3px solid #dfbd62;box-shadow:0 0 0 6px rgba(223,189,98,.08);background:#191919}
+.monarch-card-photo{display:block;flex:0 0 auto;width:112px;height:112px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;object-fit:cover;object-position:50% 50%;border:3px solid #dfbd62;box-shadow:0 0 0 6px rgba(223,189,98,.08);background:#191919}
 .monarch-card-name{font-size:17px;font-weight:850;margin:15px 0 3px;overflow-wrap:anywhere}
 .monarch-card-nickname{font-size:13px;color:#dfbd62;margin:0 0 8px}
 .monarch-card-title{display:inline-block;padding:5px 10px;border:1px solid #514421;border-radius:999px;color:#d8c58c;font-size:11px;font-weight:800}
