@@ -97,7 +97,20 @@ function csrfCheck(req, res, next) {
   }
   next();
 }
-function requireAuth(req, res, next) { if (!req.session.memberId) return res.redirect('/login'); next(); }
+async function requireAuth(req, res, next) {
+  if (!req.session.memberId) return res.redirect('/login');
+  try {
+    const [rows] = await pool.execute('SELECT is_blocked FROM members WHERE id=? LIMIT 1', [req.session.memberId]);
+    if (!rows.length || Number(rows[0].is_blocked) === 1) {
+      req.session.destroy(() => {});
+      return res.status(403).send(page('Account access restricted', '<h1>Account access restricted</h1><p class="muted">This account is blocked or unavailable. Please contact Monarch Codex support if you believe this is a mistake.</p><a class="btn" href="/login">Return to login</a>'));
+    }
+    next();
+  } catch (e) {
+    if (e && (e.code === 'ER_BAD_FIELD_ERROR' || e.code === 'ER_NO_SUCH_TABLE')) return next();
+    next(e);
+  }
+}
 async function requireApprovedKyc(req, res, next) {
   try {
     const [rows] = await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1", [req.session.memberId]);
@@ -873,17 +886,61 @@ app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   } catch(e){next(e);}
 });
 
+app.post('/admin/members/:memberId/block', requireAdmin, (req,res,next)=>{
+  csrfCheck(req,res,async csrfErr=>{
+    if(csrfErr)return;
+    try{
+      if(!['super_admin','main_admin'].includes(String(req.adminRole||'')))return res.status(403).send(page('Permission required','<h1>Permission required</h1><p class="muted">Only authorised senior administrators can change account access.</p><a class="btn" href="/admin/members">Back to members</a>'));
+      const id=Number(req.params.memberId); if(!Number.isSafeInteger(id)||id<1)return res.sendStatus(400);
+      if(id===Number(req.session.memberId))return res.status(400).send(page('Action not allowed','<h1>You cannot block your own account</h1><a class="btn" href="/admin/members">Back</a>'));
+      const [[targetAdmin]] = await pool.execute('SELECT member_id FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[id]);
+      if(targetAdmin)return res.status(403).send(page('Protected account','<h1>Administrator accounts are protected</h1><p class="muted">This action is available for member accounts only.</p><a class="btn" href="/admin/members">Back to members</a>'));
+      const [[state]]=await pool.execute('SELECT is_blocked FROM members WHERE id=? LIMIT 1',[id]);
+      if(!state)return res.status(404).send(page('Member not found','<h1>Member not found</h1><a class="btn" href="/admin/members">Back</a>'));
+      const block=Number(state.is_blocked)!==1;
+      await pool.execute('UPDATE members SET is_blocked=?,blocked_at=?,blocked_by=?,block_reason=? WHERE id=?',[block?1:0,block?new Date():null,block?Number(req.session.memberId):null,block?String(req.body.reason||'').trim().slice(0,500)||null:null,id]);
+      if(block)await pool.execute('DELETE FROM web_sessions WHERE data LIKE ?',['%'+String(id)+'%']).catch(()=>{});
+      res.redirect('/admin/members/'+id+'?notice='+(block?'blocked':'unblocked'));
+    }catch(e){if(e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Account controls migration required','migrations/015_member_account_controls.sql'));next(e);}
+  });
+});
+
+app.post('/admin/members/:memberId/delete', requireAdmin, (req,res,next)=>{
+  csrfCheck(req,res,async csrfErr=>{
+    if(csrfErr)return;
+    let conn;
+    try{
+      if(!['super_admin','main_admin'].includes(String(req.adminRole||'')))return res.status(403).send(page('Permission required','<h1>Permission required</h1><p class="muted">Only authorised senior administrators can permanently delete accounts.</p><a class="btn" href="/admin/members">Back to members</a>'));
+      const id=Number(req.params.memberId);if(!Number.isSafeInteger(id)||id<1)return res.sendStatus(400);
+      if(id===Number(req.session.memberId))return res.status(400).send(page('Action not allowed','<h1>You cannot delete your own account</h1><a class="btn" href="/admin/members">Back</a>'));
+      const [[target]]=await pool.execute('SELECT id,username FROM members WHERE id=? LIMIT 1',[id]);
+      if(!target)return res.status(404).send(page('Member not found','<h1>Member not found</h1><a class="btn" href="/admin/members">Back</a>'));
+      if(String(req.body.confirmUsername||'')!==String(target.username))return res.status(400).send(page('Confirmation did not match','<h1>Account not deleted</h1><p class="muted">Type the member username exactly to confirm permanent deletion.</p><a class="btn" href="/admin/members/'+id+'">Return to member</a>'));
+      const [[targetAdmin]]=await pool.execute('SELECT member_id FROM admin_users WHERE member_id=? LIMIT 1',[id]);
+      if(targetAdmin)return res.status(403).send(page('Protected account','<h1>Administrator accounts cannot be deleted here</h1><a class="btn" href="/admin/members">Back to members</a>'));
+      conn=await pool.getConnection();await conn.beginTransaction();
+      const [tables]=await conn.query("SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND COLUMN_NAME='member_id' AND TABLE_NAME<> 'members' AND TABLE_NAME<> 'admin_users'");
+      for(const row of tables){const table=String(row.TABLE_NAME).replace(/[`]/g,'');await conn.execute('DELETE FROM `'+table+'` WHERE member_id=?',[id]);}
+      await conn.execute('DELETE FROM members WHERE id=?',[id]);
+      await conn.commit();conn.release();conn=null;
+      res.redirect('/admin/members?notice=deleted');
+    }catch(e){if(conn){try{await conn.rollback()}catch(_){}conn.release()}if(e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Account controls migration required','migrations/015_member_account_controls.sql'));console.error('[admin member deletion]',e.message);return res.status(409).send(page('Account could not be deleted','<h1>Account was not deleted</h1><p class="muted">The database prevented deletion because some related records still depend on this account. No partial deletion was committed. Review the related records and database relationships before retrying.</p><a class="btn" href="/admin/members/'+Number(req.params.memberId)+'">Back to member</a>'));}
+  });
+});
+
 app.get('/admin/members/:memberId', requireAdmin, async (req,res,next)=>{
   try {
     const memberId=Number(req.params.memberId);
     if(!Number.isSafeInteger(memberId)||memberId<1)return res.sendStatus(400);
-    const [rows]=await pool.execute('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,m.created_at,mp.phone_number,mp.avatar_key,p.nickname,p.requested,p.approved,p.visible FROM members m LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE m.id=? LIMIT 1',[memberId]);
+    const [rows]=await pool.execute('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,m.created_at,mp.phone_number,mp.avatar_key,p.nickname,p.requested,p.approved,p.visible'+(await pool.execute("SHOW COLUMNS FROM members LIKE 'is_blocked'").then(x=>x[0].length?' ,m.is_blocked,m.block_reason':' ,0 AS is_blocked,NULL AS block_reason'))+' FROM members m LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE m.id=? LIMIT 1',[memberId]);
     if(!rows.length)return res.status(404).send(page('Member not found','<h1>Member account not found</h1><a class="btn" href="/admin/members">Back to members</a>'));
     const m=rows[0];
     const photo=m.avatar_key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(m.avatar_key))?'/member-avatar/'+encodeURIComponent(m.avatar_key):'/assets/images/monarch-codex-logo.svg';
     let kycStatus='Not submitted';
     try { const [k]=await pool.execute('SELECT status,submitted_at,reviewed_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[memberId]); if(k.length)kycStatus=String(k[0].status||'Submitted').replace(/_/g,' '); } catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
-    const content='<section class="ac-panel"><div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><img src="'+photo+'" alt="Profile photo of '+esc(m.full_name||m.username)+'" style="width:124px;height:124px;object-fit:cover;border-radius:50%;border:3px solid #dfbd62"><div><h2>'+esc(m.full_name||m.username)+'</h2><p class="muted">@'+esc(m.username)+'</p><p>'+esc(m.nickname||'No public nickname set')+'</p><span class="badge">'+esc(kycStatus)+'</span></div></div></section><section class="ac-panel"><h2>Registered account details</h2><dl class="ac-detail-list"><dt>Member ID</dt><dd>'+esc(m.id)+'</dd><dt>Monarch ID</dt><dd>'+esc(m.monarch_uid||'—')+'</dd><dt>Full name</dt><dd>'+esc(m.full_name||'—')+'</dd><dt>Username</dt><dd>'+esc(m.username||'—')+'</dd><dt>Email</dt><dd>'+esc(m.email||'—')+'</dd><dt>Phone</dt><dd>'+esc(m.phone_number||'—')+'</dd><dt>Homepage listing</dt><dd>'+((m.approved&&m.visible)?'Approved and visible':m.requested?'Awaiting review':'Not requested')+'</dd><dt>Registered</dt><dd>'+esc(m.created_at||'—')+'</dd></dl><p><a class="btn" style="background:#f3cf3c;color:#17130a!important;font-weight:900" href="/admin/monarchs">Manage homepage profiles</a> <a class="btn" style="background:#f3cf3c;color:#17130a!important;font-weight:900" href="/admin/members">Back to members</a></p></section><style>.ac-detail-list{display:grid;grid-template-columns:minmax(110px,180px) minmax(0,1fr);gap:10px 16px}.ac-detail-list dt{color:#cbb46a;font-weight:700}.ac-detail-list dd{margin:0;overflow-wrap:anywhere}@media(max-width:480px){.ac-detail-list{grid-template-columns:1fr;gap:4px}.ac-detail-list dd{margin-bottom:12px}}</style>';
+    const statusNotice=req.query.notice==='blocked'?'Account blocked successfully.':req.query.notice==='unblocked'?'Account unblocked successfully.':req.query.notice==='deleted'?'Member account and associated member records deleted.':'';
+    const accountControls='<section class="ac-panel"><h2>Account access controls</h2><p class="muted">Blocking prevents the member from using the account. Permanent deletion is irreversible and removes associated member records.</p><form method="post" action="/admin/members/'+Number(m.id)+'/block">'+csrfField(req)+'<label for="blockReason">Reason (optional)</label><input id="blockReason" name="reason" maxlength="500" placeholder="Reason for blocking this account"><button class="btn" type="submit">'+(Number(m.is_blocked)?'Unblock account':'Block account')+'</button></form><form method="post" action="/admin/members/'+Number(m.id)+'/delete" onsubmit="return confirm(\'Permanently delete this account and associated member records? This cannot be undone.\')">'+csrfField(req)+'<label>Permanent deletion</label><input name="confirmUsername" required placeholder="Type '+esc(m.username)+' to confirm"><button class="btn" type="submit" style="background:#7f1d1d;color:#fff">Delete full account permanently</button></form></section>';
+    const content=(statusNotice?'<section class="ac-panel"><p class="notice">'+esc(statusNotice)+'</p></section>':'')+'<section class="ac-panel"><div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><img src="'+photo+'" alt="Profile photo of '+esc(m.full_name||m.username)+'" style="width:124px;height:124px;object-fit:cover;border-radius:50%;border:3px solid #dfbd62"><div><h2>'+esc(m.full_name||m.username)+'</h2><p class="muted">@'+esc(m.username)+'</p><p>'+esc(m.nickname||'No public nickname set')+'</p><span class="badge">'+esc(kycStatus)+'</span></div></div></section>'+accountControls+'<section class="ac-panel"><h2>Registered account details</h2><dl class="ac-detail-list"><dt>Member ID</dt><dd>'+esc(m.id)+'</dd><dt>Monarch ID</dt><dd>'+esc(m.monarch_uid||'—')+'</dd><dt>Full name</dt><dd>'+esc(m.full_name||'—')+'</dd><dt>Username</dt><dd>'+esc(m.username||'—')+'</dd><dt>Email</dt><dd>'+esc(m.email||'—')+'</dd><dt>Phone</dt><dd>'+esc(m.phone_number||'—')+'</dd><dt>Homepage listing</dt><dd>'+((m.approved&&m.visible)?'Approved and visible':m.requested?'Awaiting review':'Not requested')+'</dd><dt>Registered</dt><dd>'+esc(m.created_at||'—')+'</dd></dl><p><a class="btn" style="background:#f3cf3c;color:#17130a!important;font-weight:900" href="/admin/monarchs">Manage homepage profiles</a> <a class="btn" style="background:#f3cf3c;color:#17130a!important;font-weight:900" href="/admin/members">Back to members</a></p></section><style>.ac-detail-list{display:grid;grid-template-columns:minmax(110px,180px) minmax(0,1fr);gap:10px 16px}.ac-detail-list dt{color:#cbb46a;font-weight:700}.ac-detail-list dd{margin:0;overflow-wrap:anywhere}@media(max-width:480px){.ac-detail-list{grid-template-columns:1fr;gap:4px}.ac-detail-list dd{margin-bottom:12px}}</style>';
     res.send(adminControlPage('Member profile','/admin/members',content,req));
   } catch(e){if(e.code==='ER_NO_SUCH_TABLE'&&String(e.sqlMessage||'').includes('monarch_public_profiles'))return res.status(503).send(dbSetupNotice('Monarchs profiles setup required','migrations/013_monarchs_directory.sql'));next(e);}
 });
