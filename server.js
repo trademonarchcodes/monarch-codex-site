@@ -849,11 +849,29 @@ app.post('/admin/settings/deposit-pricing', requireFinanceAdmin, express.urlenco
 
 app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   try {
-    const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active FROM members m LEFT JOIN admin_users au ON au.member_id=m.id ORDER BY m.id DESC LIMIT 200');
-    const table=rows.map(m=>'<tr><td>'+esc(m.id)+'</td><td><strong>'+esc(m.username)+'</strong><br><small>'+esc(m.full_name||'')+'</small></td><td>'+esc(m.email)+'</td><td>'+esc(m.monarch_uid||'—')+'</td><td>'+esc(m.role?m.role.replace(/_/g,' '):'Member')+'</td><td>'+esc(m.role?(Number(m.is_active)?'Active admin':'Inactive admin'):'Member account')+'</td></tr>').join('');
-    const content='<section class="ac-panel"><h2>Member accounts</h2><p class="muted">Showing up to 200 most recently created accounts. Admin status is sourced from the admin access table.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>ID</th><th>Account</th><th>Email</th><th>Monarch ID</th><th>Role</th><th>Status</th></tr></thead><tbody>'+(table||'<tr><td colspan="6">No accounts found.</td></tr>')+'</tbody></table></div></section>';
+    const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active,mp.avatar_key FROM members m LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY m.id DESC LIMIT 200');
+    const table=rows.map(m=>{
+      const photo=m.avatar_key && /^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(String(m.avatar_key))?'/member-avatar/'+encodeURIComponent(m.avatar_key):'/assets/images/monarch-codex-logo.svg';
+      return '<tr><td>'+esc(m.id)+'</td><td><div style="display:flex;align-items:center;gap:10px"><img src="'+photo+'" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:2px solid #dfbd62"><div><strong>'+esc(m.username)+'</strong><br><small>'+esc(m.full_name||'')+'</small></div></div></td><td>'+esc(m.email)+'</td><td>'+esc(m.monarch_uid||'—')+'</td><td>'+esc(m.role?m.role.replace(/_/g,' '):'Member')+'</td><td>'+esc(m.role?(Number(m.is_active)?'Active admin':'Inactive admin'):'Member account')+'</td><td><a class="btn" href="/admin/members/'+Number(m.id)+'">View profile</a></td></tr>';
+    }).join('');
+    const content='<section class="ac-panel"><h2>Member accounts</h2><p class="muted">View account information and uploaded profile photos for the 200 most recently created accounts.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>ID</th><th>Profile</th><th>Email</th><th>Monarch ID</th><th>Role</th><th>Status</th><th>Details</th></tr></thead><tbody>'+(table||'<tr><td colspan="7">No accounts found.</td></tr>')+'</tbody></table></div></section>';
     res.send(adminControlPage('Members','/admin/members',content,req));
   } catch(e){next(e);}
+});
+
+app.get('/admin/members/:memberId', requireAdmin, async (req,res,next)=>{
+  try {
+    const memberId=Number(req.params.memberId);
+    if(!Number.isSafeInteger(memberId)||memberId<1)return res.sendStatus(400);
+    const [rows]=await pool.execute('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,m.created_at,mp.phone_number,mp.avatar_key,p.nickname,p.requested,p.approved,p.visible FROM members m LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE m.id=? LIMIT 1',[memberId]);
+    if(!rows.length)return res.status(404).send(page('Member not found','<h1>Member account not found</h1><a class="btn" href="/admin/members">Back to members</a>'));
+    const m=rows[0];
+    const photo=m.avatar_key&&/^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(String(m.avatar_key))?'/member-avatar/'+encodeURIComponent(m.avatar_key):'/assets/images/monarch-codex-logo.svg';
+    let kycStatus='Not submitted';
+    try { const [k]=await pool.execute('SELECT status,submitted_at,reviewed_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[memberId]); if(k.length)kycStatus=String(k[0].status||'Submitted').replace(/_/g,' '); } catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const content='<section class="ac-panel"><div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><img src="'+photo+'" alt="Profile photo of '+esc(m.full_name||m.username)+'" style="width:124px;height:124px;object-fit:cover;border-radius:50%;border:3px solid #dfbd62"><div><h2>'+esc(m.full_name||m.username)+'</h2><p class="muted">@'+esc(m.username)+'</p><p>'+esc(m.nickname||'No public nickname set')+'</p><span class="badge">'+esc(kycStatus)+'</span></div></div></section><section class="ac-panel"><h2>Registered account details</h2><dl class="ac-detail-list"><dt>Member ID</dt><dd>'+esc(m.id)+'</dd><dt>Monarch ID</dt><dd>'+esc(m.monarch_uid||'—')+'</dd><dt>Full name</dt><dd>'+esc(m.full_name||'—')+'</dd><dt>Username</dt><dd>'+esc(m.username||'—')+'</dd><dt>Email</dt><dd>'+esc(m.email||'—')+'</dd><dt>Phone</dt><dd>'+esc(m.phone_number||'—')+'</dd><dt>Homepage listing</dt><dd>'+((m.approved&&m.visible)?'Approved and visible':m.requested?'Awaiting review':'Not requested')+'</dd><dt>Registered</dt><dd>'+esc(m.created_at||'—')+'</dd></dl><p><a class="btn" href="/admin/monarchs">Manage homepage profiles</a> <a class="btn" href="/admin/members">Back to members</a></p></section><style>.ac-detail-list{display:grid;grid-template-columns:minmax(110px,180px) minmax(0,1fr);gap:10px 16px}.ac-detail-list dt{color:#cbb46a;font-weight:700}.ac-detail-list dd{margin:0;overflow-wrap:anywhere}@media(max-width:480px){.ac-detail-list{grid-template-columns:1fr;gap:4px}.ac-detail-list dd{margin-bottom:12px}}</style>';
+    res.send(adminControlPage('Member profile','/admin/members',content,req));
+  } catch(e){if(e.code==='ER_NO_SUCH_TABLE'&&String(e.sqlMessage||'').includes('monarch_public_profiles'))return res.status(503).send(dbSetupNotice('Monarchs profiles setup required','migrations/013_monarchs_directory.sql'));next(e);}
 });
 
 const KYC_REJECTION_REASONS = Object.freeze({
@@ -1267,8 +1285,20 @@ app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,r
       if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Profile photo storage is not configured</h1><p class="muted">The site owner must configure private upload storage.</p>'));
       fs.mkdirSync(dir,{recursive:true,mode:0o700});
       const key=crypto.randomBytes(24).toString('hex')+({ 'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime]);
-      fs.writeFileSync(path.join(dir,key),buf,{mode:0o600,flag:'wx'});
-      await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);
+      const newPath=path.join(dir,key);
+      fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+      let previousKey=null;
+      try {
+        const [oldRows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
+        previousKey=oldRows[0] && String(oldRows[0].avatar_key||'');
+      } catch(e) { if(e.code!=='ER_NO_SUCH_TABLE') { try{fs.unlinkSync(newPath);}catch(_){} throw e; } }
+      try {
+        await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);
+      } catch(e) { try{fs.unlinkSync(newPath);}catch(_){} throw e; }
+      // Remove the previous private image only after the database points to the new one.
+      if(previousKey && previousKey!==key && /^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(previousKey)) {
+        try { fs.unlinkSync(path.join(dir,previousKey)); } catch(e) { if(e.code!=='ENOENT') console.error('[profile photo cleanup] Unable to remove previous image'); }
+      }
       res.redirect('/profile');
     });
   }catch(e){next(e);}
