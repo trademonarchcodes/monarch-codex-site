@@ -452,3 +452,50 @@ html[data-theme="light"] .member-main .panel,html[data-theme="light"] .member-ma
 html[data-theme="light"] .member-main input,html[data-theme="light"] .member-main select,html[data-theme="light"] .member-main textarea{background:#fff!important;color:#191b20!important;border-color:#dfe1e6!important}
 @media(max-width:760px){.member-experience{width:100%!important;max-width:none!important;margin:0!important;border:0!important;border-radius:0!important;box-shadow:none!important}.member-workspace{min-width:0!important;width:100%!important;padding-left:clamp(14px,4vw,22px)!important;padding-right:clamp(14px,4vw,22px)!important}.member-main{min-width:0!important}}
 @media(prefers-reduced-motion:reduce){.member-experience *{transition:none!important}}
+
+
+/* High-contrast readable light mode for all member dashboard copy */
+html[data-theme="light"] .member-experience .member-workspace,
+html[data-theme="light"] .member-experience .member-main,
+html[data-theme="light"] .member-experience .member-main p,
+html[data-theme="light"] .member-experience .member-main li,
+html[data-theme="light"] .member-experience .member-main label,
+html[data-theme="light"] .member-experience .member-main small,
+html[data-theme="light"] .member-experience .member-main summary,
+html[data-theme="light"] .member-experience .member-main .muted,
+html[data-theme="light"] .member-experience .member-main .helper-text,
+html[data-theme="light"] .member-experience .member-main .form-hint,
+html[data-theme="light"] .member-experience .member-main .description,
+html[data-theme="light"] .member-experience .member-main td,
+html[data-theme="light"] .member-experience .member-main th {
+  color:#202127!important;
+  font-weight:650!important;
+}
+html[data-theme="light"] .member-experience .member-main h1,
+html[data-theme="light"] .member-experience .member-main h2,
+html[data-theme="light"] .member-experience .member-main h3,
+html[data-theme="light"] .member-experience .member-main h4,
+html[data-theme="light"] .member-experience .member-main strong,
+html[data-theme="light"] .member-experience .member-main b {
+  color:#111318!important;
+  font-weight:800!important;
+}
+html[data-theme="light"] .member-experience .member-main a:not(.btn):not(.button):not([class*="button"]) {
+  color:#79580a!important;
+  font-weight:750!important;
+}
+html[data-theme="light"] .member-experience .member-main .notice,
+html[data-theme="light"] .member-experience .member-main .alert,
+html[data-theme="light"] .member-experience .member-main .status,
+html[data-theme="light"] .member-experience .member-main .badge {
+  color:#202127!important;
+  font-weight:700!important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a {
+  color:#242630!important;
+  font-weight:750!important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"] {
+  background:#fff8df!important;
+  border-color:#d5b34a!important;
+}
