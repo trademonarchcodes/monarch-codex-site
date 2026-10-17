@@ -48,16 +48,15 @@ function createSovereignDeskRouter(deps) {
   const table = (heads, rows, empty) => '<div class="ac-table-wrap"><table class="ac-table"><thead><tr>' + heads.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + (rows || '<tr><td colspan="' + heads.length + '">' + empty + '</td></tr>') + '</tbody></table></div>';
   const postForm = (req, action, fields, button, extra = '') => '<form method="post" action="' + action + '">' + csrfField(req) + fields + '<button class="btn" type="submit">' + button + '</button>' + extra + '</form>';
   const notice = text => text ? '<div class="ac-alert" role="status">' + esc(text) + '</div>' : '';
-  const signalForm = (req, signal = {}) => postForm(req, signal.id ? '/sovereign-admin/signals/' + Number(signal.id) + '/update' : '/sovereign-admin/signals', 
-    '<label>Signal title</label><input name="title" maxlength="180" required value="' + esc(signal.title || '') + '">' +
-    '<label>Asset / pair</label><input name="asset_pair" maxlength="40" required placeholder="e.g. EUR/USD or BTC/USDT" value="' + esc(signal.asset_pair || '') + '">' +
-    '<label>Direction</label><select name="direction"><option value="neutral"' + (signal.direction === 'neutral' || !signal.direction ? ' selected' : '') + '>Neutral / analysis</option><option value="buy"' + (signal.direction === 'buy' ? ' selected' : '') + '>Buy</option><option value="sell"' + (signal.direction === 'sell' ? ' selected' : '') + '>Sell</option></select>' +
-    '<label>Entry zone (optional)</label><input name="entry_zone" maxlength="160" value="' + esc(signal.entry_zone || '') + '">' +
-    '<div class="ac-tiles"><div><label>Stop loss</label><input name="stop_loss" maxlength="100" value="' + esc(signal.stop_loss || '') + '"></div><div><label>Take profit 1</label><input name="take_profit_1" maxlength="100" value="' + esc(signal.take_profit_1 || '') + '"></div><div><label>Take profit 2</label><input name="take_profit_2" maxlength="100" value="' + esc(signal.take_profit_2 || '') + '"></div></div>' +
-    '<label>Timeframe</label><input name="timeframe" maxlength="40" value="' + esc(signal.timeframe || '') + '">' +
-    '<label>Analysis and risk notes</label><textarea name="explanation" rows="5" maxlength="12000" required>' + esc(signal.explanation || '') + '</textarea>' +
-    '<label>Expiry (optional; local server time)</label><input name="expires_at" type="datetime-local" value="' + esc(signal.expires_at ? String(signal.expires_at).replace(' ', 'T').slice(0, 16) : '') + '">',
-    signal.id ? 'Save signal changes' : 'Save signal as draft');
+  const signalForm = (req, signal = {}) => postForm(req, signal.id ? '/sovereign-admin/signals/' + Number(signal.id) + '/update' : '/sovereign-admin/signals',
+    '<label>Instrument</label><input name="asset_pair" maxlength="40" required placeholder="e.g. XAUUSD, EURUSD, BTCUSDT" value="' + esc(signal.asset_pair || '') + '">' +
+    '<label>Action</label><select name="direction" required><option value="buy"' + (signal.direction === 'buy' ? ' selected' : '') + '>BUY</option><option value="sell"' + (signal.direction === 'sell' ? ' selected' : '') + '>SELL</option></select>' +
+    '<label>Price / entry</label><input name="price" maxlength="100" required placeholder="Enter price or entry zone" value="' + esc(signal.price || signal.entry_zone || '') + '">' +
+    '<div class="ac-tiles"><div><label>Take profit (optional)</label><input name="take_profit_1" maxlength="100" value="' + esc(signal.take_profit_1 || '') + '"></div><div><label>Stop loss (optional)</label><input name="stop_loss" maxlength="100" value="' + esc(signal.stop_loss || '') + '"></div></div>' +
+    '<label>Signal note (optional)</label><textarea name="explanation" rows="3" maxlength="12000">' + esc(signal.explanation || '') + '</textarea>' +
+    '<label>Validation decision</label><select name="validation_status" required><option value="pending"' + (!signal.validation_status || signal.validation_status === 'pending' ? ' selected' : '') + '>Pending — hidden from members</option><option value="valid"' + (signal.validation_status === 'valid' ? ' selected' : '') + '>Valid — approve for members</option><option value="invalid"' + (signal.validation_status === 'invalid' ? ' selected' : '') + '>Invalid — keep hidden</option></select>' +
+    '<label>Expiry (optional)</label><input name="expires_at" type="datetime-local" value="' + esc(signal.expires_at ? String(signal.expires_at).replace(' ', 'T').slice(0, 16) : '') + '">',
+    signal.id ? 'Save signal changes' : 'Save signal for validation');
   const guidanceForm = (req, item = {}) => postForm(req, item.id ? '/sovereign-admin/mentorship/' + Number(item.id) + '/update' : '/sovereign-admin/mentorship',
     '<label>Mentorship title</label><input name="title" maxlength="180" required value="' + esc(item.title || '') + '">' +
     '<label>Mentorship content</label><textarea name="body" rows="7" maxlength="20000" required>' + esc(item.body || '') + '</textarea>',
@@ -82,7 +81,7 @@ function createSovereignDeskRouter(deps) {
 
   router.get('/sovereign-admin/signals', requireAdmin, adminOnly, async (req,res,next) => {
     try {
-      const [rows] = await pool.execute('SELECT id,title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100');
+      const [rows] = await pool.execute('SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,validation_status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100');
       const tableRows = rows.map(s=>'<tr><td><strong>'+esc(s.title)+'</strong><br><small>'+esc(s.asset_pair)+' · '+esc(s.direction)+'</small><br><small>'+esc(s.explanation).slice(0,160)+'</small></td><td>'+statusLabel(s.status)+'</td><td>'+dateLabel(s.published_at || s.created_at)+'</td><td><div class="ac-actions"><a class="copy-btn" href="/sovereign-admin/signals/'+Number(s.id)+'/edit">Edit</a>'+postForm(req,'/sovereign-admin/signals/'+Number(s.id)+'/status','<select name="status" aria-label="Signal status"><option value="draft">Draft</option><option value="published">Publish</option><option value="closed">Close</option><option value="archived">Archive</option></select>','Update status')+'</div></td></tr>').join('');
       const content = panel('Create a signal','Save as a draft first, then publish when ready. Only published signals are visible to members with active desk access.',signalForm(req)) +
         panel('Saved signals','Signals are stored in the database; publishing timestamps and status are recorded.',table(['Signal','Status','Published / created','Actions'],tableRows,'No signals have been created yet.'));
