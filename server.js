@@ -1335,7 +1335,7 @@ app.get('/members/:username', async(req,res,next)=>{
     if(!rows.length)return res.status(404).send(page('Profile not found','<h1>Member not found</h1><a class="btn" href="/">Return home</a>'));
     let avatar='/assets/images/monarch-codex-logo.svg';
     try{const [p]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[rows[0].id]);if(p[0]&&p[0].avatar_key)avatar='/member-avatar/'+encodeURIComponent(p[0].avatar_key);}catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
-    const body='<style>.public-profile{max-width:560px;margin:0 auto;text-align:center}.public-avatar{width:130px;height:130px;object-fit:cover;border-radius:50%;border:2px solid #f3cf3c;margin:10px auto 20px;display:block}</style><div class="public-profile"><img class="public-avatar" src="'+avatar+'" alt="Profile picture"><h1>'+esc(rows[0].full_name)+'</h1><p class="muted">@'+esc(rows[0].username)+'</p><p class="muted">Monarch Codex member</p><a class="btn" href="/">Return to Monarch Codex</a></div>';
+    const body='<style>.public-profile{max-width:560px;margin:0 auto;text-align:center}.public-avatar{display:block;width:130px;height:130px;aspect-ratio:1/1;object-fit:cover;object-position:50% 50%;border-radius:50%;border:3px solid #dfbd62;margin:10px auto 20px}</style><div class="public-profile"><img class="public-avatar" src="'+avatar+'" alt="Profile picture"><h1>'+esc(rows[0].full_name)+'</h1><p class="muted">@'+esc(rows[0].username)+'</p><p class="muted">Monarch Codex member</p><a class="btn" href="/">Return to Monarch Codex</a></div>';
     res.send(page('Member profile',body));
   }catch(e){next(e);}
 });
