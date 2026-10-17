@@ -1020,19 +1020,21 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
       else if (type === 'investment_purchase') safeTarget = '/investments';
       else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications'].includes(n.target_url)) safeTarget = n.target_url;
       let messageHtml = '';
-      if (type === 'kyc_review' && /not approved|needs attention|resubmission|required/i.test(rawBody)) {
+      if (type === 'kyc_review' && /not approved|unable to approve|needs attention|resubmission|required/i.test(rawBody + ' ' + title)) {
         const reasonMatch = rawBody.match(/Reason(?: for the decision)?:\s*([\s\S]*?)(?=\n\nReview team feedback:|\n\nAdditional details:|\s+Additional details:|\s+Please review the feedback|$)/i);
         const feedbackMatch = rawBody.match(/(?:Review team feedback:|Additional details:)\s*([\s\S]*?)(?=\n\nNext steps:|\s+Please review the feedback|$)/i);
+        const nextStepsMatch = rawBody.match(/Next steps:\s*([\s\S]*?)$/i);
         const reasonText = reasonMatch ? reasonMatch[1].trim() : '';
         let feedbackText = feedbackMatch ? feedbackMatch[1].trim() : '';
+        const nextStepsText = nextStepsMatch ? nextStepsMatch[1].trim() : '';
         feedbackText = feedbackText.replace(/Thank for your cooperation\.?/gi, 'Thank you for your cooperation.');
-        const lead = titleLower.includes('resubmission') || titleLower.includes('action required')
+        const lead = titleLower.includes('resubmission') || titleLower.includes('action required') || titleLower.includes('update your identity')
           ? 'Our review team needs you to update your identity verification before it can be approved.'
           : 'We’re unable to approve your identity verification at this time.';
         messageHtml = '<p class="notification-lead">' + esc(lead) + '</p>' +
           (reasonText ? '<div class="notification-detail"><span>Reason for decision</span><p>' + esc(reasonText) + '</p></div>' : '') +
           (feedbackText ? '<div class="notification-detail"><span>Review team feedback</span><p>' + esc(feedbackText) + '</p></div>' : '') +
-          '<div class="notification-next"><strong>What to do next</strong><p>Review your personal details and NIN or identity document information. Make sure they match your official document exactly, update any incorrect information, and submit the requested changes on the verification page. Contact support if you need help.</p></div>';
+          (nextStepsText ? '<div class="notification-next"><strong>What to do next</strong><p>' + esc(nextStepsText) + '</p></div>' : '<div class="notification-next"><strong>What to do next</strong><p>Open the identity verification page, review the requested corrections, and submit your updated application. Contact support if you need assistance.</p></div>');
       } else {
         messageHtml = rawBody.split(/\n{2,}/).map(part => part.trim()).filter(Boolean).map(part => '<p>' + esc(part).replace(/\n/g, '<br>') + '</p>').join('');
       }
