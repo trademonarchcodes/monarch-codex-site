@@ -90,12 +90,13 @@ function createSovereignDeskRouter(deps) {
   });
 
   router.post('/sovereign-admin/signals', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
-    const title=clean(req.body.title,180), asset=clean(req.body.asset_pair,40), direction=clean(req.body.direction,10), explanation=clean(req.body.explanation,12000);
-    if(!title||!asset||!['buy','sell','neutral'].includes(direction)||!explanation)return res.status(400).send('Please provide a title, asset/pair, direction and analysis.');
-    const expiresRaw=clean(req.body.expires_at,30), expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
+    const asset=clean(req.body.asset_pair,40), direction=clean(req.body.direction,10), price=clean(req.body.price,100), explanation=clean(req.body.explanation,12000), validation=clean(req.body.validation_status,12);
+    const title=(asset+' '+direction.toUpperCase()).slice(0,180);
+    if(!asset||!['buy','sell'].includes(direction)||!price||!['pending','valid','invalid'].includes(validation))return res.status(400).send('Instrument, BUY/SELL action, price and validation decision are required.');
+    const expiresRaw=clean(req.body.expires_at,30), expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null, publish=validation==='valid';
     try{
-      await pool.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,\'draft\',?, ?, ?)',
-      [title,asset,direction,clean(req.body.entry_zone,160)||null,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,clean(req.body.take_profit_2,100)||null,clean(req.body.timeframe,40)||null,explanation,expires||null,req.session.memberId,req.session.memberId]);
+      await pool.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,explanation,status,validation_status,published_at,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [title,asset,direction,price,price,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,explanation||'',publish?'published':'draft',validation,publish?new Date():null,expires||null,req.session.memberId,req.session.memberId]);
       res.redirect('/sovereign-admin/signals?saved=1');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
   });
@@ -111,11 +112,12 @@ function createSovereignDeskRouter(deps) {
 
   router.post('/sovereign-admin/signals/:id/update', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
     if(!idOk(req.params.id))return res.status(400).send('Invalid signal id.');
-    const title=clean(req.body.title,180),asset=clean(req.body.asset_pair,40),direction=clean(req.body.direction,10),explanation=clean(req.body.explanation,12000),expiresRaw=clean(req.body.expires_at,30),expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
-    if(!title||!asset||!['buy','sell','neutral'].includes(direction)||!explanation)return res.status(400).send('Please provide a title, asset/pair, direction and analysis.');
+    const asset=clean(req.body.asset_pair,40),direction=clean(req.body.direction,10),price=clean(req.body.price,100),explanation=clean(req.body.explanation,12000),validation=clean(req.body.validation_status,12),expiresRaw=clean(req.body.expires_at,30),expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
+    const title=(asset+' '+direction.toUpperCase()).slice(0,180),publish=validation==='valid';
+    if(!asset||!['buy','sell'].includes(direction)||!price||!['pending','valid','invalid'].includes(validation))return res.status(400).send('Instrument, BUY/SELL action, price and validation decision are required.');
     try{
-      const [result]=await pool.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,entry_zone=?,stop_loss=?,take_profit_1=?,take_profit_2=?,timeframe=?,explanation=?,expires_at=?,updated_by=? WHERE id=?',
-      [title,asset,direction,clean(req.body.entry_zone,160)||null,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,clean(req.body.take_profit_2,100)||null,clean(req.body.timeframe,40)||null,explanation,expires||null,req.session.memberId,req.params.id]);
+      const [result]=await pool.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,price=?,entry_zone=?,stop_loss=?,take_profit_1=?,explanation=?,validation_status=?,status=?,published_at=CASE WHEN ?=1 THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,expires_at=?,updated_by=? WHERE id=?',
+      [title,asset,direction,price,price,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,explanation||'',validation,publish?'published':'draft',publish?1:0,expires||null,req.session.memberId,req.params.id]);
       if(!result.affectedRows)return res.status(404).send('Signal not found.');
       res.redirect('/sovereign-admin/signals?saved=1');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
