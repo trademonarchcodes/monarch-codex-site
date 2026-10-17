@@ -381,18 +381,19 @@ app.get('/admin/profile', requireAdmin, async (req,res,next)=>{
 function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin' || String(active || '').startsWith('/sovereign-admin');
   const groups = deskOnly ? [
-    {label:'Desk overview',links:[['/sovereign-admin','Overview','◫']]},
-    {label:'Signals & learning',links:[['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦']]},
-    {label:'People & access',links:[['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/chat','Member chat','◉'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/activity','My activity','◷']]},
+    {label:'Desk home',links:[['/sovereign-admin','Overview','◫']]},
+    {label:'Trading operations',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦']]},
+    {label:'Member engagement',links:[['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤']]},
+    {label:'Access & oversight',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/activity','Activity log','◷']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
-    {label:'Control centre',links:[['/admin','Overview','◫']]},
-    {label:'Core operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
-    {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
+    {label:'Overview',links:[['/admin','Dashboard overview','◫']]},
+    {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
-    {label:'People & compliance',links:[['/admin/members','Monarchs','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/kyc','KYC review','◇']]},
-    {label:'Growth & content',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
-    {label:'System & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Settings','⚙']]},
+    {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
+    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
+    {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ];
   const nav = groups.map(group => '<div class="ac-nav-group"><div class="ac-nav-group-label">'+esc(group.label)+'</div>'+group.links.map(([url,label,icon]) => '<a class="ac-nav '+((active===url || (url !== '/admin' && active.startsWith(url+'/')))?'is-active':'')+'" href="'+url+'"'+((active===url || (url !== '/admin' && active.startsWith(url+'/')))?' aria-current="page"':'')+'><span class="ac-nav-icon" aria-hidden="true">'+icon+'</span><b>'+label+'</b><span class="ac-nav-arrow" aria-hidden="true">↗</span></a>').join('')+'</div>').join('');
