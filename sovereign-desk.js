@@ -19,7 +19,7 @@ function createSovereignDeskRouter(deps) {
       ['sovereign_desk_access', '004_admin_sovereign_desk.sql'],
       ['sovereign_access_requests', '004_admin_sovereign_desk.sql'],
       ['member_notifications', '005_member_dashboard_and_sovereign_desk.sql'],
-      ['sovereign_announcements', '010_sovereign_desk_announcements.sql']
+      ['sovereign_announcements', '010_sovereign_desk_announcements.sql'],\n      ['sovereign_chat_messages', '012_sovereign_desk_validation_and_chat.sql']
     ];
     let present = new Set(), roleType = '', checkFailed = false;
     try {
