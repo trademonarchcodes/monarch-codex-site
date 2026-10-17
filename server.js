@@ -383,14 +383,14 @@ function adminControlPage(title, active, content, req) {
   const groups = deskOnly ? [
     {label:'Desk overview',links:[['/sovereign-admin','Overview','◫']]},
     {label:'Signals & learning',links:[['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦']]},
-    {label:'People & access',links:[['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/activity','My activity','◷']]},
+    {label:'People & access',links:[['/sovereign-admin/access','Desk access','♙'],['/sovereign-admin/chat','Member chat','◉'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/activity','My activity','◷']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
     {label:'Control centre',links:[['/admin','Overview','◫']]},
     {label:'People & compliance',links:[['/admin/members','Monarchs','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/kyc','KYC review','◇']]},
     {label:'Financial operations',links:[['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑'],['/admin/transactions','Transactions','◷'],['/admin/balances','Balance management','＋'],['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦']]},
     {label:'Growth & content',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
-    {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
+    {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/sovereign-admin/chat','Desk conversations','◉']]},
     {label:'System & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ];
