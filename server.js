@@ -948,6 +948,9 @@ app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:fal
         rejected: { subject: 'An update on your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', your identity verification was not approved. Reason from our review team: ' + (note || 'Please contact support for clarification.') + '\n\nPlease review your submission and contact support if you need help: ' + baseUrl + '/kyc' },
         needs_resubmission: { subject: 'Action needed: resubmit your Monarch Codex KYC', text: 'Hello ' + kycApplicant.full_name + ', we need you to resubmit your identity verification. Reason and instructions: ' + (note || 'Please review your submitted details and documents, then submit again.') + '\n\nContinue here: ' + baseUrl + '/kyc' }
       };
+      // Select the notification for this decision before attempting email delivery.
+      // Without this assignment the route throws ReferenceError after committing the review.
+      const notification = messages[status];
       const inAppMessages = {
         approved: { title: 'KYC approved', body: 'Congratulations ' + kycApplicant.full_name + '! Your identity verification has been approved. Your KYC status is now approved.', target: '/dashboard' },
         rejected: { title: 'KYC review update', body: 'Your identity verification was not approved. Reason: ' + note + ' Please review the feedback and contact support if needed.', target: '/kyc' },
