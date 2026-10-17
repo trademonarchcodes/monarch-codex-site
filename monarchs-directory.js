@@ -99,7 +99,8 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
       if (!Number.isSafeInteger(memberId) || memberId < 1) return res.sendStatus(400);
       const approved = req.body.approved === 'yes' ? 1 : 0;
       const visible = req.body.visible === 'yes' && approved ? 1 : 0;
-      if (approved && !await approvedKyc(memberId)) return res.status(400).send('<h1>Cannot publish profile</h1><p>The member must have approved KYC first.</p><a href="/admin/monarchs">Back</a>');
+      const [[targetAdmin]] = await pool.execute('SELECT member_id FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[memberId]);
+      if (approved && !targetAdmin && !await approvedKyc(memberId)) return res.status(400).send('<h1>Cannot publish profile</h1><p>The member must have approved KYC first.</p><a href="/admin/monarchs">Back to homepage profiles</a>');
       await pool.execute('UPDATE monarch_public_profiles SET approved=?,visible=?,approved_by=?,approved_at=IF(?=1,NOW(),NULL) WHERE member_id=?', [approved, visible, approved ? req.session.memberId : null, approved, memberId]);
       res.redirect('/admin/monarchs');
     } catch (e) { next(e); }
@@ -107,7 +108,7 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
 
   router.get('/api/public-monarchs', async (_req, res, next) => {
     try {
-      const [rows] = await pool.query("SELECT p.nickname,m.full_name,m.username,m.monarch_uid,mp.avatar_key,CASE WHEN au.role = 'main_admin' THEN 'Founder' ELSE 'Members' END AS title FROM monarch_public_profiles p JOIN members m ON m.id=p.member_id LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id JOIN kyc_submissions k ON k.member_id=m.id AND k.status='approved' WHERE p.approved=1 AND p.visible=1 AND p.requested=1 AND k.id=(SELECT MAX(k2.id) FROM kyc_submissions k2 WHERE k2.member_id=m.id) ORDER BY p.approved_at DESC,p.member_id DESC LIMIT 60");
+      const [rows] = await pool.query("SELECT p.nickname,m.full_name,m.username,m.monarch_uid,mp.avatar_key,CASE WHEN au.role = 'main_admin' THEN 'Founder' ELSE 'Members' END AS title FROM monarch_public_profiles p JOIN members m ON m.id=p.member_id LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN kyc_submissions k ON k.member_id=m.id AND k.status='approved' AND k.id=(SELECT MAX(k2.id) FROM kyc_submissions k2 WHERE k2.member_id=m.id) WHERE p.approved=1 AND p.visible=1 AND p.requested=1 AND (au.member_id IS NOT NULL OR k.id IS NOT NULL) ORDER BY p.approved_at DESC,p.member_id DESC LIMIT 60");
       res.set('Cache-Control', 'public, max-age=60');
       res.json(rows.map(p => ({ nickname: p.nickname, name: p.full_name, username: p.username, title: p.title, photo: p.avatar_key ? '/member-avatar/' + encodeURIComponent(p.avatar_key) : '/assets/images/monarch-codex-logo.svg' })));
     } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return res.json([]); next(e); }
