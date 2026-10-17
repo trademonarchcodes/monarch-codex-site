@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const multer = require('multer');
 const createSovereignDeskRouter = require('./sovereign-desk');
 const { renderMemberNavigation } = require('./lib/member-navigation');
+const createMonarchsDirectoryRouter = require('./monarchs-directory');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -2097,9 +2098,44 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
 });
 // Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
 app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
+app.use(createMonarchsDirectoryRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
 
 // Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/', async (_req, res, next) => {
+  try {
+    let html = await fs.promises.readFile(path.join(__dirname, 'index.html'), 'utf8');
+    const monarchsSection = `
+<section id="monarchs" class="monarchs-directory" aria-labelledby="monarchs-title">
+  <div class="monarchs-directory-inner">
+    <p class="monarchs-kicker">THE PEOPLE BEHIND THE KINGDOM</p>
+    <h2 id="monarchs-title">MONARCHS</h2>
+    <p class="monarchs-intro">Meet the members building with Monarch Codex.</p>
+    <div class="monarchs-grid" id="monarchsGrid"><p class="monarchs-empty">Our featured Monarchs will appear here soon.</p></div>
+  </div>
+</section>
+<style>
+.monarchs-directory{padding:clamp(52px,8vw,100px) 20px;background:radial-gradient(ellipse at 50% 0,rgba(221,184,75,.12),transparent 55%),#0a0a0c;color:#f8f3e6}
+.monarchs-directory-inner{max-width:1180px;margin:auto;text-align:center}
+.monarchs-kicker{font-size:11px;letter-spacing:.2em;font-weight:800;color:#dfbd62}
+.monarchs-directory h2{font-size:clamp(34px,6vw,62px);line-height:1;margin:12px 0;color:#f6d56b;letter-spacing:.06em}
+.monarchs-intro{color:#aaa69b;margin:0 auto 30px;max-width:540px}
+.monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:24px;max-width:1000px;margin:auto}
+.monarch-card{padding:22px 14px;border:1px solid rgba(223,189,98,.2);border-radius:20px;background:linear-gradient(145deg,#191817,#101012);min-width:0}
+.monarch-card-photo{width:112px;height:112px;border-radius:50%;object-fit:cover;border:3px solid #dfbd62;box-shadow:0 0 0 6px rgba(223,189,98,.08);background:#191919}
+.monarch-card-name{font-size:17px;font-weight:850;margin:15px 0 3px;overflow-wrap:anywhere}
+.monarch-card-nickname{font-size:13px;color:#dfbd62;margin:0 0 8px}
+.monarch-card-title{display:inline-block;padding:5px 10px;border:1px solid #514421;border-radius:999px;color:#d8c58c;font-size:11px;font-weight:800}
+.monarchs-empty{grid-column:1/-1;color:#aaa69b;padding:25px}
+@media(max-width:480px){.monarchs-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.monarch-card{padding:17px 9px}.monarch-card-photo{width:88px;height:88px}}
+</style>
+<script>
+(async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Profile photo of '+p.name;const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.name;const nick=document.createElement('p');nick.className='monarch-card-nickname';nick.textContent=p.nickname?'“'+p.nickname+'”':'';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,nick,title);grid.append(card)}}catch(_){}})();
+</script>`;
+    if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
+    else html += monarchsSection;
+    res.type('html').send(html);
+  } catch (e) { next(e); }
+});
 app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
   res.sendFile(path.join(__dirname, path.basename(req.path)));
 });
