@@ -542,7 +542,7 @@ app.get('/admin/transactions', requireFinanceAdmin, async (req,res,next) => {
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(adminControlPage('Transactions','/admin/transactions','<section class="ac-panel"><h2>Transaction ledger setup required</h2><p class="muted">The financial_transactions table is missing. Apply the relevant database migration before recording or displaying financial ledger entries.</p></section>',req)); next(e); }
 });
 for (const [route, info] of Object.entries(adminSectionInfo)) {
-  if (['/admin/deposits','/admin/withdrawals','/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
+  if (['/admin/deposits','/admin/withdrawals','/admin/investments','/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings'].includes(route)) continue;
   app.get(route, requireAdmin, async (req,res,next) => {
     if (req.adminRole === 'sovereign_desk_admin') return res.status(403).send(page('Access denied','<h1>Access denied</h1><p class="muted">This section is reserved for Main Admin.</p><a class="btn" href="/sovereign-admin">Return to Sovereign Desk</a>'));
     try {
@@ -557,6 +557,32 @@ function requireFinanceAdmin(req,res,next) {
     next();
   });
 }
+
+app.get('/admin/investments', requireFinanceAdmin, async (req,res,next) => {
+  try {
+    const [packages]=await pool.execute('SELECT id,name,description,currency,price,duration_days,terms,status,created_at,updated_at FROM investment_packages ORDER BY created_at DESC,id DESC');
+    const rows=packages.map(p=>'<tr><td><strong>'+esc(p.name)+'</strong><br><small>'+esc(p.description||'')+'</small></td><td>'+esc(p.currency)+' '+Number(p.price).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8})+'</td><td>'+esc(p.duration_days||'—')+'</td><td>'+esc(p.status)+'</td><td><form method="post" action="/admin/investments/packages">'+csrfField(req)+'<input type="hidden" name="id" value="'+p.id+'"><input type="hidden" name="name" value="'+esc(p.name)+'"><input type="hidden" name="description" value="'+esc(p.description||'')+'"><input type="hidden" name="currency" value="'+esc(p.currency)+'"><input type="hidden" name="price" value="'+esc(p.price)+'"><input type="hidden" name="duration_days" value="'+esc(p.duration_days||'')+'"><input type="hidden" name="terms" value="'+esc(p.terms||'')+'"><button class="copy-btn" name="status" value="'+(p.status==='active'?'inactive':'active')+'" type="submit">'+(p.status==='active'?'Deactivate':'Activate')+'</button></form></td></tr>').join('');
+    const content='<section class="ac-panel"><div class="ac-page-head"><div><h2>Investment packages</h2><p class="muted">Create packages and publish only terms that have been approved. Member purchases deduct the package price plus a 1% fee.</p></div><span class="ac-pill">'+packages.length+' packages</span></div><form method="post" action="/admin/investments/packages" class="ac-form-grid">'+csrfField(req)+'<label>Package name<input name="name" required maxlength="120" placeholder="Package name"></label><label>Currency<select name="currency" required><option value="NGN">NGN · Naira</option><option value="USD">USD · US dollar</option></select></label><label>Package price<input name="price" inputmode="decimal" required placeholder="0.00"></label><label>Duration in days (optional)<input name="duration_days" inputmode="numeric" placeholder="e.g. 30"></label><label style="grid-column:1/-1">Description<textarea name="description" rows="2" maxlength="1000"></textarea></label><label style="grid-column:1/-1">Terms and conditions<textarea name="terms" rows="3" maxlength="2000" required placeholder="Explain maturity, risk, exit and withdrawal terms. Do not promise guaranteed returns."></textarea></label><label>Status<select name="status"><option value="draft">Draft</option><option value="active">Active / visible to members</option><option value="inactive">Inactive</option></select></label><button class="copy-btn" type="submit">Save package</button></form><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Package</th><th>Price</th><th>Duration</th><th>Status</th><th>Action</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5">No packages configured yet.</td></tr>')+'</tbody></table></div><p class="muted small">Package activation makes it available for KYC-approved members. A purchase is charged atomically and cannot be repeated with the same purchase token.</p></section>';
+    res.send(adminControlPage('Investments','/admin/investments',content,req));
+  } catch(e) {
+    if(e&&e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));
+    next(e);
+  }
+});
+app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+  const id=String(req.body.id||'').trim(),name=String(req.body.name||'').trim().slice(0,120),description=String(req.body.description||'').trim().slice(0,1000),currency=String(req.body.currency||''),priceText=String(req.body.price||'').trim(),durationText=String(req.body.duration_days||'').trim(),terms=String(req.body.terms||'').trim().slice(0,2000),status=String(req.body.status||'draft');
+  if(!name||!['NGN','USD'].includes(currency)||!/^\\d{1,12}(?:\\.\\d{1,8})?$/.test(priceText)||Number(priceText)<=0||!(durationText===''||/^\\d{1,5}$/.test(durationText))||!['draft','active','inactive'].includes(status)||!terms) return res.status(400).send(formError('Check package details','Provide a name, valid positive price, currency, optional duration and clear terms.','/admin/investments'));
+  try {
+    if(id){
+      if(!/^\\d{1,20}$/.test(id)) return res.status(400).send(formError('Invalid package','Refresh the package list and try again.','/admin/investments'));
+      await pool.execute('UPDATE investment_packages SET name=?,description=?,currency=?,price=?,duration_days=?,terms=?,status=? WHERE id=?',[name,description,currency,priceText,durationText||null,terms,status,id]);
+    } else {
+      await pool.execute('INSERT INTO investment_packages (name,description,currency,price,duration_days,terms,status,created_by) VALUES (?,?,?,?,?,?,?,?)',[name,description,currency,priceText,durationText||null,terms,status,req.session.memberId]);
+    }
+    try{await pool.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,id?'investment_package.updated':'investment_package.created','investment_package',id||null,JSON.stringify({name,currency,price:priceText,duration_days:durationText||null,status}),req.ip||null]);}catch(auditError){if(auditError.code!=='ER_NO_SUCH_TABLE')throw auditError;}
+    res.redirect('/admin/investments');
+  } catch(e){if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));next(e);}
+});
 app.get('/admin/withdrawals', requireFinanceAdmin, async (req,res,next)=>{
   try{
     const [requests]=await pool.query('SELECT w.*,m.username,m.full_name,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id ORDER BY CASE w.status WHEN \'pending\' THEN 0 WHEN \'approved\' THEN 1 ELSE 2 END,w.created_at DESC LIMIT 200');
@@ -1672,7 +1698,7 @@ app.post('/withdraw', requireAuth, requireApprovedKyc, express.urlencoded({exten
 app.get('/transactions', requireAuth, async (req,res,next) => {
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
-    const [transactions]=await pool.execute('SELECT id,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const [transactions]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
     const [requests]=await pool.execute('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 100',[m.id]);
     const [withdrawals]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
     const money=(currency,amount)=>esc(String(currency)+' '+Number(amount||0).toLocaleString('en-US',{maximumFractionDigits:8}));
