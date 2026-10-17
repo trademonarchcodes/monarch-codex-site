@@ -25,6 +25,7 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
         const [rows] = await pool.execute('SELECT nickname,requested,approved,visible FROM monarch_public_profiles WHERE member_id=? LIMIT 1', [member.id]);
         profile = rows[0] || null;
       } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+      const notice = req.query.notice === 'kyc_required' ? '<div class="ac-alert ac-alert-warning"><strong>Identity verification needed</strong><p>Complete and pass identity verification before requesting a public Monarchs profile.</p></div>' : req.query.notice === 'invalid_nickname' ? '<div class="ac-alert ac-alert-warning"><strong>Check your nickname</strong><p>Use 1–80 characters without HTML tags, then save again.</p></div>' : '';
       const status = !verified
         ? '<div class="notice">Complete and pass identity verification before requesting a public Monarchs profile.</div>'
         : profile && profile.approved && profile.visible
@@ -32,7 +33,7 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
           : profile && profile.requested
             ? '<div class="notice">Your request is awaiting admin review. It will not appear publicly until approved.</div>'
             : '<p class="muted">Request to appear in the public Monarchs directory. An administrator must approve your profile before it becomes visible.</p>';
-      const content = '<section class="ac-panel"><h2>Homepage Monarchs profile</h2>' + status +
+      const content = notice + '<section class="ac-panel"><h2>Homepage Monarchs profile</h2>' + status +
         '<form method="post" action="/profile/monarchs" class="ac-form">' + csrfField(req) +
         '<label for="monarchNickname">Nickname</label><input id="monarchNickname" name="nickname" maxlength="80" required value="' + esc(profile?.nickname || '') + '" placeholder="The name you want displayed">' +
         '<p class="muted">Your full name and member title are sourced from your account. Main Admins are displayed as Founder; members are displayed as Members.</p>' +
@@ -46,9 +47,9 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
     if (csrfErr) return;
     try {
       const memberId = req.session.memberId;
-      if (!await approvedKyc(memberId)) return res.status(403).send('<h1>KYC verification required</h1><p>Only members with approved identity verification can request a public Monarchs profile.</p><a href="/profile/monarchs">Back</a>');
+      if (!await approvedKyc(memberId)) return res.redirect('/profile/monarchs?notice=kyc_required');
       const nickname = String(req.body.nickname || '').trim();
-      if (!nickname || nickname.length > 80 || /[<>]/.test(nickname)) return res.status(400).send('<h1>Check your nickname</h1><p>Use 1–80 characters without HTML tags.</p><a href="/profile/monarchs">Back</a>');
+      if (!nickname || nickname.length > 80 || /[<>]/.test(nickname)) return res.redirect('/profile/monarchs?notice=invalid_nickname');
       const requested = req.body.requestListing === 'yes' ? 1 : 0;
       await pool.execute(
         'INSERT INTO monarch_public_profiles (member_id,nickname,requested,approved,visible) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE approved=IF(VALUES(requested)=0 OR nickname<>VALUES(nickname),0,approved),visible=IF(VALUES(requested)=0 OR nickname<>VALUES(nickname),0,visible),nickname=VALUES(nickname),requested=VALUES(requested)',
@@ -71,7 +72,8 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
         return '<tr><td>' + esc(p.full_name) + '<br><small>@' + esc(p.username) + '</small></td><td>' + esc(p.nickname) + '</td><td>' + title + '</td><td>' + status + '</td><td><form method="post" action="/admin/monarchs/' + Number(p.member_id) + '">' + csrfField(req) +
           '<label class="ac-check"><input type="checkbox" name="approved" value="yes"' + (p.approved ? ' checked' : '') + '> Approve</label><label class="ac-check"><input type="checkbox" name="visible" value="yes"' + (p.visible ? ' checked' : '') + '> Show publicly</label><button class="btn" type="submit">Save</button></form></td></tr>';
       }).join('');
-      const content = ownProfile + '<section class="ac-panel"><h2>Member homepage requests</h2><p class="muted">Review member requests, approve suitable profiles and control public visibility.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Member</th><th>Nickname</th><th>Title</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>' + (table || '<tr><td colspan="5">No profile requests yet.</td></tr>') + '</tbody></table></div></section>';
+      const adminNotice = req.query.notice === 'invalid_nickname' ? '<section class="ac-panel"><div class="ac-alert ac-alert-warning"><strong>Check your nickname</strong><p>Use 1–80 characters without HTML tags, then save again.</p></div></section>' : req.query.notice === 'member_kyc_required' ? '<section class="ac-panel"><div class="ac-alert ac-alert-warning"><strong>Identity verification required</strong><p>This member must have approved identity verification before their profile can be published.</p></div></section>' : '';
+      const content = adminNotice + ownProfile + '<section class="ac-panel"><h2>Member homepage requests</h2><p class="muted">Review member requests, approve suitable profiles and control public visibility.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Member</th><th>Nickname</th><th>Title</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>' + (table || '<tr><td colspan="5">No profile requests yet.</td></tr>') + '</tbody></table></div></section>';
       res.send(adminControlPage('Homepage profiles','/admin/monarchs',content,req));
     } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send('<h1>Setup required</h1><p>Apply migrations/013_monarchs_directory.sql after backing up the database.</p>'); next(e); }
   });
@@ -81,7 +83,7 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
     try {
       const memberId = Number(req.session.memberId);
       const nickname = String(req.body.nickname || '').trim();
-      if (!nickname || nickname.length > 80 || /[<>]/.test(nickname)) return res.status(400).send('<h1>Check your nickname</h1><p>Use 1–80 characters without HTML tags.</p><a href="/admin/monarchs">Back</a>');
+      if (!nickname || nickname.length > 80 || /[<>]/.test(nickname)) return res.redirect('/admin/monarchs?notice=invalid_nickname');
       const publish = req.body.publish === 'yes';
       // Administrator self-publication is controlled by the authenticated admin role; member submissions still require approved KYC.
       await pool.execute(
@@ -100,7 +102,7 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
       const approved = req.body.approved === 'yes' ? 1 : 0;
       const visible = req.body.visible === 'yes' && approved ? 1 : 0;
       const [[targetAdmin]] = await pool.execute('SELECT member_id FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[memberId]);
-      if (approved && !targetAdmin && !await approvedKyc(memberId)) return res.status(400).send('<h1>Cannot publish profile</h1><p>The member must have approved KYC first.</p><a href="/admin/monarchs">Back to homepage profiles</a>');
+      if (approved && !targetAdmin && !await approvedKyc(memberId)) return res.redirect('/admin/monarchs?notice=member_kyc_required');
       await pool.execute('UPDATE monarch_public_profiles SET approved=?,visible=?,approved_by=?,approved_at=IF(?=1,NOW(),NULL) WHERE member_id=?', [approved, visible, approved ? req.session.memberId : null, approved, memberId]);
       res.redirect('/admin/monarchs');
     } catch (e) { next(e); }
