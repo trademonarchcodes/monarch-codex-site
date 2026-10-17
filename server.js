@@ -1020,7 +1020,13 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
       else if (type === 'investment_purchase') safeTarget = '/investments';
       else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications'].includes(n.target_url)) safeTarget = n.target_url;
       let messageHtml = '';
-      if (type === 'kyc_review' && /not approved|unable to approve|needs attention|resubmission|required/i.test(rawBody + ' ' + title)) {
+      const isKycApproved = type === 'kyc_review' && /\bapproved\b|\bverified\b/i.test(title);
+      const isKycRejected = type === 'kyc_review' && !isKycApproved && /not approved|unable to approve|needs attention|rejected/i.test(rawBody + ' ' + title);
+      const isKycResubmission = type === 'kyc_review' && !isKycApproved && !isKycRejected && /needs attention|resubmission|required|action required|update your identity/i.test(rawBody + ' ' + title);
+      if (isKycApproved) {
+        messageHtml = '<p class="notification-lead">Congratulations! Your identity verification has been approved.</p>' +
+          '<div class="notification-next" style="border-color:#285c3a;background:#101d15"><strong style="color:#8be0a4">You’re verified</strong><p>No further KYC action is required at this time. You can view your verification status on the identity verification page.</p></div>';
+      } else if (isKycRejected || isKycResubmission) {
         const reasonMatch = rawBody.match(/Reason(?: for the decision)?:\s*([\s\S]*?)(?=\n\nReview team feedback:|\n\nAdditional details:|\s+Additional details:|\s+Please review the feedback|$)/i);
         const feedbackMatch = rawBody.match(/(?:Review team feedback:|Additional details:)\s*([\s\S]*?)(?=\n\nNext steps:|\s+Please review the feedback|$)/i);
         const nextStepsMatch = rawBody.match(/Next steps:\s*([\s\S]*?)$/i);
@@ -1028,7 +1034,7 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
         let feedbackText = feedbackMatch ? feedbackMatch[1].trim() : '';
         const nextStepsText = nextStepsMatch ? nextStepsMatch[1].trim() : '';
         feedbackText = feedbackText.replace(/Thank for your cooperation\.?/gi, 'Thank you for your cooperation.');
-        const lead = titleLower.includes('resubmission') || titleLower.includes('action required') || titleLower.includes('update your identity')
+        const lead = isKycResubmission
           ? 'Our review team needs you to update your identity verification before it can be approved.'
           : 'We’re unable to approve your identity verification at this time.';
         messageHtml = '<p class="notification-lead">' + esc(lead) + '</p>' +
