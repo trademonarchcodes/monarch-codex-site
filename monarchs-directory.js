@@ -60,6 +60,10 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
 
   router.get('/admin/monarchs', requireAdmin, async (req, res, next) => {
     try {
+      const [[admin]] = await pool.query("SELECT m.id,m.full_name,m.username,au.role,mp.avatar_key,p.nickname,p.requested,p.approved,p.visible FROM admin_users au JOIN members m ON m.id=au.member_id LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE au.member_id=? AND au.is_active=1 LIMIT 1",[req.session.memberId]);
+      const ownPhoto = admin && admin.avatar_key && /^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(String(admin.avatar_key)) ? '/member-avatar/'+encodeURIComponent(admin.avatar_key) : '/assets/images/monarch-codex-logo.svg';
+      const ownStatus = admin && admin.visible && admin.approved ? 'Published on homepage' : admin && admin.requested ? 'Awaiting review' : 'Not published';
+      const ownProfile = '<section class="ac-panel"><h2>Publish your admin profile</h2><p class="muted">Update your public nickname and choose whether your administrator profile appears in the homepage Monarchs section. This uses your saved admin profile photo.</p><div style="display:flex;align-items:center;gap:14px;margin:16px 0;flex-wrap:wrap"><img src="'+ownPhoto+'" alt="Your profile photo" style="width:84px;height:84px;object-fit:cover;border-radius:50%;border:2px solid #dfbd62"><div><strong>'+esc(admin.full_name||admin.username||'Administrator')+'</strong><p class="muted" style="margin:4px 0">@'+esc(admin.username||'')+'</p><span class="badge">'+ownStatus+'</span><p><a class="btn" href="/admin/profile/photo">Update profile photo</a></p></div></div><form method="post" action="/admin/monarchs/self" class="ac-form">'+csrfField(req)+'<label for="adminPublicNickname">Public nickname</label><input id="adminPublicNickname" name="nickname" maxlength="80" required value="'+esc(admin.nickname||'')+'" placeholder="Name to display on the homepage"><label class="ac-check"><input type="checkbox" name="publish" value="yes"'+(admin.visible&&admin.approved&&admin.requested?' checked':'')+'> Publish my profile on the homepage</label><button class="btn" type="submit">Save and update homepage</button></form><p class="muted">Publication requires approved identity verification. Your profile will only appear when you choose to publish it.</p></section>';
       const [rows] = await pool.query("SELECT p.member_id,p.nickname,p.requested,p.approved,p.visible,m.full_name,m.username,au.role,mp.avatar_key FROM monarch_public_profiles p JOIN members m ON m.id=p.member_id LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY p.requested DESC,p.updated_at DESC LIMIT 300");
       const table = rows.map(p => {
         const title = p.role === 'main_admin' ? 'Founder' : 'Members';
@@ -67,10 +71,26 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
         return '<tr><td>' + esc(p.full_name) + '<br><small>@' + esc(p.username) + '</small></td><td>' + esc(p.nickname) + '</td><td>' + title + '</td><td>' + status + '</td><td><form method="post" action="/admin/monarchs/' + Number(p.member_id) + '">' + csrfField(req) +
           '<label class="ac-check"><input type="checkbox" name="approved" value="yes"' + (p.approved ? ' checked' : '') + '> Approve</label><label class="ac-check"><input type="checkbox" name="visible" value="yes"' + (p.visible ? ' checked' : '') + '> Show publicly</label><button class="btn" type="submit">Save</button></form></td></tr>';
       }).join('');
-      const content = '<section class="ac-panel"><h2>Monarchs homepage profiles</h2><p class="muted">Only KYC-approved members may request a listing. Confirm identity and content before publishing.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Member</th><th>Nickname</th><th>Title</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>' + (table || '<tr><td colspan="5">No profile requests yet.</td></tr>') + '</tbody></table></div></section>';
-      res.send(adminControlPage('Monarchs','/admin/monarchs',content,req));
+      const content = ownProfile + '<section class="ac-panel"><h2>Member homepage requests</h2><p class="muted">Review member requests, approve suitable profiles and control public visibility.</p><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Member</th><th>Nickname</th><th>Title</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>' + (table || '<tr><td colspan="5">No profile requests yet.</td></tr>') + '</tbody></table></div></section>';
+      res.send(adminControlPage('Homepage profiles','/admin/monarchs',content,req));
     } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send('<h1>Setup required</h1><p>Apply migrations/013_monarchs_directory.sql after backing up the database.</p>'); next(e); }
   });
+
+  router.post('/admin/monarchs/self', requireAdmin, (req, res, next) => csrfCheck(req, res, async csrfErr => {
+    if (csrfErr) return;
+    try {
+      const memberId = Number(req.session.memberId);
+      const nickname = String(req.body.nickname || '').trim();
+      if (!nickname || nickname.length > 80 || /[<>]/.test(nickname)) return res.status(400).send('<h1>Check your nickname</h1><p>Use 1–80 characters without HTML tags.</p><a href="/admin/monarchs">Back</a>');
+      const publish = req.body.publish === 'yes';
+      if (publish && !await approvedKyc(memberId)) return res.status(400).send('<h1>Identity verification required</h1><p>Your profile cannot be published until your identity verification is approved.</p><a href="/admin/monarchs">Back to homepage profiles</a>');
+      await pool.execute(
+        'INSERT INTO monarch_public_profiles (member_id,nickname,requested,approved,visible,approved_by,approved_at) VALUES (?,?,?,?,?,?,IF(?=1,NOW(),NULL)) ON DUPLICATE KEY UPDATE nickname=VALUES(nickname),requested=VALUES(requested),approved=VALUES(approved),visible=VALUES(visible),approved_by=VALUES(approved_by),approved_at=IF(VALUES(approved)=1,NOW(),NULL)',
+        [memberId,nickname,publish?1:0,publish?1:0,publish?1:0,publish?memberId:null,publish?1:0]
+      );
+      res.redirect('/admin/monarchs');
+    } catch (e) { next(e); }
+  }));
 
   router.post('/admin/monarchs/:memberId', requireAdmin, (req, res, next) => csrfCheck(req, res, async csrfErr => {
     if (csrfErr) return;
