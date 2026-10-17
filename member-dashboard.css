@@ -499,3 +499,12 @@ html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="
   background:#fff8df!important;
   border-color:#d5b34a!important;
 }
+
+
+/* Final contrast override: all member copy remains readable in light mode, including custom feature pages. */
+html[data-theme="light"] .member-experience .member-main :is(p,li,label,small,summary,td,th,dt,dd,figcaption,.muted,.helper-text,.form-hint,.description,.field-help,.hint,.subtitle,.empty-state,.notice,.alert,.status,.investment-info p,.investment-note){color:#202127!important;font-weight:650!important;text-shadow:none!important;opacity:1!important}
+html[data-theme="light"] .member-experience .member-main :is(h1,h2,h3,h4,h5,strong,b,legend){color:#111318!important;font-weight:800!important;text-shadow:none!important;opacity:1!important}
+html[data-theme="light"] .member-experience .member-main :is(input,select,textarea,option){background:#fff!important;color:#17191f!important;border-color:#c9cdd5!important;font-weight:650!important}
+html[data-theme="light"] .member-experience .member-main :is(a:not(.btn):not(.button):not([class*="button"])){color:#694900!important;font-weight:750!important}
+html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"]{background:#fff4c7!important;border-color:#c6a037!important;color:#242018!important}
+html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"]::after,html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"] .member-kyc-lock{background:#352b10!important;color:#ffe16a!important;border-color:#c7a83d!important}
