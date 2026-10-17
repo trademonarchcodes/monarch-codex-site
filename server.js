@@ -2141,8 +2141,15 @@ app.get('/investments', requireAuth, requireApprovedKyc, async (req,res,next) =>
     const m = await getMemberForPage(req,res); if (!m) return;
     const [packages] = await pool.execute("SELECT id,name,description,currency,price,duration_days,terms FROM investment_packages WHERE status='active' ORDER BY price,id");
     const [walletRows] = await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[m.id]);
-    const balances = {NGN:'0.00000000',USD:'0.00000000'};
-    for (const w of walletRows) if (balances[w.currency] !== undefined) balances[w.currency] = String(w.balance || '0');
+    const balances = {NGN:0,USD:0};
+    for (const w of walletRows) if (balances[w.currency] !== undefined) balances[w.currency] = Number(w.balance || 0);
+    const [[fx]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+    const conversionRate = fx && Number(fx.base_usd_ngn_rate)>0 ? Number(fx.base_usd_ngn_rate)*(1+Number(fx.markup_percent||0)/100) : null;
+    if(conversionRate){
+      // The dashboard presents one wallet in either currency. Mirror that behaviour here for package affordability.
+      balances.USD = balances.USD + balances.NGN/conversionRate;
+      balances.NGN = balances.NGN + (Number(walletRows.find(w=>w.currency==='USD')?.balance||0)*conversionRate);
+    }
     const [investments] = await pool.execute('SELECT id,package_name_snapshot,currency,principal_amount,fee_amount,total_charged,duration_days,status,purchase_reference,created_at,matures_at FROM member_investments WHERE member_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[m.id]);
     const [ledger] = await pool.execute("SELECT currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? AND transaction_type='investment_purchase' ORDER BY created_at DESC LIMIT 50",[m.id]);
     const fmt=(c,n)=>(c==='NGN'?'₦':'$')+Number(n||0).toLocaleString(c==='NGN'?'en-NG':'en-US',{minimumFractionDigits:2,maximumFractionDigits:8});
@@ -2185,13 +2192,19 @@ app.post('/investments/:packageId/purchase', requireAuth, requireApprovedKyc, cs
     let walletCurrency=pkg.currency, wallet=null, debitAmount=Number(total), conversionRate=1;
     const [[nativeWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[req.session.memberId,pkg.currency]);
     if(nativeWallet && Number(nativeWallet.balance)+1e-8>=Number(total)) wallet=nativeWallet;
-    else if(pkg.currency==='USD') {
+    else {
       const [[pricing]]=await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
       conversionRate=Number(pricing&&pricing.base_usd_ngn_rate)*(1+Number(pricing&&pricing.markup_percent||0)/100);
-      if(!Number.isFinite(conversionRate)||conversionRate<=0){await conn.rollback();return res.status(503).send(formError('Currency conversion unavailable','The USD-to-NGN conversion rate has not been configured. No funds were deducted.','/investments'));}
-      walletCurrency='NGN'; debitAmount=Math.round(Number(total)*conversionRate*100)/100;
-      const [[ngnWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'NGN\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
-      if(ngnWallet && Number(ngnWallet.balance)+1e-8>=debitAmount) wallet=ngnWallet;
+      if(!Number.isFinite(conversionRate)||conversionRate<=0){await conn.rollback();return res.status(503).send(formError('Currency conversion unavailable','The configured exchange rate is unavailable. No funds were deducted.','/investments'));}
+      if(pkg.currency==='USD'){
+        walletCurrency='NGN'; debitAmount=Math.round(Number(total)*conversionRate*100)/100;
+        const [[otherWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'NGN\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
+        if(otherWallet && Number(otherWallet.balance)+1e-8>=debitAmount) wallet=otherWallet;
+      } else if(pkg.currency==='NGN') {
+        walletCurrency='USD'; debitAmount=Math.round((Number(total)/conversionRate)*100)/100;
+        const [[otherWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'USD\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
+        if(otherWallet && Number(otherWallet.balance)+1e-8>=debitAmount) wallet=otherWallet;
+      }
     }
     if(!wallet){await conn.rollback();return res.redirect('/investments?error=insufficient');}
     const [debit]=await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',[debitAmount,wallet.id,debitAmount]);
@@ -2199,7 +2212,7 @@ app.post('/investments/:packageId/purchase', requireAuth, requireApprovedKyc, cs
     const reference='INV-'+crypto.randomUUID().replace(/-/g,'').toUpperCase();
     const [created]=await conn.execute("INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",[req.session.memberId,pkg.id,pkg.name,pkg.currency,principal,fee,total,pkg.duration_days,pkg.terms||'',reference,key,pkg.duration_days,pkg.duration_days]);
     const walletDebitReference=walletCurrency===pkg.currency?reference:reference+'-FX';
-    await conn.execute("INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",[req.session.memberId,created.insertId,walletCurrency,(-debitAmount).toFixed(8),walletDebitReference,walletCurrency===pkg.currency?null:'USD package converted to NGN at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' USD']);
+    await conn.execute("INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",[req.session.memberId,created.insertId,walletCurrency,(-debitAmount).toFixed(8),walletDebitReference,walletCurrency===pkg.currency?null:(pkg.currency==='USD'?'USD package converted to NGN at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' USD':'NGN package converted to USD at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' NGN')]);
     await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[req.session.memberId,'investment_purchase','Investment package purchased','Your '+pkg.name+' package purchase was recorded. Package price: '+principal+' '+pkg.currency+'; 1% fee: '+fee+' '+pkg.currency+'; total wallet deduction: '+total+' '+pkg.currency+'.','/investments','investment-purchase:'+created.insertId]);
     await conn.commit();
     return res.redirect('/investments?purchase=success');
