@@ -571,7 +571,7 @@ app.get('/admin/transactions', requireFinanceAdmin, async (req,res,next) => {
       (rows.length ? '<div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Date</th><th>Member</th><th>Type</th><th>Amount</th><th>Reference</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>' : '<div class="ac-coming"><strong>No ledger entries recorded yet</strong><p>Approved deposits should create ledger entries. Pending deposit and withdrawal requests are shown in their own review sections until they become completed financial transactions.</p></div>') +
       '</section>';
     res.send(adminControlPage('Transactions','/admin/transactions',content,req));
-  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(adminControlPage('Transactions','/admin/transactions','<section class="ac-panel"><h2>Transaction ledger setup required</h2><p class="muted">The financial_transactions table is missing. Apply the relevant database migration before recording or displaying financial ledger entries.</p></section>',req)); next(e); }
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR') return res.status(503).send(adminControlPage('Transactions','/admin/transactions','<section class="ac-panel"><h2>Transaction ledger setup required</h2><p class="muted">Apply migrations/006_deposit_payment_workflow.sql, 011_investment_packages_and_purchases.sql and 016_financial_activity_and_earnings.sql in order after backing up the database.</p></section>',req)); next(e); }
 });
 for (const [route, info] of Object.entries(adminSectionInfo)) {
   if (['/admin/deposits','/admin/withdrawals','/admin/investments','/admin/referrals','/admin/academy','/admin/sovereign-desk','/admin/notifications','/admin/audit','/admin/settings','/admin/earnings'].includes(route)) continue;
@@ -613,7 +613,7 @@ app.get('/admin/earnings', requireFinanceAdmin, async (req,res,next) => {
       '<p class="muted small">All adjustments are recorded in the financial ledger and audit log. Review the member and currency carefully before submitting.</p></section>';
     res.send(adminControlPage('Profits & bonuses','/admin/earnings',content,req));
   } catch(e) {
-    if(e&&e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Financial activity setup required','migrations/016_financial_activity_and_earnings.sql'));
+    if(e&&(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')) return res.status(503).send(dbSetupNotice('Financial activity setup required','migrations/016_financial_activity_and_earnings.sql'));
     next(e);
   }
 });
@@ -647,7 +647,7 @@ app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:fa
     res.redirect('/admin/earnings?saved=1');
   } catch(e) {
     if(conn){try{await conn.rollback()}catch(_){}conn.release();}
-    if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Financial activity setup required','migrations/016_financial_activity_and_earnings.sql'));
+    if(e&&(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR'))return res.status(503).send(dbSetupNotice('Financial activity setup required','migrations/016_financial_activity_and_earnings.sql'));
     next(e);
   }
 });
@@ -2024,7 +2024,7 @@ app.post('/withdraw', requireAuth, requireApprovedKyc, express.urlencoded({exten
 app.get('/transactions', requireAuth, async (req,res,next) => {
   try {
     const m=await getMemberForPage(req,res); if(!m)return;
-    const [transactions]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,admin_note,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    let transactions=[]; try { const [txRows]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,admin_note,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]); transactions=txRows; } catch(e) { if(e.code!=='ER_BAD_FIELD_ERROR') throw e; const [txRows]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]); transactions=txRows; }
     const [requests]=await pool.execute('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 100',[m.id]);
     const [withdrawals]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
     const money=(currency,amount)=>esc(String(currency)+' '+Number(amount||0).toLocaleString('en-US',{maximumFractionDigits:8}));
