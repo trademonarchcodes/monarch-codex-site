@@ -24,6 +24,67 @@
   var docType = document.getElementById('kycDocType');
   var docNumber = document.getElementById('kycDocNumber');
   var docNumberError = document.getElementById('kycDocNumberError');
+  var saveTimer = null;
+  var draftNotice = null;
+  var draftSaving = false;
+  var draftLoaded = false;
+  function draftFields() {
+    var result = {};
+    ['legalFullName','dateOfBirth','phoneNumber','contactEmail','countryCode','stateRegion','localityLga','streetAddress','documentType','documentIssuerCountry','documentNumber'].forEach(function (name) {
+      var field = form.elements.namedItem(name);
+      if (field && typeof field.value === 'string') result[name] = field.value;
+    });
+    return result;
+  }
+  function setDraftNotice(text) {
+    if (!draftNotice) {
+      draftNotice = document.createElement('p');
+      draftNotice.className = 'kyc-form-message';
+      draftNotice.setAttribute('role','status');
+      draftNotice.setAttribute('aria-live','polite');
+      var actions = form.querySelector('.kyc-actions');
+      if (actions && actions.parentNode) actions.parentNode.insertBefore(draftNotice, actions);
+    }
+    draftNotice.textContent = text;
+  }
+  function saveDraft() {
+    if (uploading || !draftLoaded) return;
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(function () {
+      var csrf = form.querySelector('input[name="_csrf"]');
+      if (!csrf) return;
+      draftSaving = true;
+      fetch('/kyc/draft', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({_csrf:csrf.value,fields:draftFields(),currentStep:current})
+      }).then(function (response) {
+        if (!response.ok) throw new Error('Draft save unavailable');
+        return response.json();
+      }).then(function () {
+        setDraftNotice('Progress saved securely. You can return and continue from this step.');
+      }).catch(function () {
+        setDraftNotice('Your progress could not be saved to your account right now. Keep this page open until saving is available.');
+      }).finally(function () { draftSaving = false; });
+    }, 650);
+  }
+  function restoreDraft() {
+    fetch('/kyc/draft',{credentials:'same-origin',headers:{'Accept':'application/json'}})
+      .then(function (response) { if (!response.ok) throw new Error('draft unavailable'); return response.json(); })
+      .then(function (body) {
+        if (body.draft && typeof body.draft === 'object') {
+          Object.keys(body.draft).forEach(function (name) {
+            var field = form.elements.namedItem(name);
+            if (field && typeof body.draft[name] === 'string') field.value = body.draft[name];
+          });
+          var restoredStep = Math.max(0,Math.min(stages.length-1,Number(body.currentStep)||0));
+          showStage(restoredStep,'next');
+          setDraftNotice('Your saved progress has been restored. For your security, identity photos and selfies must be selected or captured again.');
+        }
+      }).catch(function () {
+        setDraftNotice('Progress saving becomes available when secure draft storage is configured.');
+      }).finally(function () { draftLoaded = true; });
+  }
 
   function isNinDocument() {
     return docType && docType.value === 'national_id' && document.getElementById('kycDocCountry').value === 'NG';
@@ -90,6 +151,7 @@
     setProgress();
     message.textContent = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (draftLoaded) saveDraft();
   }
 
   function validateCurrentStage() {
@@ -202,6 +264,10 @@
     });
     window.addEventListener('pagehide', stopSelfieCamera);
   }
+
+  form.addEventListener('input', saveDraft);
+  form.addEventListener('change', saveDraft);
+  restoreDraft();
 
   next.addEventListener('click', function () {
     if (uploading || !validateCurrentStage()) return;

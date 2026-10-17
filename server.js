@@ -893,7 +893,7 @@ app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
 });
 app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
   try {
-    const [rows] = await pool.query("SELECT id,member_id,legal_full_name,contact_email,document_type,document_issuer_country,document_number_last4,status,submitted_at FROM kyc_submissions ORDER BY submitted_at DESC LIMIT 200");
+    const [rows] = await pool.query("SELECT k.id,k.member_id,k.legal_full_name,k.contact_email,k.document_type,k.document_issuer_country,k.document_number_last4,k.status,k.submitted_at FROM kyc_submissions k WHERE NOT EXISTS (SELECT 1 FROM kyc_submissions newer WHERE newer.member_id=k.member_id AND (newer.submitted_at>k.submitted_at OR (newer.submitted_at=k.submitted_at AND newer.id>k.id))) ORDER BY k.submitted_at DESC,k.id DESC LIMIT 200");
     const rejectionOptions = Object.entries(KYC_REJECTION_REASONS).map(([value, reason]) => '<option value="' + esc(value) + '">' + esc(reason.label) + '</option>').join('');
     const reviewKey = String(req.query.review || '');
     const emailKey = String(req.query.email || '');
@@ -1320,6 +1320,42 @@ const kycUpload = multer({
   }
 }).fields([{ name: 'documentFront', maxCount: 1 }, { name: 'documentBack', maxCount: 1 }, { name: 'selfie', maxCount: 1 }]);
 function validKycText(value, max) { return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max; }
+app.get('/kyc/draft', requireAuth, async (req,res,next) => {
+  try {
+    const config = getKycStorageConfig();
+    const [rows] = await pool.execute('SELECT encrypted_payload,current_step,updated_at FROM kyc_drafts WHERE member_id=? LIMIT 1',[req.session.memberId]);
+    res.set('Cache-Control','no-store');
+    if (!rows.length) return res.json({draft:null});
+    const raw = decryptKycBuffer(Buffer.from(rows[0].encrypted_payload,'base64'),config.key).toString('utf8');
+    return res.json({draft:JSON.parse(raw),currentStep:Number(rows[0].current_step)||0,updatedAt:rows[0].updated_at});
+  } catch(e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({error:'Draft saving is not configured yet.'});
+    if (e && e.status === 503) return res.status(503).json({error:'Secure draft storage is not configured yet.'});
+    return next(e);
+  }
+});
+app.post('/kyc/draft', requireAuth, async (req,res,next) => {
+  try {
+    csrfCheck(req,res,async csrfErr => {
+      if (csrfErr) return;
+      try {
+        const config = getKycStorageConfig();
+        const body = req.body || {}, source = body.fields && typeof body.fields === 'object' ? body.fields : {};
+        const allowed = ['legalFullName','dateOfBirth','phoneNumber','contactEmail','countryCode','stateRegion','localityLga','streetAddress','documentType','documentIssuerCountry','documentNumber'];
+        const draft = {};
+        for (const key of allowed) if (typeof source[key] === 'string') draft[key] = source[key].slice(0, key === 'streetAddress' ? 240 : key === 'documentNumber' ? 80 : 254);
+        const encrypted = encryptKycBuffer(Buffer.from(JSON.stringify(draft),'utf8'),config.key).toString('base64');
+        const step = Math.max(0,Math.min(3,Number.parseInt(body.currentStep,10)||0));
+        await pool.execute('INSERT INTO kyc_drafts (member_id,encrypted_payload,current_step) VALUES (?,?,?) ON DUPLICATE KEY UPDATE encrypted_payload=VALUES(encrypted_payload),current_step=VALUES(current_step),updated_at=CURRENT_TIMESTAMP',[req.session.memberId,encrypted,step]);
+        return res.json({ok:true,savedAt:new Date().toISOString()});
+      } catch(e) {
+        if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({error:'Draft saving is not configured yet.'});
+        if (e && e.status === 503) return res.status(503).json({error:'Secure draft storage is not configured yet.'});
+        return next(e);
+      }
+    });
+  } catch(e) { next(e); }
+});
 app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
   kycUpload(req, res, async err => {
     if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Each image must be 8 MB or smaller.' : 'Upload rejected. Use JPG or PNG images.' });
@@ -1331,7 +1367,7 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
         const b = req.body || {};
         const [existingKycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
         if (existingKycRows.length && ['pending','approved'].includes(existingKycRows[0].status)) {
-          const alreadyApproved = existingKycRows[0].status === 'approved';
+          const alreadyApproved = String(existingKycRows[0].status || '').toLowerCase() === 'approved';
           return res.status(409).json({
             error: alreadyApproved ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',
             status: existingKycRows[0].status
@@ -1364,15 +1400,33 @@ app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
           const numberCipher = encryptKycBuffer(Buffer.from(docNumber,'utf8'),config.key).toString('base64');
           const conn = await pool.getConnection();
           let submissionId;
+          let previousPrivateKeys = [];
           try {
             await conn.beginTransaction();
-            const [result] = await conn.execute(
-              "INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",
-              [req.session.memberId,b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]]);
-            submissionId = result.insertId;
-            await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            await conn.execute('SELECT id FROM members WHERE id=? FOR UPDATE',[req.session.memberId]);
+            const [latestRows] = await conn.execute('SELECT id,status,document_front_private_key,document_back_private_key,selfie_private_key FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1 FOR UPDATE',[req.session.memberId]);
+            const latest = latestRows[0] || null;
+            const latestStatus = String(latest && latest.status || '').toLowerCase();
+            if (latest && ['pending','approved'].includes(latestStatus)) {
+              await conn.rollback();
+              for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+              return res.status(409).json({error:latestStatus === 'approved' ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',status:latestStatus});
+            }
+            const values = [b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]];
+            if (latest && ['rejected','needs_resubmission'].includes(latestStatus)) {
+              submissionId = latest.id;
+              previousPrivateKeys = [latest.document_front_private_key,latest.document_back_private_key,latest.selfie_private_key].filter(Boolean);
+              await conn.execute("UPDATE kyc_submissions SET legal_full_name=?,date_of_birth=?,country_code=?,state_region=?,locality_lga=?,street_address=?,phone_number=?,contact_email=?,document_type=?,document_issuer_country=?,document_number_ciphertext=?,document_number_last4=?,document_front_private_key=?,document_back_private_key=?,selfie_private_key=?,status='pending',reviewer_member_id=NULL,reviewer_note=NULL,reviewed_at=NULL,submitted_at=CURRENT_TIMESTAMP WHERE id=? AND member_id=?",[...values,submissionId,req.session.memberId]);
+              await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,'submitted','Member resubmitted corrected information; existing application record updated')",[submissionId,req.session.memberId]);
+            } else {
+              const [result] = await conn.execute("INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",[req.session.memberId,...values]);
+              submissionId = result.insertId;
+              await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            }
             await conn.commit();
           } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
+          for (const id of previousPrivateKeys) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+          try { await pool.execute('DELETE FROM kyc_drafts WHERE member_id=?',[req.session.memberId]); } catch (draftErr) { if (!draftErr || draftErr.code !== 'ER_NO_SUCH_TABLE') console.error('[kyc draft cleanup]',draftErr.code||'cleanup_failed'); }
           return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
         } catch (e) {
           for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
