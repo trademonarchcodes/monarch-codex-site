@@ -19,7 +19,7 @@ function createSovereignDeskRouter(deps) {
       ['sovereign_desk_access', '004_admin_sovereign_desk.sql'],
       ['sovereign_access_requests', '004_admin_sovereign_desk.sql'],
       ['member_notifications', '005_member_dashboard_and_sovereign_desk.sql'],
-      ['sovereign_announcements', '010_sovereign_desk_announcements.sql']
+      ['sovereign_announcements', '010_sovereign_desk_announcements.sql'],\n      ['sovereign_chat_messages', '012_sovereign_desk_validation_and_chat.sql']
     ];
     let present = new Set(), roleType = '', checkFailed = false;
     try {
@@ -48,16 +48,15 @@ function createSovereignDeskRouter(deps) {
   const table = (heads, rows, empty) => '<div class="ac-table-wrap"><table class="ac-table"><thead><tr>' + heads.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' + (rows || '<tr><td colspan="' + heads.length + '">' + empty + '</td></tr>') + '</tbody></table></div>';
   const postForm = (req, action, fields, button, extra = '') => '<form method="post" action="' + action + '">' + csrfField(req) + fields + '<button class="btn" type="submit">' + button + '</button>' + extra + '</form>';
   const notice = text => text ? '<div class="ac-alert" role="status">' + esc(text) + '</div>' : '';
-  const signalForm = (req, signal = {}) => postForm(req, signal.id ? '/sovereign-admin/signals/' + Number(signal.id) + '/update' : '/sovereign-admin/signals', 
-    '<label>Signal title</label><input name="title" maxlength="180" required value="' + esc(signal.title || '') + '">' +
-    '<label>Asset / pair</label><input name="asset_pair" maxlength="40" required placeholder="e.g. EUR/USD or BTC/USDT" value="' + esc(signal.asset_pair || '') + '">' +
-    '<label>Direction</label><select name="direction"><option value="neutral"' + (signal.direction === 'neutral' || !signal.direction ? ' selected' : '') + '>Neutral / analysis</option><option value="buy"' + (signal.direction === 'buy' ? ' selected' : '') + '>Buy</option><option value="sell"' + (signal.direction === 'sell' ? ' selected' : '') + '>Sell</option></select>' +
-    '<label>Entry zone (optional)</label><input name="entry_zone" maxlength="160" value="' + esc(signal.entry_zone || '') + '">' +
-    '<div class="ac-tiles"><div><label>Stop loss</label><input name="stop_loss" maxlength="100" value="' + esc(signal.stop_loss || '') + '"></div><div><label>Take profit 1</label><input name="take_profit_1" maxlength="100" value="' + esc(signal.take_profit_1 || '') + '"></div><div><label>Take profit 2</label><input name="take_profit_2" maxlength="100" value="' + esc(signal.take_profit_2 || '') + '"></div></div>' +
-    '<label>Timeframe</label><input name="timeframe" maxlength="40" value="' + esc(signal.timeframe || '') + '">' +
-    '<label>Analysis and risk notes</label><textarea name="explanation" rows="5" maxlength="12000" required>' + esc(signal.explanation || '') + '</textarea>' +
-    '<label>Expiry (optional; local server time)</label><input name="expires_at" type="datetime-local" value="' + esc(signal.expires_at ? String(signal.expires_at).replace(' ', 'T').slice(0, 16) : '') + '">',
-    signal.id ? 'Save signal changes' : 'Save signal as draft');
+  const signalForm = (req, signal = {}) => postForm(req, signal.id ? '/sovereign-admin/signals/' + Number(signal.id) + '/update' : '/sovereign-admin/signals',
+    '<label>Instrument</label><input name="asset_pair" maxlength="40" required placeholder="e.g. XAUUSD, EURUSD, BTCUSDT" value="' + esc(signal.asset_pair || '') + '">' +
+    '<label>Action</label><select name="direction" required><option value="buy"' + (signal.direction === 'buy' ? ' selected' : '') + '>BUY</option><option value="sell"' + (signal.direction === 'sell' ? ' selected' : '') + '>SELL</option></select>' +
+    '<label>Price / entry</label><input name="price" maxlength="100" required placeholder="Enter price or entry zone" value="' + esc(signal.price || signal.entry_zone || '') + '">' +
+    '<div class="ac-tiles"><div><label>Take profit (optional)</label><input name="take_profit_1" maxlength="100" value="' + esc(signal.take_profit_1 || '') + '"></div><div><label>Stop loss (optional)</label><input name="stop_loss" maxlength="100" value="' + esc(signal.stop_loss || '') + '"></div></div>' +
+    '<label>Signal note (optional)</label><textarea name="explanation" rows="3" maxlength="12000">' + esc(signal.explanation || '') + '</textarea>' +
+    '<label>Validation decision</label><select name="validation_status" required><option value="pending"' + (!signal.validation_status || signal.validation_status === 'pending' ? ' selected' : '') + '>Pending — hidden from members</option><option value="valid"' + (signal.validation_status === 'valid' ? ' selected' : '') + '>Valid — approve for members</option><option value="invalid"' + (signal.validation_status === 'invalid' ? ' selected' : '') + '>Invalid — keep hidden</option></select>' +
+    '<label>Expiry (optional)</label><input name="expires_at" type="datetime-local" value="' + esc(signal.expires_at ? String(signal.expires_at).replace(' ', 'T').slice(0, 16) : '') + '">',
+    signal.id ? 'Save signal changes' : 'Save signal for validation');
   const guidanceForm = (req, item = {}) => postForm(req, item.id ? '/sovereign-admin/mentorship/' + Number(item.id) + '/update' : '/sovereign-admin/mentorship',
     '<label>Mentorship title</label><input name="title" maxlength="180" required value="' + esc(item.title || '') + '">' +
     '<label>Mentorship content</label><textarea name="body" rows="7" maxlength="20000" required>' + esc(item.body || '') + '</textarea>',
@@ -74,7 +73,7 @@ function createSovereignDeskRouter(deps) {
         '<div class="ac-stats">' +
         [['Published signals',signals.published || 0,'of '+Number(signals.total || 0)+' saved'],['Published mentorship',guidance.published || 0,'of '+Number(guidance.total || 0)+' saved'],['Active access grants',access.active || 0,'approved and not expired'],['Pending access requests',requests.pending || 0,'awaiting review']].map(x=>'<article class="ac-stat"><span>'+x[0]+'</span><strong>'+Number(x[1])+'</strong><small>'+x[2]+'</small></article>').join('') +
         '</div><div class="ac-section-head"><div><h2>Workspace operations</h2><p>Manage each workflow from its dedicated screen.</p></div></div><div class="ac-tiles">' +
-        [['/sovereign-admin/signals','Signals','Draft, publish, close and archive analysis.'],['/sovereign-admin/mentorship','Mentorship','Publish learning and mentorship resources.'],['/sovereign-admin/access','Members & access','Review requests, grant access and revoke expired or inappropriate access.'],['/sovereign-admin/announcements','Announcements','Publish updates and notify desk members.'],['/sovereign-admin/activity','Workspace activity','Recent signals, content and access decisions.']].map(x=>'<a class="ac-tile" href="'+x[0]+'"><span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></span></a>').join('') +
+        [['/sovereign-admin/signals','Signals','Draft, publish, close and archive analysis.'],['/sovereign-admin/mentorship','Mentorship','Publish learning and mentorship resources.'],['/sovereign-admin/access','Members & access','Review requests, grant access and revoke expired or inappropriate access.'],['/sovereign-admin/chat','Member chat','Reply to members in private conversations with sent and seen receipts.'],['/sovereign-admin/announcements','Announcements','Publish updates and notify desk members.'],['/sovereign-admin/activity','Workspace activity','Recent signals, content and access decisions.']].map(x=>'<a class="ac-tile" href="'+x[0]+'"><span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></span></a>').join('') +
         '</div><section class="ac-panel"><h2>Announcement status</h2><p>'+Number(announcements.published || 0)+' published announcements out of '+Number(announcements.total || 0)+' saved. Announcements are delivered to signed-in members who have active Sovereign Desk access.</p></section>';
       deskAdminPage(req,res,'The Sovereign Desk · Overview','/sovereign-admin',content);
     } catch (e) { dbUnavailable(res,next,e,'Sovereign Desk setup required'); }
@@ -82,21 +81,22 @@ function createSovereignDeskRouter(deps) {
 
   router.get('/sovereign-admin/signals', requireAdmin, adminOnly, async (req,res,next) => {
     try {
-      const [rows] = await pool.execute('SELECT id,title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100');
-      const tableRows = rows.map(s=>'<tr><td><strong>'+esc(s.title)+'</strong><br><small>'+esc(s.asset_pair)+' · '+esc(s.direction)+'</small><br><small>'+esc(s.explanation).slice(0,160)+'</small></td><td>'+statusLabel(s.status)+'</td><td>'+dateLabel(s.published_at || s.created_at)+'</td><td><div class="ac-actions"><a class="copy-btn" href="/sovereign-admin/signals/'+Number(s.id)+'/edit">Edit</a>'+postForm(req,'/sovereign-admin/signals/'+Number(s.id)+'/status','<select name="status" aria-label="Signal status"><option value="draft">Draft</option><option value="published">Publish</option><option value="closed">Close</option><option value="archived">Archive</option></select>','Update status')+'</div></td></tr>').join('');
-      const content = panel('Create a signal','Save as a draft first, then publish when ready. Only published signals are visible to members with active desk access.',signalForm(req)) +
+      const [rows] = await pool.execute('SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,validation_status,published_at,expires_at,created_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100');
+      const tableRows = rows.map(s=>'<tr><td><strong>'+esc(s.asset_pair)+' · '+esc(s.direction.toUpperCase())+'</strong><br><small>Price: '+esc(s.price||s.entry_zone||'—')+'</small><br><small>TP: '+esc(s.take_profit_1||'—')+' · SL: '+esc(s.stop_loss||'—')+'</small></td><td>'+statusLabel(s.validation_status||'pending')+'<br><small>Delivery: '+statusLabel(s.status)+'</small></td><td>'+dateLabel(s.published_at || s.created_at)+'</td><td><div class="ac-actions"><a class="copy-btn" href="/sovereign-admin/signals/'+Number(s.id)+'/edit">Edit / validate</a>'+postForm(req,'/sovereign-admin/signals/'+Number(s.id)+'/status','<select name="status" aria-label="Signal delivery status"><option value="draft">Keep hidden</option><option value="published">Publish (valid only)</option><option value="closed">Close</option><option value="archived">Archive</option></select>','Apply')+'</div></td></tr>').join('');
+      const content = panel('Create a signal','Enter the instrument, BUY/SELL action, price and optional take-profit/stop-loss. A signal stays hidden until explicitly marked VALID and published.',signalForm(req)) +
         panel('Saved signals','Signals are stored in the database; publishing timestamps and status are recorded.',table(['Signal','Status','Published / created','Actions'],tableRows,'No signals have been created yet.'));
       deskAdminPage(req,res,'Signals & analysis','/sovereign-admin/signals',notice(req.query.saved ? 'Signal saved.' : req.query.status ? 'Signal status updated.' : '')+content);
     } catch(e){dbUnavailable(res,next,e,'Signals setup required');}
   });
 
   router.post('/sovereign-admin/signals', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
-    const title=clean(req.body.title,180), asset=clean(req.body.asset_pair,40), direction=clean(req.body.direction,10), explanation=clean(req.body.explanation,12000);
-    if(!title||!asset||!['buy','sell','neutral'].includes(direction)||!explanation)return res.status(400).send('Please provide a title, asset/pair, direction and analysis.');
-    const expiresRaw=clean(req.body.expires_at,30), expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
+    const asset=clean(req.body.asset_pair,40), direction=clean(req.body.direction,10), price=clean(req.body.price,100), explanation=clean(req.body.explanation,12000), validation=clean(req.body.validation_status,12);
+    const title=(asset+' '+direction.toUpperCase()).slice(0,180);
+    if(!asset||!['buy','sell'].includes(direction)||!price||!['pending','valid','invalid'].includes(validation))return res.status(400).send('Instrument, BUY/SELL action, price and validation decision are required.');
+    const expiresRaw=clean(req.body.expires_at,30), expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null, publish=validation==='valid';
     try{
-      await pool.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,\'draft\',?, ?, ?)',
-      [title,asset,direction,clean(req.body.entry_zone,160)||null,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,clean(req.body.take_profit_2,100)||null,clean(req.body.timeframe,40)||null,explanation,expires||null,req.session.memberId,req.session.memberId]);
+      await pool.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,explanation,status,validation_status,published_at,expires_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+      [title,asset,direction,price,price,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,explanation||'',publish?'published':'draft',validation,publish?new Date():null,expires||null,req.session.memberId,req.session.memberId]);
       res.redirect('/sovereign-admin/signals?saved=1');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
   });
@@ -112,20 +112,25 @@ function createSovereignDeskRouter(deps) {
 
   router.post('/sovereign-admin/signals/:id/update', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
     if(!idOk(req.params.id))return res.status(400).send('Invalid signal id.');
-    const title=clean(req.body.title,180),asset=clean(req.body.asset_pair,40),direction=clean(req.body.direction,10),explanation=clean(req.body.explanation,12000),expiresRaw=clean(req.body.expires_at,30),expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
-    if(!title||!asset||!['buy','sell','neutral'].includes(direction)||!explanation)return res.status(400).send('Please provide a title, asset/pair, direction and analysis.');
+    const asset=clean(req.body.asset_pair,40),direction=clean(req.body.direction,10),price=clean(req.body.price,100),explanation=clean(req.body.explanation,12000),validation=clean(req.body.validation_status,12),expiresRaw=clean(req.body.expires_at,30),expires=expiresRaw?expiresRaw.replace('T',' ')+':00':null;
+    const title=(asset+' '+direction.toUpperCase()).slice(0,180),publish=validation==='valid';
+    if(!asset||!['buy','sell'].includes(direction)||!price||!['pending','valid','invalid'].includes(validation))return res.status(400).send('Instrument, BUY/SELL action, price and validation decision are required.');
     try{
-      const [result]=await pool.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,entry_zone=?,stop_loss=?,take_profit_1=?,take_profit_2=?,timeframe=?,explanation=?,expires_at=?,updated_by=? WHERE id=?',
-      [title,asset,direction,clean(req.body.entry_zone,160)||null,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,clean(req.body.take_profit_2,100)||null,clean(req.body.timeframe,40)||null,explanation,expires||null,req.session.memberId,req.params.id]);
+      const [result]=await pool.execute('UPDATE sovereign_signals SET title=?,asset_pair=?,direction=?,price=?,entry_zone=?,stop_loss=?,take_profit_1=?,explanation=?,validation_status=?,status=?,published_at=CASE WHEN ?=1 THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,expires_at=?,updated_by=? WHERE id=?',
+      [title,asset,direction,price,price,clean(req.body.stop_loss,100)||null,clean(req.body.take_profit_1,100)||null,explanation||'',validation,publish?'published':'draft',publish?1:0,expires||null,req.session.memberId,req.params.id]);
       if(!result.affectedRows)return res.status(404).send('Signal not found.');
       res.redirect('/sovereign-admin/signals?saved=1');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
   });
 
   router.post('/sovereign-admin/signals/:id/status', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
-    if(!idOk(req.params.id)||!['draft','published','closed','archived'].includes(req.body.status))return res.status(400).send('Invalid signal status.');
+    const requested=clean(req.body.status,20);
+    if(!idOk(req.params.id)||!['draft','published','closed','archived'].includes(requested))return res.status(400).send('Invalid signal status.');
     try{
-      const [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?",[req.body.status,req.body.status,req.session.memberId,req.params.id]);
+      const [[signal]]=await pool.execute('SELECT validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[req.params.id]);
+      if(!signal)return res.status(404).send('Signal not found.');
+      if(requested==='published'&&signal.validation_status!=='valid')return res.status(409).send('Mark this signal VALID before publishing it to members.');
+      const [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?",[requested,requested,req.session.memberId,req.params.id]);
       if(!result.affectedRows)return res.status(404).send('Signal not found.');
       res.redirect('/sovereign-admin/signals?status=updated');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
@@ -256,7 +261,41 @@ function createSovereignDeskRouter(deps) {
     }catch(e){dbUnavailable(res,next,e,'Activity setup required');}
   });
 
-  const memberNav = (active) => '<nav class="sd-member-nav" aria-label="Sovereign Desk navigation">'+[['/sovereign-desk','Overview'],['/sovereign-desk/signals','Signals'],['/sovereign-desk/mentorship','Mentorship'],['/sovereign-desk/access','Access'],['/sovereign-desk/announcements','Announcements']].map(([u,t])=>'<a href="'+u+'"'+(active===u?' aria-current="page"':'')+'>'+t+'</a>').join('')+'</nav>';
+  // Desk inbox: each member has a private conversation with the Sovereign Desk.
+  router.get('/sovereign-admin/chat', requireAdmin, adminOnly, async(req,res,next)=>{
+    try{
+      const [rows]=await pool.execute("SELECT m.member_id,mem.full_name,mem.username,MAX(m.created_at) last_message,SUM(CASE WHEN m.sender_role='member' AND m.seen_at IS NULL THEN 1 ELSE 0 END) unread, SUBSTRING_INDEX(GROUP_CONCAT(m.body ORDER BY m.id DESC SEPARATOR '\\n'), '\\n', 1) preview FROM sovereign_chat_messages m JOIN members mem ON mem.id=m.member_id GROUP BY m.member_id,mem.full_name,mem.username ORDER BY MAX(m.created_at) DESC LIMIT 200");
+      const items=rows.map(x=>'<a class="sd-inbox-row" href="/sovereign-admin/chat/'+Number(x.member_id)+'"><span class="sd-inbox-avatar">'+esc(String(x.full_name||x.username||'M').slice(0,1).toUpperCase())+'</span><span class="sd-inbox-copy"><strong>'+esc(x.full_name||x.username||'Member')+'</strong><small>@'+esc(x.username||'member')+' · '+dateLabel(x.last_message)+'</small><span>'+esc(x.preview||'New conversation')+'</span></span>'+(Number(x.unread)>0?'<b class="sd-unread">'+Number(x.unread)+'</b>':'')+'</a>').join('');
+      const content='<style>.sd-inbox{display:grid;gap:9px}.sd-inbox-row{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid #383328;border-radius:15px;background:linear-gradient(120deg,#1b1914,#111113);text-decoration:none;color:#f4ead0}.sd-inbox-avatar{display:grid;place-items:center;width:43px;height:43px;flex:0 0 43px;border-radius:50%;background:linear-gradient(135deg,#f4d77d,#a87d24);color:#19150b;font-weight:950}.sd-inbox-copy{display:grid;gap:4px;min-width:0;flex:1}.sd-inbox-copy small,.sd-inbox-copy span{color:#aaa69b;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sd-unread{display:grid;place-items:center;min-width:23px;height:23px;padding:0 6px;border-radius:99px;background:#e5c46a;color:#17130a;font-size:11px}</style><section class="ac-panel"><div class="ac-page-head"><div><h2>Member conversations</h2><p class="muted">Private one-to-one conversations with members. Opening a thread marks their messages as seen by the Desk.</p></div></div><div class="sd-inbox">'+(items||'<p class="muted">No member messages yet. Conversations will appear here when a member writes to the Desk.</p>')+'</div></section>';
+      deskAdminPage(req,res,'Sovereign Desk · Chat','/sovereign-admin/chat',content);
+    }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
+  });
+  router.get('/sovereign-admin/chat/:memberId', requireAdmin, adminOnly, async(req,res,next)=>{
+    if(!idOk(req.params.memberId))return res.status(400).send('Invalid member id.');
+    try{
+      const [[member]]=await pool.execute('SELECT id,full_name,username,monarch_uid FROM members WHERE id=? LIMIT 1',[req.params.memberId]);
+      if(!member)return res.status(404).send('Member not found.');
+      await pool.execute("UPDATE sovereign_chat_messages SET seen_at=CURRENT_TIMESTAMP WHERE member_id=? AND sender_role='member' AND seen_at IS NULL",[member.id]);
+      const [messages]=await pool.execute('SELECT id,sender_role,body,created_at,seen_at FROM sovereign_chat_messages WHERE member_id=? ORDER BY id ASC LIMIT 500',[member.id]);
+      const bubbles=messages.map(x=>'<div class="sd-chat-line '+(x.sender_role==='desk'?'from-desk':'from-member')+'"><div class="sd-chat-bubble">'+esc(x.body).replace(/\n/g,'<br>')+'<small>'+dateLabel(x.created_at)+(x.sender_role==='desk'?' · '+(x.seen_at?'Seen ✓✓':'Sent ✓'):'')+'</small></div></div>').join('');
+      const form=postForm(req,'/sovereign-admin/chat/'+Number(member.id),' <label>Reply to '+esc(member.full_name||member.username)+'</label><textarea name="body" rows="3" maxlength="4000" required placeholder="Write a helpful reply…"></textarea>','Send reply');
+      const content='<style>.sd-chat-shell{display:grid;gap:14px}.sd-chat-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sd-chat-log{display:flex;flex-direction:column;gap:10px;min-height:220px;max-height:58vh;overflow:auto;padding:16px;border:1px solid #393326;border-radius:16px;background:radial-gradient(ellipse at top,#292316,#101012 70%)}.sd-chat-line{display:flex}.sd-chat-line.from-desk{justify-content:flex-end}.sd-chat-bubble{max-width:min(82%,560px);padding:11px 14px;border:1px solid #39352b;border-radius:15px 15px 15px 4px;background:#202024;color:#eee9dc;line-height:1.65;overflow-wrap:anywhere}.from-desk .sd-chat-bubble{border-color:#6e5b2a;border-radius:15px 15px 4px 15px;background:linear-gradient(135deg,#342a12,#211d14)}.sd-chat-bubble small{display:block;margin-top:5px;color:#b8ad8b;font-size:10px;text-align:right}.sd-chat-shell form{padding:14px;border:1px solid #393326;border-radius:15px;background:#151518}.sd-chat-shell textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:12px;background:#0d0d0f;color:#fff;font:inherit}.sd-chat-shell form .btn{margin-top:10px}@media(max-width:560px){.sd-chat-log{padding:10px;max-height:56vh}.sd-chat-bubble{max-width:92%}}</style><section class="ac-panel sd-chat-shell"><div class="sd-chat-toolbar"><div><h2>'+esc(member.full_name||member.username||'Member')+'</h2><p class="muted">'+esc(member.monarch_uid||'')+' · Private Desk conversation</p></div><a class="copy-btn" href="/sovereign-admin/chat">← All chats</a></div><div class="sd-chat-log">'+(bubbles||'<p class="muted">This conversation is ready. Send the first message below.</p>')+'</div>'+form+'</section>';
+      deskAdminPage(req,res,'Chat · '+(member.full_name||member.username),'/sovereign-admin/chat',content);
+    }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
+  });
+  router.post('/sovereign-admin/chat/:memberId', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
+    if(!idOk(req.params.memberId))return res.status(400).send('Invalid member id.');
+    const body=clean(req.body.body,4000);
+    if(!body)return res.redirect('/sovereign-admin/chat/'+req.params.memberId);
+    try{
+      const [[member]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[req.params.memberId]);
+      if(!member)return res.status(404).send('Member not found.');
+      await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'desk',?,?)",[member.id,req.session.memberId,body]);
+      res.redirect('/sovereign-admin/chat/'+Number(member.id)+'?sent=1');
+    }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
+  });
+
+  const memberNav = (active) => '<nav class="sd-member-nav" aria-label="Sovereign Desk navigation">'+[['/sovereign-desk','Overview'],['/sovereign-desk/signals','Signals'],['/sovereign-desk/mentorship','Mentorship'],['/sovereign-desk/access','Access'],['/sovereign-desk/announcements','Announcements'],['/sovereign-desk/chat','Desk chat']].map(([u,t])=>'<a href="'+u+'"'+(active===u?' aria-current="page"':'')+'>'+t+'</a>').join('')+'</nav>';
   const memberStyles = '<style>.sd-member{display:grid;gap:17px;color:#eee9dc}.sd-member-hero{padding:clamp(20px,4vw,34px);border:1px solid #5b4a23;border-radius:20px;background:radial-gradient(ellipse at 90% 0,#d7b95722,transparent 42%),linear-gradient(135deg,#1c1a15,#111113)}.sd-member-hero .kicker{color:#dfbd62;font-size:10px;font-weight:900;letter-spacing:.16em}.sd-member-hero h2{margin:8px 0;color:#fff6df;font-size:clamp(24px,4vw,34px);letter-spacing:-.04em}.sd-member-hero p,.sd-member p{color:#aaa69b;line-height:1.75;font-size:13px}.sd-member-nav{display:flex;gap:8px;flex-wrap:wrap}.sd-member-nav a{padding:10px 13px;border:1px solid #383328;border-radius:11px;color:#cfc7b2;text-decoration:none;font-size:12px;font-weight:800}.sd-member-nav a[aria-current=page],.sd-member-nav a:hover{border-color:#8b7337;background:#241f12;color:#f1d77e}.sd-member-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.sd-member-card{min-width:0;padding:18px;border:1px solid #383328;border-radius:15px;background:linear-gradient(145deg,#19191a,#111113)}.sd-member-card h3{margin:0 0 8px;color:#f4e8bd;font-size:16px}.sd-member-card p{margin:6px 0}.sd-member-list{display:grid;gap:12px}.sd-member-item{padding:17px;border:1px solid #343025;border-radius:14px;background:#121214}.sd-member-item h3{margin:0 0 8px;color:#f0d681}.sd-member-item p{white-space:pre-wrap;overflow-wrap:anywhere}.sd-member-tag{display:inline-block;padding:6px 9px;border:1px solid #574a27;border-radius:99px;color:#e5cb7e;font-size:10px;font-weight:850}.sd-member form label{display:block;margin:12px 0 6px;color:#d9d0bb;font-size:12px;font-weight:750}.sd-member form input,.sd-member form textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:10px;background:#0d0d0f;color:#fff;font:inherit}.sd-member form textarea{min-height:95px}.sd-member .btn{width:auto;margin-top:12px}@media(max-width:560px){.sd-member-grid{grid-template-columns:1fr}.sd-member-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.sd-member-nav a{text-align:center}.sd-member-nav a:first-child{grid-column:1/-1}}@media(prefers-reduced-motion:reduce){.sd-member *{transition:none!important}}</style>';
   const renderMember = (req,res,m,title,active,body) => {
     res.set('Cache-Control','no-store');
@@ -283,7 +322,7 @@ function createSovereignDeskRouter(deps) {
   });
   router.get('/sovereign-desk/signals',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return renderMember(req,res,m,'Desk signals','/sovereign-desk/signals',noAccessContent(m));
-      const [rows]=await pool.execute("SELECT title,asset_pair,direction,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100");
+      const [rows]=await pool.execute("SELECT title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND validation_status='valid' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100");
       const content='<section class="sd-member-hero"><span class="kicker">MARKET ANALYSIS</span><h2>Signals & market notes</h2><p>Published analysis from The Sovereign Desk. Use your own risk controls and independent judgment.</p></section><div class="sd-member-list">'+(rows.map(s=>'<article class="sd-member-item"><span class="sd-member-tag">'+esc(s.direction.toUpperCase())+' · '+esc(s.asset_pair)+'</span><h3>'+esc(s.title)+'</h3><p>'+esc(s.explanation)+'</p><div class="sd-member-grid"><div><small>Entry zone</small><p>'+esc(s.entry_zone||'Not specified')+'</p></div><div><small>Timeframe</small><p>'+esc(s.timeframe||'Not specified')+'</p></div><div><small>Stop loss</small><p>'+esc(s.stop_loss||'Not specified')+'</p></div><div><small>Targets</small><p>'+(s.take_profit_1?esc(s.take_profit_1):'—')+(s.take_profit_2?' / '+esc(s.take_profit_2):'')+'</p></div></div><small>Published '+dateLabel(s.published_at)+' · Expires '+dateLabel(s.expires_at)+'</small></article>').join('')||'<article class="sd-member-card"><h3>No published signals yet</h3><p>New signals will appear here after the desk team publishes them.</p></article>')+'</div>';
       renderMember(req,res,m,'Signals','/sovereign-desk/signals',content);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
@@ -326,6 +365,26 @@ function createSovereignDeskRouter(deps) {
       await pool.execute("INSERT INTO sovereign_access_requests (member_id,requested_by,status,reason) VALUES (?,?,'pending',?)",[req.session.memberId,req.session.memberId,reason]);
       res.redirect('/sovereign-desk/access?requested=1');
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk access workflow is not configured yet.');next(e);}
+  });
+
+  router.get('/sovereign-desk/chat',requireAuth,requireApprovedKyc,async(req,res,next)=>{
+    try{
+      const m=await getMemberForPage(req,res);if(!m)return;
+      await pool.execute("UPDATE sovereign_chat_messages SET seen_at=CURRENT_TIMESTAMP WHERE member_id=? AND sender_role='desk' AND seen_at IS NULL",[m.id]);
+      const [messages]=await pool.execute('SELECT id,sender_role,body,created_at,seen_at FROM sovereign_chat_messages WHERE member_id=? ORDER BY id ASC LIMIT 500',[m.id]);
+      const bubbles=messages.map(x=>'<div class="sd-chat-line '+(x.sender_role==='member'?'from-member':'from-desk')+'"><div class="sd-chat-bubble">'+esc(x.body).replace(/\n/g,'<br>')+'<small>'+dateLabel(x.created_at)+(x.sender_role==='member'?' · '+(x.seen_at?'Seen ✓✓':'Sent ✓'):'')+'</small></div></div>').join('');
+      const form=postForm(req,'/sovereign-desk/chat','<label>Message the Sovereign Desk</label><textarea name="body" rows="3" maxlength="4000" required placeholder="Ask a question or send a message…"></textarea>','Send message');
+      const body='<section class="sd-member-hero"><span class="kicker">PRIVATE MESSAGES</span><h2>Chat with Sovereign Desk</h2><p>Message the Desk team directly. ✓ Sent · ✓✓ Seen when the team opens your message.</p></section><style>.sd-chat-shell{display:grid;gap:14px}.sd-chat-log{display:flex;flex-direction:column;gap:10px;min-height:220px;max-height:55vh;overflow:auto;padding:14px;border:1px solid #393326;border-radius:16px;background:radial-gradient(ellipse at top,#292316,#101012 70%)}.sd-chat-line{display:flex}.sd-chat-line.from-member{justify-content:flex-end}.sd-chat-bubble{max-width:min(85%,560px);padding:11px 14px;border:1px solid #39352b;border-radius:15px 15px 15px 4px;background:#202024;color:#eee9dc;line-height:1.65;overflow-wrap:anywhere}.from-member .sd-chat-bubble{border-color:#6e5b2a;border-radius:15px 15px 4px 15px;background:linear-gradient(135deg,#342a12,#211d14)}.sd-chat-bubble small{display:block;margin-top:5px;color:#b8ad8b;font-size:10px;text-align:right}.sd-chat-shell form{padding:14px;border:1px solid #393326;border-radius:15px;background:#151518}.sd-chat-shell textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:12px;background:#0d0d0f;color:#fff;font:inherit}.sd-chat-shell form .btn{margin-top:10px}@media(max-width:560px){.sd-chat-log{padding:10px}.sd-chat-bubble{max-width:93%}}</style><section class="sd-chat-shell"><div class="sd-chat-log">'+(bubbles||'<p class="muted">Welcome. Send your first message to start a private conversation with the Desk.</p>')+'</div>'+form+'</section>';
+      renderMember(req,res,m,'Chat with Sovereign Desk','/sovereign-desk/chat',body);
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Sovereign Desk chat is being configured. Please try again later.');next(e);}
+  });
+  router.post('/sovereign-desk/chat',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
+    const body=clean(req.body.body,4000);
+    if(!body)return res.redirect('/sovereign-desk/chat');
+    try{
+      await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'member',?,?)",[req.session.memberId,req.session.memberId,body]);
+      res.redirect('/sovereign-desk/chat?sent=1');
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Sovereign Desk chat is being configured. Please try again later.');next(e);}
   });
 
   return router;
