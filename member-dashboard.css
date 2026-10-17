@@ -568,3 +568,11 @@ html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="
   color: #ffe16a !important;
   border-color: #c7a83d !important;
 }
+
+
+/* Mobile viewport safety: prevent dashboard panels from widening or being clipped. */
+html,body{max-width:100%;overflow-x:clip}
+.member-experience,.member-experience .member-workspace,.member-experience .member-page-content,.member-experience main,.member-experience section,.dashboard-layout,.dashboard-content{min-width:0;max-width:100%}
+.member-experience .member-workspace,.member-experience .member-page-content,.dashboard-content{overflow-wrap:anywhere}
+.member-experience img,.dashboard-layout img{max-width:100%}
+@media(max-width:760px){.member-experience{width:100%;max-width:100%;margin:0 auto 20px;border-left:0;border-right:0;border-radius:0;grid-template-columns:minmax(0,1fr)}.member-experience .member-workspace{width:100%;padding-left:clamp(12px,4vw,20px);padding-right:clamp(12px,4vw,20px)}.member-experience .member-page-heading{min-width:0;flex-wrap:wrap;gap:12px}.member-experience .member-page-heading>*{min-width:0;max-width:100%}.member-experience .member-page-content>*{min-width:0;max-width:100%}.inv-cards{grid-template-columns:minmax(0,1fr)!important}.inv-card{min-width:0;overflow-wrap:anywhere}.inv-breakdown>div{align-items:flex-start;flex-wrap:wrap}.inv-breakdown b{overflow-wrap:anywhere}}
