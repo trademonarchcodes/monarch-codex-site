@@ -876,7 +876,7 @@ app.post('/admin/settings/deposit-pricing', requireFinanceAdmin, express.urlenco
 
 app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   try {
-    let blockColumn=true; try { await pool.query("SHOW COLUMNS FROM members LIKE 'is_blocked'"); } catch (_) { blockColumn=false; }
+    let blockColumn=false; try { const [blockCols]=await pool.query("SHOW COLUMNS FROM members LIKE 'is_blocked'"); blockColumn=blockCols.length>0; } catch (_) { blockColumn=false; }
     const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active,mp.avatar_key'+(blockColumn?',m.is_blocked':' ,0 AS is_blocked')+' FROM members m LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY m.id DESC LIMIT 200');
     const table=rows.map(m=>{
       const photo=m.avatar_key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(m.avatar_key))?'/member-avatar/'+encodeURIComponent(m.avatar_key):'/assets/images/monarch-codex-logo.svg';
@@ -901,7 +901,6 @@ app.post('/admin/members/:memberId/block', requireAdmin, (req,res,next)=>{
       if(!state)return res.status(404).send(page('Member not found','<h1>Member not found</h1><a class="btn" href="/admin/members">Back</a>'));
       const block=Number(state.is_blocked)!==1;
       await pool.execute('UPDATE members SET is_blocked=?,blocked_at=?,blocked_by=?,block_reason=? WHERE id=?',[block?1:0,block?new Date():null,block?Number(req.session.memberId):null,block?String(req.body.reason||'').trim().slice(0,500)||null:null,id]);
-      if(block)await pool.execute('DELETE FROM web_sessions WHERE data LIKE ?',['%'+String(id)+'%']).catch(()=>{});
       res.redirect('/admin/members/'+id+'?notice='+(block?'blocked':'unblocked'));
     }catch(e){if(e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Account controls migration required','migrations/015_member_account_controls.sql'));next(e);}
   });
