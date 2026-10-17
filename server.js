@@ -1275,10 +1275,15 @@ app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,r
 }));
 app.get('/member-avatar-current', requireAuth, async (req,res,next)=>{
   try {
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
     const [rows] = await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
-    const key = rows[0] && rows[0].avatar_key;
+    const key = rows[0] && String(rows[0].avatar_key || '');
     if (!key || !/^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(key)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
-    return res.redirect('/member-avatar/' + encodeURIComponent(key));
+    const [owned] = await pool.execute('SELECT member_id FROM member_profiles WHERE member_id=? AND avatar_key=? LIMIT 1',[req.session.memberId,key]);
+    const dir = process.env.PROFILE_UPLOAD_DIR;
+    if (!owned.length || !dir || !path.isAbsolute(dir) || dir===path.resolve(__dirname) || dir.startsWith(path.resolve(__dirname)+path.sep)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
+    const file = path.join(dir,key);
+    return res.sendFile(file,{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, private','X-Content-Type-Options':'nosniff'}},err=>{if(err && !res.headersSent) next(err);});
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg')); next(e); }
 });
 app.get('/member-avatar/:key', async(req,res,next)=>{
