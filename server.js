@@ -379,7 +379,7 @@ app.get('/admin/profile', requireAdmin, async (req,res,next)=>{
 });
 
 function adminControlPage(title, active, content, req) {
-  const deskOnly = req.adminRole === 'sovereign_desk_admin';
+  const deskOnly = req.adminRole === 'sovereign_desk_admin' || String(active || '').startsWith('/sovereign-admin');
   const groups = deskOnly ? [
     {label:'Desk overview',links:[['/sovereign-admin','Overview','◫']]},
     {label:'Signals & learning',links:[['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/guidance','Guidance & content','✦']]},
@@ -390,7 +390,7 @@ function adminControlPage(title, active, content, req) {
     {label:'People & compliance',links:[['/admin/members','Monarchs','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/kyc','KYC review','◇']]},
     {label:'Financial operations',links:[['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑'],['/admin/transactions','Transactions','◷'],['/admin/balances','Balance management','＋'],['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦']]},
     {label:'Growth & content',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
-    {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/sovereign-admin/chat','Desk conversations','◉']]},
+    {label:'Workspaces',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
     {label:'System & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ];
