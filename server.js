@@ -1278,7 +1278,7 @@ app.get('/member-avatar-current', requireAuth, async (req,res,next)=>{
     res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
     const [rows] = await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
     const key = rows[0] && String(rows[0].avatar_key || '');
-    if (!key || !/^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(key)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
+    if (!key || !/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
     const [owned] = await pool.execute('SELECT member_id FROM member_profiles WHERE member_id=? AND avatar_key=? LIMIT 1',[req.session.memberId,key]);
     const dir = process.env.PROFILE_UPLOAD_DIR;
     if (!owned.length || !dir || !path.isAbsolute(dir) || dir===path.resolve(__dirname) || dir.startsWith(path.resolve(__dirname)+path.sep)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
