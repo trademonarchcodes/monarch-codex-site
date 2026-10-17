@@ -78,7 +78,10 @@ const mailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_U
 async function sendAppEmail({ to, subject, text, html }) {
   if (!mailConfigured()) { console.warn('[mail] SMTP is not configured; skipped email:', subject); return false; }
   const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 465), secure: String(process.env.SMTP_SECURE || 'true') === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } });
-  await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to, subject, text, ...(html ? { html } : {}) });
+  const safeSubject = esc(subject || 'Account notification');
+  const safeBody = esc(text || '').replace(/\\n{2,}/g, '</p><p style="margin:0 0 16px;line-height:1.8;color:#e4dfd2">').replace(/\\n/g, '<br>');
+  const brandedHtml = '<div style="margin:0;padding:28px 14px;background:#08090b;font-family:Arial,Helvetica,sans-serif;color:#f8f5eb"><div style="max-width:600px;margin:auto;background:#111216;border:1px solid #5a4b24;border-radius:20px;overflow:hidden"><header style="padding:28px 22px;text-align:center;background:#211b0e"><div style="font-size:12px;letter-spacing:3px;color:#f3cf3c;font-weight:bold">MONARCH CODEX</div><h1 style="font-size:24px;line-height:1.3;margin:16px 0 0">' + safeSubject + '</h1></header><main style="padding:26px 24px"><p style="margin:0 0 16px;line-height:1.8;color:#e4dfd2">' + safeBody + '</p></main><footer style="padding:18px;text-align:center;border-top:1px solid #302a1a;color:#a49d8b;font-size:12px">BUILD WEALTH. BUILD A KINGDOM.<br>Monarch Codex · Automated account notification</footer></div></div>';
+  await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to, subject, text, html: html || brandedHtml });
   return true;
 }
 const page = (title, body) => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b0b0c"><title>' + esc(title) + ' | Monarch Codex</title><style>' +
