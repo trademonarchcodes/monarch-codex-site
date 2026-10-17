@@ -508,3 +508,63 @@ html[data-theme="light"] .member-experience .member-main :is(input,select,textar
 html[data-theme="light"] .member-experience .member-main :is(a:not(.btn):not(.button):not([class*="button"])){color:#694900!important;font-weight:750!important}
 html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"]{background:#fff4c7!important;border-color:#c6a037!important;color:#242018!important}
 html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"]::after,html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"] .member-kyc-lock{background:#352b10!important;color:#ffe16a!important;border-color:#c7a83d!important}
+
+
+/* Shared member navigation: one lock treatment for the overview and every member page. */
+.dashboard-sidebar nav a .member-nav-icon,
+.member-experience .member-rail nav a .member-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 25px;
+  width: 25px;
+  min-width: 25px;
+  height: 25px;
+  border-radius: 8px;
+}
+.dashboard-sidebar nav a .member-nav-label,
+.member-experience .member-rail nav a .member-nav-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dashboard-sidebar nav a[data-kyc-locked="true"],
+.member-experience .member-rail nav a[data-kyc-locked="true"] {
+  gap: 10px !important;
+  border: 1px solid rgba(199, 168, 61, .55) !important;
+  background: rgba(243, 207, 60, .09) !important;
+}
+.dashboard-sidebar nav a[data-kyc-locked="true"] .member-kyc-lock,
+.member-experience .member-rail nav a[data-kyc-locked="true"] .member-kyc-lock {
+  display: inline-flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 27px !important;
+  width: 27px !important;
+  min-width: 27px !important;
+  height: 27px !important;
+  margin-left: auto !important;
+  border: 1px solid #c7a83d !important;
+  border-radius: 8px !important;
+  background: #352b10 !important;
+  color: #ffe16a !important;
+  font-size: 15px !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+.dashboard-sidebar nav a[data-kyc-locked="true"]:hover,
+.member-experience .member-rail nav a[data-kyc-locked="true"]:hover {
+  background: rgba(243, 207, 60, .16) !important;
+}
+html[data-theme="light"] .dashboard-sidebar nav a[data-kyc-locked="true"],
+html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"] {
+  background: #fff4c7 !important;
+  border-color: #c6a037 !important;
+}
+html[data-theme="light"] .dashboard-sidebar nav a[data-kyc-locked="true"] .member-kyc-lock,
+html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"] .member-kyc-lock {
+  background: #352b10 !important;
+  color: #ffe16a !important;
+  border-color: #c7a83d !important;
+}
