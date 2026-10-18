@@ -7,7 +7,7 @@ module.exports = function createToolsRouter({ pool, requireAuth, requireAdmin, c
   let schemaReady;
   const ensureSchema = async (_req, _res, next) => {
     try {
-      if (!schemaReady) schemaReady = pool.query(\`CREATE TABLE IF NOT EXISTS member_tools (
+      if (!schemaReady) schemaReady = pool.query(`CREATE TABLE IF NOT EXISTS member_tools (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         title VARCHAR(120) NOT NULL,
         description VARCHAR(500) NOT NULL DEFAULT '',
@@ -19,7 +19,7 @@ module.exports = function createToolsRouter({ pool, requireAuth, requireAdmin, c
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_member_tools_active_order (is_active, sort_order, id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci\`).then(async () => {
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`).then(async () => {
         const [existing] = await pool.execute('SELECT COUNT(*) AS total FROM member_tools');
         if (Number(existing[0] && existing[0].total) === 0) {
           await pool.execute('INSERT INTO member_tools (title,description,url,category,icon,sort_order,is_active) VALUES (?,?,?,?,?,?,1),(?,?,?,?,?,?,1),(?,?,?,?,?,?,1),(?,?,?,?,?,?,1)', [
@@ -123,7 +123,7 @@ module.exports = function createToolsRouter({ pool, requireAuth, requireAdmin, c
   return router;
 };
 
-const styles = \`
+const styles = `
 .tools-page{max-width:1180px;margin:0 auto;padding:clamp(18px,3vw,34px);color:#f5f1e6}
 .tools-hero{display:flex;justify-content:space-between;align-items:center;gap:22px;padding:clamp(24px,4vw,42px);border:1px solid #514323;border-radius:26px;background:radial-gradient(ellipse at 90% 10%,#e5c46a20,transparent 40%),linear-gradient(130deg,#1b1a17,#101012 70%);box-shadow:0 18px 44px #0002}
 .tools-eyebrow,.tools-category-kicker{font-size:.7rem;font-weight:900;letter-spacing:.16em;color:#dfbd62}
@@ -143,8 +143,8 @@ const styles = \`
 .tool-open{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:linear-gradient(110deg,#f0d783,#d2ad4b);color:#17140b;text-decoration:none;font-weight:900}.tool-open span{font-size:1.15rem}
 .tools-empty{padding:42px 20px;text-align:center;border:1px dashed #5a4a28;border-radius:22px;background:#171614}.tools-empty-icon{color:#e5c46a;font-size:2rem}.tools-empty h2{margin:12px 0;color:#f4dfa0}.tools-empty p,.tools-footnote{color:#a9a394;line-height:1.7}.tools-footnote{font-size:.8rem;margin:26px 0 0}
 @media(max-width:850px){.tools-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.tools-page{padding:14px}.tools-hero{padding:23px 20px;border-radius:20px}.tools-hero-mark{flex-basis:58px;width:58px;height:58px;border-radius:18px;font-size:1.8rem}.tools-grid{grid-template-columns:1fr}.tool-card{padding:18px}.tool-card p{min-height:0}}
-\`;
+`;
 
-const adminStyles = \`
+const adminStyles = `
 .at-page{max-width:1250px;margin:0 auto;padding:clamp(14px,3vw,30px);color:#f5f1e6}.at-hero{padding:28px;border:1px solid #514323;border-radius:22px;background:radial-gradient(ellipse at 90% 0,#e5c46a1d,transparent 45%),#151516}.at-hero>div>span{color:#dfbd62;font-size:.68rem;font-weight:900;letter-spacing:.16em}.at-hero h1{margin:10px 0;font-size:clamp(1.8rem,4vw,2.8rem);color:#f9e9b5}.at-hero p,.at-help,.at-panel-heading p{color:#bdb7a9;line-height:1.6}.at-panel{margin-top:20px;padding:clamp(18px,3vw,26px);border:1px solid #36332c;border-radius:20px;background:#141416}.at-panel h2{margin:0;color:#f4dfa0;font-size:1.25rem}.at-help{margin:8px 0 20px}.at-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.tool-form-field{display:grid;gap:8px;min-width:0;color:#d9d2c2;font-size:.85rem;font-weight:750}.tool-form-field input,.tool-form-field textarea{width:100%;box-sizing:border-box;padding:13px;border:1px solid #454033;border-radius:11px;background:#0c0c0e;color:#fff;font:inherit}.tool-form-field textarea{min-height:100px;resize:vertical}.tool-form-field:has(textarea){grid-column:1/-1}.tool-form-field input:focus,.tool-form-field textarea:focus{outline:2px solid #b99842;outline-offset:1px}.at-btn{display:inline-flex;justify-content:center;align-items:center;gap:7px;padding:11px 15px;border:0;border-radius:11px;font:inherit;font-size:.85rem;font-weight:850;text-decoration:none;cursor:pointer}.at-primary{background:linear-gradient(110deg,#f0d783,#d2ad4b);color:#17140b}.at-secondary{background:#26231c;color:#f3dfa0;border:1px solid #5b4b2b}.at-danger{background:#351a19;color:#ffb3a8;border:1px solid #713c35}.at-form>.at-btn{justify-self:start;grid-column:1/-1}.at-panel-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.at-panel-heading p{margin:7px 0 0}.at-count{padding:7px 10px;border:1px solid #544526;border-radius:999px;color:#e5c46a;font-size:.78rem;font-weight:800}.at-table-wrap{overflow-x:auto;margin-top:18px}.at-table{width:100%;border-collapse:collapse;min-width:640px}.at-table th,.at-table td{padding:13px 12px;border-bottom:1px solid #302d27;text-align:left;vertical-align:middle}.at-table th{color:#9c9687;font-size:.72rem;text-transform:uppercase;letter-spacing:.1em}.at-table td{color:#d9d2c2;font-size:.86rem}.at-table td small{display:block;max-width:300px;margin-top:5px;color:#898476;overflow-wrap:anywhere}.at-table td form{display:inline-block;margin:3px}.at-status{display:inline-block;padding:6px 9px;border-radius:999px;font-size:.7rem;font-weight:850}.at-status.is-live{background:#153326;color:#8ce0ae}.at-status.is-hidden{background:#302b20;color:#d6c08a}.at-empty{padding:26px 0;color:#bdb7a9}.at-empty h2{margin-bottom:8px}@media(max-width:650px){.at-form{grid-template-columns:1fr}.at-form>.at-btn{grid-column:auto}.at-hero{padding:22px}.at-panel{padding:16px}}
-\`;
+`;
