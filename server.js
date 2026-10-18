@@ -220,6 +220,100 @@ function loginForm(req, message) {
   '<label for="password">Password</label><div class="password-wrap"><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128"><button class="password-toggle" type="button" data-toggle-password="password" onclick="togglePassword(&quot;password&quot;,this)" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div>' +
   '<button class="btn" type="submit">Log in</button></form><div class="links"><a href="/forgot-password">Forgot password?</a><a href="/resend-verification">Resend verification email</a><a href="/register">Create account</a></div>');
 }
+
+// Public market feeds. Cache upstream responses so one popular news page does not
+// create a burst of requests to third-party publishers.
+const marketFeedCache = new Map();
+async function cachedMarketFeed(key, ttlMs, loader) {
+  const cached = marketFeedCache.get(key);
+  if (cached && Date.now() - cached.at < ttlMs) return cached.value;
+  const value = await loader();
+  marketFeedCache.set(key, { at: Date.now(), value });
+  return value;
+}
+async function fetchMarketSource(url, accept) {
+  const response = await fetch(url, {
+    headers: { 'user-agent': 'MonarchCodexMarketFeeds/1.0 (+https://monarchcodex.online)', accept: accept || 'application/json, application/rss+xml, application/xml, text/xml' },
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw new Error('Market source returned HTTP ' + response.status);
+  return response.text();
+}
+function xmlText(value) {
+  return String(value || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/\s+/g, ' ').trim();
+}
+function parseRss(xml, source) {
+  const items = String(xml).match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)>/gi) || [];
+  return items.slice(0, 35).map(item => {
+    const get = (...names) => {
+      for (const name of names) {
+        const match = item.match(new RegExp('<' + name + '\\b[^>]*>([\\s\\S]*?)<\\/' + name + '>', 'i'));
+        if (match) return xmlText(match[1]);
+      }
+      return '';
+    };
+    const linkTag = item.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*\/?\s*>/i);
+    const link = get('link') || (linkTag ? linkTag[1] : '');
+    const summary = get('description', 'summary', 'content:encoded', 'content');
+    const publishedAt = get('pubDate', 'published', 'updated', 'dc:date');
+    return { title: get('title'), summary: summary.slice(0, 420), url: /^https?:\/\//i.test(link) ? link : '', publishedAt, source };
+  }).filter(item => item.title && item.url);
+}
+app.get('/api/market-news/forex-calendar', async (_req, res) => {
+  try {
+    const events = await cachedMarketFeed('forex-calendar', 5 * 60 * 1000, async () => {
+      const raw = await fetchMarketSource('https://nfs.faireconomy.media/ff_calendar_thisweek.json');
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error('Unexpected calendar response');
+      return parsed.map(event => {
+        const impactRaw = String(event.impact || event.Impact || 'Low').toLowerCase();
+        const impact = impactRaw.includes('high') || impactRaw.includes('holiday') ? 'high' : impactRaw.includes('medium') ? 'medium' : 'low';
+        return {
+          date: event.date || event.Date || event.datetime || '',
+          currency: String(event.country || event.currency || event.Currency || '').toUpperCase(),
+          impact,
+          title: event.title || event.event || event.Event || 'Economic release',
+          actual: event.actual || event.Actual || '',
+          forecast: event.forecast || event.Forecast || '',
+          previous: event.previous || event.Previous || ''
+        };
+      }).filter(event => event.currency && event.title);
+    });
+    res.set('Cache-Control', 'private, max-age=60').json({ events, updatedAt: new Date().toISOString(), source: 'Forex Factory calendar mirror', sourceUrl: 'https://www.forexfactory.com/calendar' });
+  } catch (error) {
+    console.warn('[market-news] Forex calendar unavailable:', error.message);
+    res.status(502).json({ message: 'The economic calendar is temporarily unavailable. Please refresh shortly.', events: [], updatedAt: null, sourceUrl: 'https://www.forexfactory.com/calendar' });
+  }
+});
+app.get('/api/market-news/crypto', async (_req, res) => {
+  try {
+    const articles = await cachedMarketFeed('crypto-news', 5 * 60 * 1000, async () => {
+      const sources = [
+        { name: 'Cointelegraph', url: 'https://cointelegraph.com/rss' },
+        { name: 'CoinDesk', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' }
+      ];
+      const results = await Promise.allSettled(sources.map(async source => parseRss(await fetchMarketSource(source.url, 'application/rss+xml, application/xml, text/xml'), source.name)));
+      const combined = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+      const seen = new Set();
+      return combined.filter(article => {
+        const key = article.url || article.title;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).sort((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0)).slice(0, 40);
+    });
+    res.set('Cache-Control', 'private, max-age=60').json({ articles, updatedAt: new Date().toISOString(), sources: ['Cointelegraph', 'CoinDesk'] });
+  } catch (error) {
+    console.warn('[market-news] Crypto news unavailable:', error.message);
+    res.status(502).json({ message: 'Crypto news sources are temporarily unavailable. Please refresh shortly.', articles: [], updatedAt: null });
+  }
+});
+
 app.get('/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'monarch-codex' }); } catch (_) { res.status(503).json({ ok: false, service: 'monarch-codex' }); } });
 app.get('/api/wallet-balances', requireAuth, async (req,res,next) => {
   try {
