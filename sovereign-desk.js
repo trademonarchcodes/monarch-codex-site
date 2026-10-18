@@ -413,7 +413,7 @@ function createSovereignDeskRouter(deps) {
     try{
       const m=await getMemberForPage(req,res);if(!m)return;
       if(!await memberAccess(m.id))return renderMember(req,res,m,'Weekly trade watchlist','/sovereign-desk/watchlist',noAccessContent(m));
-      const [rows]=await pool.execute("SELECT id,instrument,direction,outcome,trade_date,notes,created_at FROM sovereign_trade_journal WHERE member_id=? AND YEARWEEK(trade_date,3)=YEARWEEK(CURRENT_DATE,3) ORDER BY trade_date DESC,id DESC",[m.id]);
+      const [rows]=await pool.execute("SELECT id,instrument,direction,outcome,trade_date,notes,created_at FROM sovereign_trade_journal WHERE member_id=? AND YEARWEEK(trade_date,3)=YEARWEEK(CURRENT_DATE,3) AND trade_date<=CURRENT_DATE ORDER BY trade_date DESC,id DESC",[m.id]);
       const counts={profit:rows.filter(x=>x.outcome==='profit').length,loss:rows.filter(x=>x.outcome==='loss').length,breakeven:rows.filter(x=>x.outcome==='breakeven').length};
       const tableRows=rows.map(x=>'<tr><td><strong>'+esc(x.instrument)+'</strong></td><td><span class="sd-member-tag '+esc(x.direction)+'">'+(x.direction==='buy'?'↗ BUY':'↘ SELL')+'</span></td><td><span class="sd-trade-result '+esc(x.outcome)+'">'+tradeOutcomeLabel(x.outcome)+'</span></td><td>'+esc(String(x.trade_date).slice(0,10))+'</td><td>'+esc(x.notes||'—')+'</td><td><div class="sd-trade-actions"><a href="/sovereign-desk/watchlist/'+Number(x.id)+'/edit">Edit</a><form method="post" action="/sovereign-desk/watchlist/'+Number(x.id)+'/delete">'+csrfField(req)+'<button class="sd-trade-delete" type="submit" onclick="return confirm(\'Delete this trade record?\')">Delete</button></form></div></td></tr>').join('');
       const body='<section class="sd-member-hero"><span class="kicker">YOUR WEEKLY TRADE JOURNAL</span><h2>Trade watchlist</h2><p>Record the trades you have taken this week, mark each as profit, loss or breakeven, and keep a private record of your trading progress. Entries are visible only to your account.</p></section>'+
@@ -425,7 +425,7 @@ function createSovereignDeskRouter(deps) {
   });
   router.post('/sovereign-desk/watchlist',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
     const instrument=clean(req.body.instrument,80),direction=clean(req.body.direction,10),outcome=clean(req.body.outcome,12),date=clean(req.body.trade_date,10),notes=clean(req.body.notes,1000);
-    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return res.status(400).send('Enter an instrument, direction, result and valid trade date.');
+    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).send('Enter an instrument, direction, result and valid trade date.');
     try{
       const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return res.status(403).send('Active Sovereign Desk access is required.');
       await pool.execute('INSERT INTO sovereign_trade_journal (member_id,instrument,direction,outcome,trade_date,notes) VALUES (?,?,?,?,?,?)',[m.id,instrument,direction,outcome,date,notes||null]);
@@ -445,7 +445,7 @@ function createSovereignDeskRouter(deps) {
   router.post('/sovereign-desk/watchlist/:id/update',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
     if(!idOk(req.params.id))return res.status(400).send('Invalid trade record id.');
     const instrument=clean(req.body.instrument,80),direction=clean(req.body.direction,10),outcome=clean(req.body.outcome,12),date=clean(req.body.trade_date,10),notes=clean(req.body.notes,1000);
-    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return res.status(400).send('Enter an instrument, direction, result and valid trade date.');
+    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).send('Enter an instrument, direction, result and valid trade date.');
     try{
       const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return res.status(403).send('Active Sovereign Desk access is required.');
       const [updated]=await pool.execute('UPDATE sovereign_trade_journal SET instrument=?,direction=?,outcome=?,trade_date=?,notes=? WHERE id=? AND member_id=?',[instrument,direction,outcome,date,notes||null,req.params.id,m.id]);
