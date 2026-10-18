@@ -264,7 +264,23 @@
     document.querySelectorAll('[data-close-install]').forEach(button=>button.addEventListener('click',closePanel));
     if(panel)panel.addEventListener('click',event=>{if(event.target===panel)closePanel();});
     document.addEventListener('keydown',event=>{if(event.key==='Escape')closePanel();});
-    if('serviceWorker' in navigator && location.protocol==='https:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}
+    if('serviceWorker' in navigator && location.protocol==='https:'){
+      window.addEventListener('load',async()=>{
+        try{
+          const registration=await navigator.serviceWorker.register('/service-worker.js',{updateViaCache:'none'});
+          registration.update().catch(()=>{});
+          // Refresh only the installed app's welcome screen after a new worker takes control.
+          // Never force-reload member, payment, verification, or admin screens.
+          let appWelcomeRefreshed=false;
+          navigator.serviceWorker.addEventListener('controllerchange',()=>{
+            if(document.documentElement.dataset.appMode==='true'&&!appWelcomeRefreshed){
+              appWelcomeRefreshed=true;
+              window.location.reload();
+            }
+          });
+        }catch(_){}
+      });
+    }
   })();
   </script>
   <script src="assets/js/main.js"></script>
