@@ -423,6 +423,29 @@ function createSovereignDeskRouter(deps) {
       renderMember(req,res,m,'Signals & access','/sovereign-desk/signals',tradeJournalStyles+body);
     } catch(e) { dbUnavailable(res,next,e,'Signals access setup required'); }
   });
+  router.post('/sovereign-desk/signal-access/pay-wallet',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
+    const conn=await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const memberId=req.session.memberId;
+      const [[existing]]=await conn.execute('SELECT id,status,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1 FOR UPDATE',[memberId]);
+      if(existing&&existing.status==='approved'&&existing.expires_at&&new Date(existing.expires_at).getTime()>Date.now()){await conn.rollback();return res.redirect('/sovereign-desk/signals?active=1');}
+      if(existing&&existing.status==='pending'){await conn.rollback();return res.redirect('/sovereign-desk/signals?pending=1');}
+      const [[wallet]]=await conn.execute("SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='USD' LIMIT 1 FOR UPDATE",[memberId]);
+      if(!wallet||Number(wallet.balance)<10){await conn.rollback();return res.status(400).send('Your USD wallet balance must be at least $10 to activate Sovereign Desk access.');}
+      await conn.execute('UPDATE member_wallets SET balance=balance-10 WHERE id=? AND balance>=10',[wallet.id]);
+      const reference='SOVEREIGN-'+memberId+'-'+Date.now();
+      await conn.execute("INSERT INTO financial_transactions (member_id,investment_id,admin_member_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,NULL,'sovereign_desk_subscription','USD',?,?,?)",[memberId,-10,reference,'$10 Sovereign Desk access for 14 days']);
+      if(existing) await conn.execute("UPDATE sovereign_signal_access SET access_type='paid',status='approved',payment_reference=?,requested_at=CURRENT_TIMESTAMP,reviewed_by=NULL,reviewed_at=CURRENT_TIMESTAMP,review_reason='Paid instantly from USD wallet',starts_at=CURRENT_TIMESTAMP,expires_at=DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY) WHERE member_id=?",[reference,memberId]);
+      else await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,payment_reference,reviewed_at,review_reason,starts_at,expires_at) VALUES (?,'paid','approved',?,CURRENT_TIMESTAMP,'Paid instantly from USD wallet',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY))",[memberId,reference]);
+      await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_at,expires_at) VALUES (?,'approved','$10 paid from USD wallet — full Sovereign Desk access for 14 days',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY)) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at)",[memberId]);
+      await conn.commit();
+      await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[memberId,'sovereign_signal_access','Sovereign Desk access activated','Your $10 USD wallet payment is confirmed. Full Sovereign Desk access is active for 14 days.','/sovereign-desk/signals','sovereign-wallet-paid:'+reference]).catch(()=>{});
+      return res.redirect('/sovereign-desk/signals?activated=1');
+    }catch(e){try{await conn.rollback();}catch(_){} dbUnavailable(res,next,e,'Sovereign Desk wallet payment setup required');}
+    finally{conn.release();}
+  });
+
   router.post('/sovereign-desk/signal-access/request',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
     const paymentReference=clean(req.body.payment_reference,160),conn=await pool.getConnection();
     try {
@@ -456,12 +479,14 @@ router.get('/sovereign-desk/signals',requireAuth,requireApprovedKyc,async(req,re
       const [[access]]=await pool.execute('SELECT access_type,status,payment_reference,requested_at,starts_at,expires_at,review_reason FROM sovereign_signal_access WHERE member_id=? LIMIT 1',[m.id]);
       const claimed=Number(slot&&slot.claimed_count||0),remaining=Math.max(0,20-claimed),active=await signalAccess(m.id);
       let panel='';
+      const walletPayForm=postForm(req,'/sovereign-desk/signal-access/pay-wallet','<p>Pay instantly from your USD wallet balance. The $10 fee is deducted only after the balance and access checks pass.</p>','Pay $10 from USD balance — activate now');
+      const eventForm=(!access&&remaining>0&&Boolean(eventWindow))?postForm(req,'/sovereign-desk/signal-access/request','<p>Eligible members can claim one of the first 20 event places for 14 days of full Desk access at no cost.</p><input type="hidden" name="request_plan" value="event_free">','Claim event offer — free for 14 days'):'';
+
       if(active) panel='<article class="sd-member-card"><span class="sd-member-tag">ACCESS ACTIVE</span><h3>Your full Desk access is active</h3><p>Plan: '+statusLabel(access&&access.access_type)+'</p><p>Expires: '+dateLabel(access&&access.expires_at)+'</p></article>';
       else if(access&&access.status==='pending') panel='<article class="sd-member-card"><span class="sd-member-tag">UNDER REVIEW</span><h3>Access request submitted</h3><p>Your '+statusLabel(access.access_type)+' request is waiting for payment verification.</p><p>Submitted: '+dateLabel(access.requested_at)+'</p>'+(access.payment_reference?'<p>Payment reference: '+esc(access.payment_reference)+'</p>':'')+'</article>';
       else {
-        const free=!access&&remaining>0&&Boolean(eventWindow);
-        const form=postForm(req,'/sovereign-desk/signal-access/request',free?'<p>'+remaining+' of the first 20 free places remain. Claim 14 days of full Desk access.</p><input type="hidden" name="request_plan" value="event_free">':'<p>Full Sovereign Desk access costs $10 for 14 days, including signals, mentorship, announcements, private chat and Telegram access for eligible members. Enter the payment reference after paying through official instructions. Access activates after admin verification.</p><label>Payment reference</label><input name="payment_reference" maxlength="160" required placeholder="Enter payment reference">',free?'Claim free 14-day access':'Request full Desk access — $10');
-        panel='<article class="sd-member-card"><h3>'+(free?'First 20 members offer':'Full Sovereign Desk · $10 / 14 days')+'</h3>'+form+(access&&access.review_reason?'<p>Previous review note: '+esc(access.review_reason)+'</p>':'')+'</article>';
+        const referenceForm=postForm(req,'/sovereign-desk/signal-access/request','<p>If you already paid externally, enter your payment reference for administrator verification.</p><label>Payment reference</label><input name="payment_reference" maxlength="160" required placeholder="Enter payment reference">','Submit external payment reference');
+        panel='<article class="sd-member-card"><h3>Choose how to activate access</h3><p>Full Sovereign Desk access is $10 for 14 days. Choose a payment option below.</p>'+walletPayForm+eventForm+referenceForm+(access&&access.review_reason?'<p>Previous review note: '+esc(access.review_reason)+'</p>':'')+'</article>';
       }
       let signals='';
       if(!active) signals='<article class="sd-member-card"><h3>Signals locked</h3><p>Activate your full Sovereign Desk access above to view published signals.</p></article>';
