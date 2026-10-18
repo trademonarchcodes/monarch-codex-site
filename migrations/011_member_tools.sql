@@ -22,5 +22,5 @@ INSERT INTO member_tools (title,description,url,category,icon,sort_order,is_acti
 SELECT 'Google Flow','AI filmmaking and creative workflow tool for class projects.','https://labs.google/fx/tools/flow/','AI & productivity','✦',30,1
 WHERE NOT EXISTS (SELECT 1 FROM member_tools WHERE title='Google Flow');
 INSERT INTO member_tools (title,description,url,category,icon,sort_order,is_active)
-SELECT 'TradingView','Charts and market-analysis workspace for practice and demonstrations.','https://www.tradingview.com/','Charts & analysis','⌁',40,1
+SELECT 'TradingView','Charts and market-analysis workspace for practice and demonstrations.','https://www.tradingview.com/pricing/?share_your_love=TradeMonarch&mobileapp=true','Charts & analysis','⌁',40,1
 WHERE NOT EXISTS (SELECT 1 FROM member_tools WHERE title='TradingView');
