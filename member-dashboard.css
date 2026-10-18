@@ -926,3 +926,37 @@ html[data-theme="light"] .member-experience .member-rail-logout button {
   flex: 0 0 22px !important;
   white-space: nowrap !important;
 }
+
+
+/* Final mobile polish: preserve the full-width currency row while giving each choice breathing room. */
+.dashboard-layout .currency-toggle {
+  width: 100% !important;
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: stretch !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  padding: 5px !important;
+  box-sizing: border-box !important;
+}
+.dashboard-layout .currency-toggle-option {
+  flex: 1 1 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  padding: 11px 8px !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+}
+.dashboard-layout .currency-toggle-option > span {
+  flex: 0 0 22px !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  margin: 0 !important;
+  text-align: center !important;
+}
