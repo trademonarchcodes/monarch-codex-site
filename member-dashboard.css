@@ -613,3 +613,49 @@ html,body{max-width:100%;overflow-x:clip}
 .member-rail::-webkit-scrollbar-thumb{background:#6b592b;border:1px solid #111113;border-radius:99px}
 .member-rail::-webkit-scrollbar-thumb:hover{background:#b99a42}
 @media(max-width:850px){.member-rail{height:100dvh;max-height:100dvh;overscroll-behavior-y:contain;scrollbar-width:thin}}
+
+
+/* Production safeguard: make the member navigation its own reliable scroll container. */
+.member-experience > .member-rail,
+.member-experience .member-rail {
+  box-sizing: border-box;
+  min-height: 0 !important;
+  height: calc(100dvh - 28px) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #8a7135 #111113;
+}
+.member-experience .member-rail nav {
+  flex: 0 0 auto;
+}
+.member-experience .member-rail-account,
+.member-experience .member-rail-logout {
+  flex-shrink: 0;
+}
+.member-experience .member-rail::-webkit-scrollbar { width: 7px; }
+.member-experience .member-rail::-webkit-scrollbar-track { background: #111113; }
+.member-experience .member-rail::-webkit-scrollbar-thumb {
+  background: #8a7135;
+  border: 1px solid #111113;
+  border-radius: 99px;
+}
+@media (max-width: 850px) {
+  .member-experience > .member-rail,
+  .member-experience .member-rail {
+    position: fixed !important;
+    z-index: 1200;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
