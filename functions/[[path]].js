@@ -60,10 +60,10 @@ export async function onRequest(context) {
   if (contentType.includes("text/html") || contentType.includes("javascript") || contentType.includes("json") || contentType.includes("css")) {
     let body = await upstream.text();
     body = body
-      .replaceAll("https://monarchcodex.online", incomingUrl.origin)
-      .replaceAll("http://monarchcodex.online", incomingUrl.origin)
       .replaceAll("https://www.monarchcodex.online", incomingUrl.origin)
-      .replaceAll("http://www.monarchcodex.online", incomingUrl.origin);
+      .replaceAll("http://www.monarchcodex.online", incomingUrl.origin)
+      .replaceAll("https://monarchcodex.online", incomingUrl.origin)
+      .replaceAll("http://monarchcodex.online", incomingUrl.origin);
     outHeaders.set("cache-control", "no-store");
     return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers: outHeaders });
   }
