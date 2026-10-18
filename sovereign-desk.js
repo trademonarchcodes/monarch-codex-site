@@ -57,6 +57,7 @@ function createSovereignDeskRouter(deps) {
       ['/sovereign-admin/signal-access', 'Signals subscriptions', '◆'],
       ['/sovereign-admin/chat', 'Member chat', '◉'],
       ['/sovereign-admin/announcements', 'Announcements', '▤'],
+      ['/sovereign-admin/events', 'Homepage events', '◷'],
       ['/sovereign-admin/activity', 'Workspace activity', '◷'],
       ['/admin/profile', 'My admin profile', '◎']
     ];
@@ -274,7 +275,7 @@ function createSovereignDeskRouter(deps) {
         if(a.access_type==='paid') await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_at,expires_at) VALUES (?,'approved','Paid Sovereign Desk service — $10 / 14 days',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY)) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at)",[a.member_id]);
       } else {
         await conn.execute('UPDATE sovereign_signal_access SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?',[decision,req.session.memberId,note||null,id]);
-        if(decision==='revoked'&&a.access_type==='paid') await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=?,expires_at=CURRENT_TIMESTAMP WHERE member_id=?",[note||'Sovereign Desk service access revoked by administrator',a.member_id]);
+        if(decision==='revoked') await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=?,expires_at=CURRENT_TIMESTAMP WHERE member_id=?",[note||'Sovereign Desk service access revoked by administrator',a.member_id]);
       }
       await conn.commit();
       await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[memberId,'sovereign_signal_access',decision==='approved'?'Signals access activated':'Signals access updated',decision==='approved'?'Your Sovereign Desk signals access is active for 14 days.':'Your signals access request status is '+decision+'.','/sovereign-desk/signal-access','sovereign-signal-access:'+id+':'+decision]).catch(()=>{});
@@ -543,6 +544,59 @@ function createSovereignDeskRouter(deps) {
   });
 
 
+
+  router.get('/api/public-events',async(_req,res)=>{
+    try{
+      const [rows]=await pool.execute("SELECT id,title,summary,event_label,starts_at,ends_at FROM monarch_site_events WHERE status='published' AND ends_at>CURRENT_TIMESTAMP ORDER BY starts_at ASC,id DESC LIMIT 12");
+      res.set('Cache-Control','no-store').json(rows.map(e=>({id:e.id,title:e.title,summary:e.summary||'',label:e.event_label||'MONARCH CODEX EVENT',startsAt:e.starts_at,endsAt:e.ends_at})));
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.set('Cache-Control','no-store').json([]);res.status(500).json([]);}
+  });
+  const eventDateInput = value => {
+    if(!value)return '';
+    const d=new Date(value);
+    if(Number.isNaN(d.getTime()))return '';
+    return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  };
+  const eventInputDate = value => {
+    const v=clean(value,16);
+    if(!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(v)||Number.isNaN(Date.parse(v)))return '';
+    return v.replace('T',' ')+':00';
+  };
+  router.get('/sovereign-admin/events',requireAdmin,adminOnly,async(req,res,next)=>{
+    try{
+      const [rows]=await pool.execute("SELECT id,title,summary,event_label,starts_at,ends_at,status FROM monarch_site_events ORDER BY starts_at DESC,id DESC LIMIT 100");
+      const now=new Date(),end=new Date(now.getTime()+30*86400000);
+      const localInput=d=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+      const create=postForm(req,'/sovereign-admin/events','<label>Event title</label><input name="title" maxlength="180" required><label>Description</label><textarea name="summary" rows="3" maxlength="1200" required></textarea><label>Homepage label</label><input name="event_label" maxlength="100" value="MONARCH CODEX EVENT"><div class="sd-trade-fields"><div><label>Starts</label><input type="datetime-local" name="starts_at" value="'+localInput(now)+'" required></div><div><label>Ends (default: one month)</label><input type="datetime-local" name="ends_at" value="'+localInput(end)+'" required></div></div><p class="muted">Expired events disappear automatically. You can also unpublish or delete an event early.</p>','Create & publish event');
+      const cards=rows.map(e=>{
+        const edit=postForm(req,'/sovereign-admin/events/'+Number(e.id)+'/update','<label>Event title</label><input name="title" maxlength="180" required value="'+esc(e.title)+'"><label>Description</label><textarea name="summary" rows="3" maxlength="1200" required>'+esc(e.summary||'')+'</textarea><label>Homepage label</label><input name="event_label" maxlength="100" value="'+esc(e.event_label||'MONARCH CODEX EVENT')+'"><div class="sd-trade-fields"><div><label>Starts</label><input type="datetime-local" name="starts_at" value="'+eventDateInput(e.starts_at)+'" required></div><div><label>Ends</label><input type="datetime-local" name="ends_at" value="'+eventDateInput(e.ends_at)+'" required></div></div><label>Status</label><select name="status"><option value="published"'+(e.status==='published'?' selected':'')+'>Published</option><option value="draft"'+(e.status==='draft'?' selected':'')+'>Draft / hidden</option><option value="archived"'+(e.status==='archived'?' selected':'')+'>Archived / removed</option></select>','Save changes');
+        return '<article class="sd-member-card"><span class="sd-member-tag">'+esc(e.status)+(new Date(e.ends_at).getTime()<=Date.now()?' · expired':'')+'</span><h3>'+esc(e.title)+'</h3><p>Ends: '+dateLabel(e.ends_at)+'</p>'+edit+postForm(req,'/sovereign-admin/events/'+Number(e.id)+'/delete','<p>Delete this event permanently.</p>','Delete event')+'</article>';
+      }).join('');
+      const css='<style>.sd-event-admin{display:grid;gap:14px}.sd-event-admin form{margin-top:12px}.sd-event-admin input,.sd-event-admin textarea,.sd-event-admin select{width:100%;box-sizing:border-box;padding:11px;border:1px solid #403a2d;border-radius:10px;background:#0d0d0f;color:#fff;font:inherit}.sd-event-admin .sd-trade-fields{margin:10px 0}.sd-event-admin label{display:block;margin:10px 0 6px;color:#d9d0bb;font-size:12px;font-weight:800}.sd-event-admin .btn{margin-top:10px}</style>';
+      deskAdminPage(req,res,'Homepage events','/sovereign-admin/events',notice(req.query.saved?'Event saved.':req.query.deleted?'Event deleted.':'')+css+'<section class="sd-member-hero"><span class="kicker">HOMEPAGE CONTROL</span><h2>Create and manage events</h2><p>Each event has its own end date. Published events automatically disappear after expiry. You can also unpublish, archive or delete them early.</p></section><div class="sd-event-admin">'+panel('Create a homepage event','The end date defaults to one month from today.',create)+(cards||panel('No saved events','Create an event above to publish it.',''))+'</div>');
+    }catch(e){dbUnavailable(res,next,e,'Homepage events setup required');}
+  });
+  router.post('/sovereign-admin/events',requireAdmin,adminOnly,urlencoded,csrfCheck,async(req,res,next)=>{
+    const title=clean(req.body.title,180),summary=clean(req.body.summary,1200),label=clean(req.body.event_label,100)||'MONARCH CODEX EVENT';
+    const starts=eventInputDate(req.body.starts_at),ends=eventInputDate(req.body.ends_at);
+    if(!title||!summary||!starts||!ends||new Date(ends.replace(' ','T')).getTime()<=new Date(starts.replace(' ','T')).getTime())return res.status(400).send('Enter valid event details and an end time after the start.');
+    try{await pool.execute("INSERT INTO monarch_site_events (title,summary,event_label,starts_at,ends_at,status,created_by,updated_by) VALUES (?,?,?,?,?,'published',?,?)",[title,summary,label,starts,ends,req.session.memberId,req.session.memberId]);res.redirect('/sovereign-admin/events?saved=1');}
+    catch(e){dbUnavailable(res,next,e,'Homepage events setup required');}
+  });
+  router.post('/sovereign-admin/events/:id/update',requireAdmin,adminOnly,urlencoded,csrfCheck,async(req,res,next)=>{
+    if(!idOk(req.params.id))return res.status(400).send('Invalid event id.');
+    const title=clean(req.body.title,180),summary=clean(req.body.summary,1200),label=clean(req.body.event_label,100)||'MONARCH CODEX EVENT',status=clean(req.body.status,12);
+    const starts=eventInputDate(req.body.starts_at),ends=eventInputDate(req.body.ends_at);
+    if(!title||!summary||!starts||!ends||!['published','draft','archived'].includes(status)||new Date(ends.replace(' ','T')).getTime()<=new Date(starts.replace(' ','T')).getTime())return res.status(400).send('Enter valid event details and an end time after the start.');
+    try{const [result]=await pool.execute('UPDATE monarch_site_events SET title=?,summary=?,event_label=?,starts_at=?,ends_at=?,status=?,updated_by=? WHERE id=?',[title,summary,label,starts,ends,status,req.session.memberId,req.params.id]);if(!result.affectedRows)return res.status(404).send('Event not found.');res.redirect('/sovereign-admin/events?saved=1');}
+    catch(e){dbUnavailable(res,next,e,'Homepage events setup required');}
+  });
+  router.post('/sovereign-admin/events/:id/delete',requireAdmin,adminOnly,urlencoded,csrfCheck,async(req,res,next)=>{
+    if(!idOk(req.params.id))return res.status(400).send('Invalid event id.');
+    try{const [result]=await pool.execute('DELETE FROM monarch_site_events WHERE id=?',[req.params.id]);if(!result.affectedRows)return res.status(404).send('Event not found.');res.redirect('/sovereign-admin/events?deleted=1');}
+    catch(e){dbUnavailable(res,next,e,'Homepage events setup required');}
+  });
+
   // Public read-only watchlist, visible without login.
   router.get('/sovereign-desk/watchlist',async(req,res,next)=>{
     try {
@@ -560,6 +614,7 @@ function createSovereignDeskRouter(deps) {
     try{
       await purgeExpiredChats();
       const m=await getMemberForPage(req,res);if(!m)return;
+      if(!await memberAccess(m.id))return renderMember(req,res,m,'Chat with Sovereign Desk','/sovereign-desk/chat',noAccessContent(m));
       await pool.execute("UPDATE sovereign_chat_messages SET seen_at=CURRENT_TIMESTAMP WHERE member_id=? AND sender_role='desk' AND seen_at IS NULL",[m.id]);
       const [messages]=await pool.execute('SELECT id,sender_role,body,created_at,seen_at FROM sovereign_chat_messages WHERE member_id=? ORDER BY id ASC LIMIT 500',[m.id]);
       const bubbles=messages.map(x=>'<div class="sd-chat-line '+(x.sender_role==='member'?'from-member':'from-desk')+'"><div class="sd-chat-bubble">'+esc(x.body).replace(/\n/g,'<br>')+'<small>'+dateLabel(x.created_at)+(x.sender_role==='member'?' · '+(x.seen_at?'Seen ✓✓':'Sent ✓'):'')+'</small></div></div>').join('');
@@ -572,6 +627,7 @@ function createSovereignDeskRouter(deps) {
     const body=clean(req.body.body,4000);
     if(!body)return res.redirect('/sovereign-desk/chat');
     try{
+      if(!await memberAccess(req.session.memberId))return res.status(403).send('Active full Sovereign Desk access is required to use private chat.');
       await purgeExpiredChats();
       await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'member',?,?)",[req.session.memberId,req.session.memberId,body]);
       res.redirect('/sovereign-desk/chat?sent=1');
