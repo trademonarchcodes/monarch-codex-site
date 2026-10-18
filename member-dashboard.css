@@ -1068,3 +1068,18 @@ html[data-theme="light"] .dashboard-sidebar-scroll-controls button {
   color:#33270a;
   border-color:#c5a64b;
 }
+
+
+/* Keep dashboard scroll controls reachable while the sidebar itself scrolls. */
+.dashboard-sidebar-scroll-controls {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  width: 100%;
+  box-sizing: border-box;
+  box-shadow: 0 8px 14px #0003;
+}
+.dashboard-sidebar {
+  scroll-behavior: smooth;
+  scroll-padding-top: 8px;
+}
