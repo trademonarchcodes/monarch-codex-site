@@ -459,7 +459,7 @@ function createSovereignDeskRouter(deps) {
         '<div class="sd-trade-stats"><div class="sd-trade-stat"><small>Profitable trades</small><strong>'+counts.profit+'</strong></div><div class="sd-trade-stat"><small>Loss-making trades</small><strong>'+counts.loss+'</strong></div><div class="sd-trade-stat"><small>Breakeven</small><strong>'+counts.breakeven+'</strong></div></div>'+
         '<section class="sd-trade-panel"><h3>This week’s trades</h3><div class="sd-trade-table-wrap"><table class="sd-trade-table"><thead><tr><th>Instrument</th><th>Buy / Sell</th><th>Profit / Loss</th><th>Date</th><th>Notes</th></tr></thead><tbody>'+(tableRows||'<tr><td colspan="5" class="sd-trade-empty">The Desk has not added any trades for this week yet.</td></tr>')+'</tbody></table></div><p class="sd-trade-readonly">Read-only member view. For questions about a record, message the Sovereign Desk team.</p></section>';
       renderMember(req,res,m,'Weekly trade watchlist','/sovereign-desk/watchlist',tradeJournalStyles+body);
-    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Trade watchlist setup required. Apply migrations/011_sovereign_trade_journal.sql, then reload.');next(e);}
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Trade watchlist setup required. Apply migrations/012_sovereign_shared_trade_watchlist.sql, then reload.');next(e);}
   });
 
   router.get('/sovereign-desk/chat',requireAuth,requireApprovedKyc,async(req,res,next)=>{
