@@ -13,6 +13,7 @@ const multer = require('multer');
 const createSovereignDeskRouter = require('./sovereign-desk');
 const { renderMemberNavigation } = require('./lib/member-navigation');
 const createMonarchsDirectoryRouter = require('./monarchs-directory');
+const createToolsRouter = require('./tools');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -450,7 +451,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
     {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
-    {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣']]},
+    {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
   ];
@@ -2469,6 +2470,7 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
 // Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
 app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
 app.use(createMonarchsDirectoryRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
+app.use(createToolsRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, getMemberForPage, esc }));
 
 // Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
 app.get('/', async (_req, res, next) => {
