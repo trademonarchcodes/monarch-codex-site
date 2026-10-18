@@ -54,7 +54,7 @@ function createSovereignDeskRouter(deps) {
       ['/sovereign-admin/watchlist', 'Weekly trade watchlist', '▦'],
       ['/sovereign-admin/mentorship', 'Guidance & content', '✦'],
       ['/sovereign-admin/access', 'Desk access', '♙'],
-      ['/sovereign-admin/signal-access', 'Signals subscriptions', '◆'],
+      ['/sovereign-admin/signal-access', 'Full Desk subscriptions', '◆'],
       ['/sovereign-admin/chat', 'Member chat', '◉'],
       ['/sovereign-admin/announcements', 'Announcements', '▤'],
       ['/sovereign-admin/events', 'Homepage events', '◷'],
@@ -278,7 +278,7 @@ function createSovereignDeskRouter(deps) {
         if(decision==='revoked') await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=?,expires_at=CURRENT_TIMESTAMP WHERE member_id=?",[note||'Sovereign Desk service access revoked by administrator',a.member_id]);
       }
       await conn.commit();
-      await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[memberId,'sovereign_signal_access',decision==='approved'?'Signals access activated':'Signals access updated',decision==='approved'?'Your Sovereign Desk signals access is active for 14 days.':'Your signals access request status is '+decision+'.','/sovereign-desk/signal-access','sovereign-signal-access:'+id+':'+decision]).catch(()=>{});
+      await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[memberId,'sovereign_signal_access',decision==='approved'?'Full Sovereign Desk access activated':'Sovereign Desk access updated',decision==='approved'?'Your full Sovereign Desk access is active for 14 days, including signals, mentorship, announcements, private chat and Telegram access.':'Your full Sovereign Desk access request status is '+decision+'.','/sovereign-desk/signal-access','sovereign-signal-access:'+id+':'+decision]).catch(()=>{});
       res.redirect('/sovereign-admin/signal-access?saved=1');
     } catch(e) { try{await conn.rollback();}catch(_){} dbUnavailable(res,next,e,'Signal access setup required'); } finally { conn.release(); }
   });
@@ -404,6 +404,7 @@ function createSovereignDeskRouter(deps) {
     try {
       const m=await getMemberForPage(req,res);if(!m)return;
       const [[slot]]=await pool.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
+      const [[eventWindow]]=await pool.execute("SELECT id FROM monarch_site_events WHERE title='The Sovereign Desk Signals Launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
       const [[access]]=await pool.execute('SELECT access_type,status,payment_reference,requested_at,starts_at,expires_at,review_reason FROM sovereign_signal_access WHERE member_id=? LIMIT 1',[m.id]);
       const claimed=Number(slot&&slot.claimed_count||0),remaining=Math.max(0,20-claimed);
       const active=await signalAccess(m.id);
@@ -411,7 +412,7 @@ function createSovereignDeskRouter(deps) {
       if(active) action='<article class="sd-member-card"><h3>Signals access is active</h3><p>Plan: '+statusLabel(access.access_type)+'</p><p>Access expires: '+dateLabel(access.expires_at)+'</p><a class="btn" href="/sovereign-desk/signals">Open signals ↗</a></article>';
       else if(access&&access.status==='pending') action='<article class="sd-member-card"><h3>Request under review</h3><p>Your '+statusLabel(access.access_type)+' request is waiting for the team to review it. Paid access is not activated until payment is verified.</p><p>Submitted: '+dateLabel(access.requested_at)+'</p>'+(access.payment_reference?'<p>Payment reference: '+esc(access.payment_reference)+'</p>':'')+'</article>';
       else {
-        const freeOfferAvailable=!access&&remaining>0;
+        const freeOfferAvailable=!access&&remaining>0&&Boolean(eventWindow);
         const form=postForm(req,'/sovereign-desk/signal-access/request',freeOfferAvailable
           ? '<p>There are '+remaining+' of the first 20 free places remaining. Submit once to claim 14 days of free signals access. The claim is reserved automatically when submitted.</p><input type="hidden" name="request_plan" value="event_free">'
           : '<p>Full Sovereign Desk access costs $10 for 14 days, including signals, mentorship, announcements, private Desk chat and Telegram access for eligible active members. Pay using the official instructions provided by the Monarch Codex team, then enter the payment reference below. An administrator will verify it before access is activated.</p><label>Payment reference</label><input name="payment_reference" maxlength="160" required placeholder="Enter your payment reference">',
@@ -430,8 +431,9 @@ function createSovereignDeskRouter(deps) {
       if(existing&&existing.status==='approved'&&existing.expires_at&&new Date(existing.expires_at).getTime()>Date.now()){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?active=1');}
       if(existing&&existing.status==='pending'){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?pending=1');}
       const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
+      const [[eventWindow]]=await conn.execute("SELECT id FROM monarch_site_events WHERE title='The Sovereign Desk Signals Launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
       const claimed=Number(slot&&slot.claimed_count||0);
-      if(!existing&&claimed<20){
+      if(!existing&&claimed<20&&eventWindow){
         await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=claimed_count+1 WHERE id=1');
         await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,starts_at,expires_at,review_reason) VALUES (?,'event_free','approved',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY),'First 20 event offer')",[req.session.memberId]);
         await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_at,expires_at) VALUES (?,'approved','First 20 event offer — full Sovereign Desk access for 14 days',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY)) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at)",[req.session.memberId]);
