@@ -1,4 +1,4 @@
-const CACHE_NAME = 'monarch-codex-pwa-v1';
+const CACHE_NAME = 'monarch-codex-pwa-v2';
 const APP_SHELL = ['/', '/manifest.webmanifest', '/app-icon.svg', '/assets/css/style.css', '/assets/js/main.js', '/assets/images/monarch-codex-logo.svg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
