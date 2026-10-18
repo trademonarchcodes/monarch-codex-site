@@ -246,6 +246,34 @@ function createSovereignDeskRouter(deps) {
     }catch(e){await conn.rollback();dbUnavailable(res,next,e,'Access setup required');}finally{conn.release();}
   });
 
+
+  router.get('/sovereign-admin/signal-access',requireAdmin,adminOnly,async(req,res,next)=>{
+    try {
+      const [[slot]]=await pool.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
+      const [rows]=await pool.execute("SELECT a.id,a.member_id,a.access_type,a.status,a.payment_reference,a.requested_at,a.expires_at,a.review_reason,m.full_name,m.username,m.email,m.monarch_uid FROM sovereign_signal_access a JOIN members m ON m.id=a.member_id ORDER BY a.status,a.requested_at DESC LIMIT 250");
+      const rowHtml=rows.map(a=>'<tr><td><strong>'+esc(a.full_name||a.username)+'</strong><br><small>'+esc(a.monarch_uid||'')+' · '+esc(a.email)+'</small></td><td>'+statusLabel(a.access_type)+(a.payment_reference?'<br><small>Payment ref: '+esc(a.payment_reference)+'</small>':'')+'</td><td>'+statusLabel(a.status)+'<br><small>Expires: '+dateLabel(a.expires_at)+'</small></td><td>'+dateLabel(a.requested_at)+'</td><td>'+(a.status==='pending'?postForm(req,'/sovereign-admin/signal-access/'+Number(a.id),'<label>Review note</label><input name="review_reason" maxlength="1000"><select name="decision"><option value="approved">Approve — 14 days</option><option value="rejected">Reject</option></select>','Review'):(a.status==='approved'?postForm(req,'/sovereign-admin/signal-access/'+Number(a.id),'<input name="review_reason" maxlength="1000" placeholder="Reason"><input type="hidden" name="decision" value="revoked">','Revoke'):'Reviewed'))+'</td></tr>').join('');
+      const content=panel('Event offer capacity','First 20 unique members receive 14 days free. '+Number(slot&&slot.claimed_count||0)+' of 20 free places have been claimed. Verify payment references before approving paid requests.','')+panel('Signal access requests','Paid approvals activate exactly 14 days of signals access.','<div class="sd-trade-table-wrap"><table class="sd-trade-table"><thead><tr><th>Member</th><th>Plan / payment</th><th>Status / expiry</th><th>Requested</th><th>Review</th></tr></thead><tbody>'+(rowHtml||'<tr><td colspan="5">No signal access requests yet.</td></tr>')+'</tbody></table></div>');
+      deskAdminPage(req,res,'Signals subscriptions','/sovereign-admin/signal-access',notice(req.query.saved?'Signal access updated.':'')+content);
+    } catch(e) { dbUnavailable(res,next,e,'Signal access setup required'); }
+  });
+  router.post('/sovereign-admin/signal-access/:id',requireAdmin,adminOnly,urlencoded,csrfCheck,async(req,res,next)=>{
+    const id=String(req.params.id),decision=clean(req.body.decision,20),note=clean(req.body.review_reason,1000);
+    if(!idOk(id)||!['approved','rejected','revoked'].includes(decision))return res.status(400).send('Invalid signal access decision.');
+    const conn=await pool.getConnection();let memberId;
+    try {
+      await conn.beginTransaction();
+      const [[a]]=await conn.execute('SELECT id,member_id,status,access_type FROM sovereign_signal_access WHERE id=? FOR UPDATE',[id]);
+      if(!a){await conn.rollback();return res.status(404).send('Request not found.');}
+      if((decision==='approved'||decision==='rejected')&&a.status!=='pending'){await conn.rollback();return res.status(409).send('This request has already been reviewed.');}
+      memberId=a.member_id;
+      if(decision==='approved') await conn.execute("UPDATE sovereign_signal_access SET status='approved',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=?,starts_at=CURRENT_TIMESTAMP,expires_at=DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY) WHERE id=?",[req.session.memberId,note||'Payment verified by administrator',id]);
+      else await conn.execute('UPDATE sovereign_signal_access SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?',[decision,req.session.memberId,note||null,id]);
+      await conn.commit();
+      await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[memberId,'sovereign_signal_access',decision==='approved'?'Signals access activated':'Signals access updated',decision==='approved'?'Your Sovereign Desk signals access is active for 14 days.':'Your signals access request status is '+decision+'.','/sovereign-desk/signal-access','sovereign-signal-access:'+id+':'+decision]).catch(()=>{});
+      res.redirect('/sovereign-admin/signal-access?saved=1');
+    } catch(e) { try{await conn.rollback();}catch(_){} dbUnavailable(res,next,e,'Signal access setup required'); } finally { conn.release(); }
+  });
+
   router.get('/sovereign-admin/announcements',requireAdmin,adminOnly,async(req,res,next)=>{
     try{
       const [rows]=await pool.execute('SELECT id,title,body,status,published_at,created_at FROM sovereign_announcements ORDER BY created_at DESC LIMIT 100');
