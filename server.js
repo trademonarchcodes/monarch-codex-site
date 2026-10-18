@@ -2509,9 +2509,10 @@ app.get('/', async (_req, res, next) => {
   } catch (e) { next(e); }
 });
 app.get(['/manifest.webmanifest', '/service-worker.js', '/app-icon.svg'], (req, res) => {
-  if (req.path === '/manifest.webmanifest') res.type('application/manifest+json');
-  if (req.path === '/service-worker.js') res.type('application/javascript');
-  res.sendFile(path.join(__dirname, path.basename(req.path)));
+  const file = path.join(__dirname, path.basename(req.path));
+  if (req.path === '/manifest.webmanifest') return res.sendFile(file, { headers: { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'no-cache' } });
+  if (req.path === '/service-worker.js') return res.sendFile(file, { headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' } });
+  return res.sendFile(file, { headers: { 'Cache-Control': 'public, max-age=3600' } });
 });
 app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
   res.sendFile(path.join(__dirname, path.basename(req.path)));
