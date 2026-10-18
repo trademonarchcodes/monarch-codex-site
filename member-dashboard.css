@@ -788,3 +788,77 @@ html[data-theme="light"] .member-experience .member-rail-logout button {
   color: #8e2821 !important;
   border-color: #e0a49c !important;
 }
+
+
+/* Sidebar layout repair: restore the desktop side column and mobile slide-out drawer.
+   These rules intentionally override the earlier emergency recovery overrides. */
+@media (min-width: 851px) {
+  .member-experience {
+    display: grid !important;
+    grid-template-columns: 250px minmax(0, 1fr) !important;
+    align-items: stretch;
+  }
+  .member-experience > .member-rail {
+    position: sticky !important;
+    top: 14px !important;
+    align-self: start !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: calc(100dvh - 28px) !important;
+    max-height: calc(100dvh - 28px) !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    transform: none !important;
+    inset: auto !important;
+    z-index: 2 !important;
+  }
+  .member-experience > .member-workspace {
+    min-width: 0 !important;
+  }
+}
+@media (max-width: 850px) {
+  .member-experience {
+    display: block !important;
+    position: relative;
+    overflow: visible !important;
+  }
+  .member-experience > .member-rail {
+    position: fixed !important;
+    z-index: 1300 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    width: min(290px, 85vw) !important;
+    min-width: 0 !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    min-height: 0 !important;
+    padding: 25px 16px 18px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    transform: translateX(-105%) !important;
+    transition: transform .22s ease !important;
+    border-radius: 0 18px 18px 0 !important;
+    background: linear-gradient(180deg, #19191d 0%, #111114 100%) !important;
+  }
+  .member-experience > .member-rail.is-open {
+    transform: translateX(0) !important;
+  }
+  .member-experience > .member-workspace {
+    display: flex !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 12px !important;
+  }
+  .member-experience .member-mobile-head {
+    display: flex !important;
+  }
+  .member-experience .member-mobile-scrim.is-visible {
+    display: block !important;
+    position: fixed !important;
+    z-index: 1290 !important;
+    inset: 0 !important;
+    background: #000a !important;
+  }
+}
