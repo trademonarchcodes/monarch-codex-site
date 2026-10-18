@@ -381,11 +381,11 @@ app.get('/admin/profile', requireAdmin, async (req,res,next)=>{
 function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin' || String(active || '').startsWith('/sovereign-admin');
   const groups = deskOnly ? [
-    {label:'Desk home',links:[['/sovereign-admin','Overview','◫']]},
-    {label:'Trading operations',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦']]},
-    {label:'Member engagement',links:[['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤']]},
-    {label:'Access & oversight',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/activity','Activity log','◷']]},
-    {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
+    {label:'Workspace',links:[['/sovereign-admin','Desk overview','◫']]},
+    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦']]},
+    {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤']]},
+    {label:'Governance',links:[['/sovereign-admin/activity','Activity log','◷']]},
+    {label:'Your account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
     {label:'Overview',links:[['/admin','Dashboard overview','◫']]},
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
@@ -405,6 +405,17 @@ function adminControlPage(title, active, content, req) {
   .ac-brand{display:flex;align-items:center;gap:11px;padding:8px 8px 19px;border-bottom:1px solid #302d25;color:#f4d77d;font-size:.78rem;font-weight:950;letter-spacing:.12em;line-height:1.45}
   .ac-brand-mark{display:grid;place-items:center;flex:0 0 39px;height:39px;border:1px solid #6c592b;border-radius:13px;background:linear-gradient(145deg,#302713,#17140d);color:#f3d47a;font-size:1.15rem}
   .ac-brand small{display:block;margin-top:4px;color:#8d897e;font-size:.59rem;letter-spacing:.14em;font-weight:800}
+  .ac-side-desk{border-color:#5d4a24;background:radial-gradient(ellipse at 0 0,rgba(223,189,98,.16),transparent 42%),linear-gradient(180deg,#17150f,#0c0c0e 85%)}
+  .ac-side-desk .ac-brand{border-bottom-color:#514322;color:#f8df91}
+  .ac-desk-intro{display:flex;align-items:center;gap:11px;margin:15px 1px 12px;padding:13px 11px;border:1px solid #6d592d;border-radius:14px;background:linear-gradient(125deg,#3b2d12,#1b180f 78%);box-shadow:inset 0 1px #f4d77d12}
+  .ac-desk-orbit{display:grid;place-items:center;flex:0 0 35px;height:35px;border:1px solid #8d7134;border-radius:11px;background:#e5c46a13;color:#f3d47a;font-size:1.25rem}
+  .ac-desk-intro strong{display:block;color:#f4d77d;font-size:.69rem;letter-spacing:.12em}
+  .ac-desk-intro small{display:block;margin-top:4px;color:#a7a08c;font-size:.63rem;line-height:1.45}
+  .ac-side-desk .ac-nav-group{margin-top:10px}
+  .ac-side-desk .ac-nav-group-label{color:#b19b5d}
+  .ac-side-desk .ac-nav{min-height:43px}
+  .ac-side-desk .ac-nav.is-active{border-color:#9a7936;background:linear-gradient(100deg,#e5c46a35,#e5c46a0d);box-shadow:inset 3px 0 0 #f0d078,0 4px 16px #0002}
+  .ac-side-desk .ac-nav b{font-size:.8rem}
   .ac-side-search{position:relative;margin:15px 2px 9px}.ac-side-search:before{content:'⌕';position:absolute;left:12px;top:7px;color:#a89b70;font-size:1.2rem;pointer-events:none}
   .ac-side-search input{box-sizing:border-box;width:100%;min-height:39px;padding:10px 12px 10px 34px;border:1px solid #343127;border-radius:11px;background:#101012;color:#eee9dc;font:inherit;font-size:.76rem;outline:none}
   .ac-side-search input:focus-visible{border-color:#c8a84e;box-shadow:0 0 0 3px #e5c46a1a}.ac-side-search-note{margin:0 4px 12px;color:#6f6c63;font-size:.65rem;line-height:1.5}
@@ -517,7 +528,8 @@ function adminControlPage(title, active, content, req) {
   </style><div class="ac-layout" id="adminLayout">
   <div class="ac-mobilebar"><button class="ac-menu-toggle" type="button" id="adminMenuToggle" aria-label="Open admin navigation" aria-expanded="false">☰</button><span class="ac-mobile-title">MONARCH CODEX · ADMIN</span></div>
   <button class="ac-drawer-scrim" type="button" id="adminDrawerScrim" aria-label="Close admin navigation"></button>
-  <aside class="ac-side" id="adminSidebar"><div class="ac-brand"><span class="ac-brand-mark" aria-hidden="true">M</span><span>MONARCH CODEX<small>ADMIN CONTROL CENTRE</small></span></div>
+  <aside class="ac-side ${deskOnly ? 'ac-side-desk' : ''}" id="adminSidebar"><div class="ac-brand"><span class="ac-brand-mark" aria-hidden="true">${deskOnly ? 'S' : 'M'}</span><span>${deskOnly ? 'SOVEREIGN DESK' : 'MONARCH CODEX'}<small>${deskOnly ? 'TRADING WORKSPACE' : 'ADMIN CONTROL CENTRE'}</small></span></div>
+  ${deskOnly ? '<div class="ac-desk-intro"><span class="ac-desk-orbit">⌁</span><div><strong>SOVEREIGN DESK</strong><small>Signals · Guidance · Members</small></div></div>' : ''}
   <div class="ac-side-search"><input id="adminNavSearch" type="search" placeholder="Find a workspace…" autocomplete="off" aria-label="Filter admin navigation"></div><p class="ac-side-search-note">Search the tools available to your role.</p><nav aria-label="Admin workspace navigation">${nav}</nav>
   <div class="ac-secure"><div class="ac-secure-title"><span class="ac-secure-dot" aria-hidden="true"></span>Protected workspace</div>Access is checked on the server for each protected page. Your role determines which workspaces appear.</div>
   <form method="post" action="/logout">${csrfField(req)}<button class="btn ac-logout" type="submit">↗ &nbsp; Log out securely</button></form></aside>
