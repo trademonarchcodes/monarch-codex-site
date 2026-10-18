@@ -1,0 +1,24 @@
+{
+  "name": "Monarch Codex",
+  "short_name": "Monarch Codex",
+  "description": "Knowledge. Strategy. Empowerment. The Monarch Codex community.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b0b0c",
+  "theme_color": "#0b0b0c",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "education",
+    "finance",
+    "lifestyle"
+  ]
+}
