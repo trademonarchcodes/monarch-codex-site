@@ -446,40 +446,112 @@ function createSovereignDeskRouter(deps) {
     finally{conn.release();}
   });
 
-  // Rebuilt claim/request flow with serialized event-slot reservation and atomic access writes.
+  // Rebuilt event claim / paid-reference request flow.
+  // All slot reservation and access writes happen in one transaction. A failed claim never consumes a slot.
   router.post('/sovereign-desk/signal-access/request',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
-    const memberId=Number(req.session.memberId), paymentReference=clean(req.body.payment_reference,160);
+    const memberId=Number(req.session.memberId);
+    const paymentReference=clean(req.body.payment_reference,160);
+    const plan=clean(req.body.request_plan,30);
     const conn=await pool.getConnection();
     try {
-      if(!Number.isSafeInteger(memberId)||memberId<1) return res.status(401).send('Please sign in again to claim this offer.');
+      if(!Number.isSafeInteger(memberId)||memberId<1) {
+        return res.status(401).send('Your session has expired. Please sign in again before requesting Sovereign Desk access.');
+      }
       await conn.beginTransaction();
-      const [[existing]]=await conn.execute('SELECT id,status,access_type,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1 FOR UPDATE',[memberId]);
-      if(existing&&existing.status==='approved'&&existing.expires_at&&new Date(existing.expires_at).getTime()>Date.now()){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?active=1');}
-      if(existing&&existing.status==='pending'){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?pending=1');}
-      await conn.execute('INSERT IGNORE INTO sovereign_signal_event_slots (id,claimed_count) VALUES (1,0)');
-      const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
-      const [[eventWindow]]=await conn.execute("SELECT id FROM monarch_site_events WHERE event_key='sovereign_signals_launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
-      const claimed=Number(slot&&slot.claimed_count||0);
-      if(!existing&&eventWindow&&claimed<20){
-        await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=claimed_count+1 WHERE id=1 AND claimed_count<20');
-        const [[lockedSlot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
-        if(Number(lockedSlot&&lockedSlot.claimed_count||0)>20){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?offer_unavailable=1');}
-        await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,starts_at,expires_at,review_reason) VALUES (?,'event_free','approved',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY),'First 20 event offer')",[memberId]);
-        await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_by,granted_at,expires_at) VALUES (?,'approved','First 20 event offer — full Sovereign Desk access for 14 days',?,CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY)) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_by=VALUES(granted_by),granted_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at)",[memberId,memberId]);
+
+      const [[existing]]=await conn.execute(
+        'SELECT id,status,access_type,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1 FOR UPDATE',
+        [memberId]
+      );
+      if(existing && existing.status==='approved' && existing.expires_at && new Date(existing.expires_at).getTime()>Date.now()) {
+        await conn.rollback();
+        return res.redirect('/sovereign-desk/signal-access?active=1');
+      }
+      if(existing && existing.status==='pending') {
+        await conn.rollback();
+        return res.redirect('/sovereign-desk/signal-access?pending=1');
+      }
+
+      if(plan==='event_free') {
+        // Lock the slot counter before checking the live event window to serialize claims.
+        await conn.execute("INSERT IGNORE INTO sovereign_signal_event_slots (id,claimed_count) VALUES (1,0)");
+        const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
+        const [[eventWindow]]=await conn.execute(
+          "SELECT id FROM monarch_site_events WHERE event_key='sovereign_signals_launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1"
+        );
+        const claimed=Number(slot && slot.claimed_count || 0);
+        if(!eventWindow) {
+          await conn.rollback();
+          return res.redirect('/sovereign-desk/signal-access?offer_not_open=1');
+        }
+        if(existing) {
+          // Each member can claim the launch offer only once. A previous rejected request
+          // cannot silently become a second free claim.
+          await conn.rollback();
+          return res.redirect('/sovereign-desk/signal-access?already_requested=1');
+        }
+        if(claimed>=20) {
+          await conn.rollback();
+          return res.redirect('/sovereign-desk/signal-access?offer_full=1');
+        }
+
+        const [slotUpdate]=await conn.execute(
+          'UPDATE sovereign_signal_event_slots SET claimed_count=claimed_count+1 WHERE id=1 AND claimed_count<20'
+        );
+        if(!slotUpdate || slotUpdate.affectedRows!==1) {
+          await conn.rollback();
+          return res.redirect('/sovereign-desk/signal-access?offer_full=1');
+        }
+
+        await conn.execute(
+          "INSERT INTO sovereign_signal_access (member_id,access_type,status,starts_at,expires_at,review_reason) VALUES (?,'event_free','approved',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY),'First 20 event offer')",
+          [memberId]
+        );
+        await conn.execute(
+          "INSERT INTO sovereign_desk_access (member_id,status,reason,granted_by,granted_at,expires_at) VALUES (?,'approved','First 20 event offer — full Sovereign Desk access for 14 days',?,CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY)) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_by=VALUES(granted_by),granted_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at)",
+          [memberId,memberId]
+        );
         await conn.commit();
-        await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[memberId,'sovereign_signal_access','Your 14-day offer is active','You claimed one of the first 20 event places. Full Sovereign Desk access is active for 14 days.','/sovereign-desk/signals','sovereign-signal-event-free:'+memberId]).catch(()=>{});
+        await pool.execute(
+          'INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
+          [memberId,'sovereign_signal_access','Your 14-day offer is active','You claimed one of the first 20 event places. Full Sovereign Desk access is active for 14 days.','/sovereign-desk/signals','sovereign-signal-event-free:'+memberId]
+        ).catch(()=>{});
         return res.redirect('/sovereign-desk/signal-access?claimed=1');
       }
-      if(!paymentReference){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?offer_unavailable=1');}
-      if(existing) await conn.execute("UPDATE sovereign_signal_access SET access_type='paid',status='pending',payment_reference=?,requested_at=CURRENT_TIMESTAMP,reviewed_by=NULL,reviewed_at=NULL,review_reason=NULL,starts_at=NULL,expires_at=NULL WHERE member_id=?",[paymentReference,memberId]);
-      else await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,payment_reference) VALUES (?,'paid','pending',?)",[memberId,paymentReference]);
+
+      // Paid access is requested with a reference for review; it never consumes a free slot.
+      if(!paymentReference) {
+        await conn.rollback();
+        return res.redirect('/sovereign-desk/signal-access?payment_reference_required=1');
+      }
+      if(existing) {
+        await conn.execute(
+          "UPDATE sovereign_signal_access SET access_type='paid',status='pending',payment_reference=?,requested_at=CURRENT_TIMESTAMP,reviewed_by=NULL,reviewed_at=NULL,review_reason=NULL,starts_at=NULL,expires_at=NULL WHERE member_id=?",
+          [paymentReference,memberId]
+        );
+      } else {
+        await conn.execute(
+          "INSERT INTO sovereign_signal_access (member_id,access_type,status,payment_reference) VALUES (?,'paid','pending',?)",
+          [memberId,paymentReference]
+        );
+      }
       await conn.commit();
       return res.redirect('/sovereign-desk/signal-access?requested=1');
-    }catch(e){
-      try{await conn.rollback();}catch(_){}
-      console.error('[sovereign offer claim] failed',{code:e&&e.code,message:e&&e.message});
+    } catch(e) {
+      try { await conn.rollback(); } catch(_) {}
+      console.error('[sovereign offer request] failed', {
+        code:e && e.code,
+        errno:e && e.errno,
+        sqlState:e && e.sqlState,
+        message:e && e.message
+      });
+      if(e && ['ER_DUP_ENTRY','ER_LOCK_DEADLOCK','ER_LOCK_WAIT_TIMEOUT'].includes(e.code)) {
+        return res.redirect('/sovereign-desk/signal-access?retry=1');
+      }
       return dbUnavailable(res,next,e,'Sovereign Desk offer setup required');
-    }finally{conn.release();}
+    } finally {
+      conn.release();
+    }
   });
 
   router.get('/sovereign-desk/signals',requireAuth,requireApprovedKyc,async(req,res,next)=>{
