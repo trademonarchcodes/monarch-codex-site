@@ -103,7 +103,8 @@ app.use((req,res,next)=>{
   };
   next();
 });
-const authLimiter = rateLimit({ windowMs: 900000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many attempts. Please wait 15 minutes and try again.' });
+const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 100, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many registration attempts from this network. Please wait and try again.' });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many login attempts. Please wait 15 minutes and try again.' });
 const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many reset requests. Please try again later.' });
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const mailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
@@ -236,7 +237,7 @@ app.get('/api/wallet-balances', requireAuth, async (req,res,next) => {
 });
 app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
 app.get('/register', (req, res) => res.send(registerForm(req)));
-app.post('/register', authLimiter, csrfCheck, async (req, res, next) => {
+app.post('/register', registrationLimiter, csrfCheck, async (req, res, next) => {
   try {
     const fullName = String(req.body.fullName || '').trim(), email = String(req.body.email || '').trim().toLowerCase();
     const phoneDigits = String(req.body.phone || '').replace(/\D/g, ''), phoneCountryCode = String(req.body.phoneCountryCode || '+234').trim(), phone = phoneCountryCode + phoneDigits, username = String(req.body.username || '').trim(), password = String(req.body.password || ''), confirmPassword = String(req.body.confirmPassword || '');
@@ -347,7 +348,7 @@ app.get('/verify-email', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 app.get('/login', (req, res) => res.send(loginForm(req)));
-app.post('/login', authLimiter, csrfCheck, async (req, res, next) => {
+app.post('/login', loginLimiter, csrfCheck, async (req, res, next) => {
   try {
     const identity = String(req.body.identity || '').trim(), password = String(req.body.password || '');
     const [rows] = await pool.execute('SELECT id, password_hash, email_verified_at FROM members WHERE email = ? OR username = ? LIMIT 1', [identity.toLowerCase(), identity]);
