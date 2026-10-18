@@ -23,13 +23,17 @@ module.exports = function createToolsRouter({ pool, requireAuth, requireAdmin, c
         const [existing] = await pool.execute('SELECT COUNT(*) AS total FROM member_tools');
         if (Number(existing[0] && existing[0].total) === 0) {
           await pool.execute('INSERT INTO member_tools (title,description,url,category,icon,sort_order,is_active) VALUES (?,?,?,?,?,?,1),(?,?,?,?,?,?,1),(?,?,?,?,?,?,1),(?,?,?,?,?,?,1)', [
-            'Bybit', 'Exchange app used for selected class demonstrations. Availability and features vary by region.', 'https://www.bybit.com/', 'Trading & exchanges', '↗', 10,
-            'WEEX', 'Exchange app used for selected class demonstrations. Availability and features vary by region.', 'https://www.weex.com/', 'Trading & exchanges', '↗', 20,
-            'Google Flow', 'AI filmmaking and creative workflow tool for class projects.', 'https://labs.google/fx/tools/flow', 'AI & productivity', '✦', 30,
+            'Bybit', 'Exchange app used for selected class demonstrations. Availability and features vary by region.', 'https://www.bybit.com/invite?ref=ZDWQB3B&medium=referral&utm_campaign=evergreen&share_to=post', 'Trading & exchanges', '↗', 10,
+            'WEEX', 'Exchange app used for selected class demonstrations. Availability and features vary by region.', 'https://weex.com/register?vipCode=h3wh', 'Trading & exchanges', '↗', 20,
+            'Google Flow', 'AI filmmaking and creative workflow tool for class projects.', 'https://labs.google/fx/tools/flow/', 'AI & productivity', '✦', 30,
             'TradingView', 'Charts and market-analysis workspace for practice and demonstrations.', 'https://www.tradingview.com/', 'Charts & analysis', '⌁', 40
           ]);
         }
       });
+      await pool.execute(
+        "UPDATE member_tools SET url=CASE title WHEN 'Bybit' THEN ? WHEN 'WEEX' THEN ? WHEN 'Google Flow' THEN ? ELSE url END WHERE (title='Bybit' AND url='https://www.bybit.com/') OR (title='WEEX' AND url='https://www.weex.com/') OR (title='Google Flow' AND url='https://labs.google/fx/tools/flow')",
+        ['https://www.bybit.com/invite?ref=ZDWQB3B&medium=referral&utm_campaign=evergreen&share_to=post', 'https://weex.com/register?vipCode=h3wh', 'https://labs.google/fx/tools/flow/']
+      );
       await schemaReady;
       next();
     } catch (error) { schemaReady = null; next(error); }
