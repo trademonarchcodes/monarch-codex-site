@@ -960,3 +960,57 @@ html[data-theme="light"] .member-experience .member-rail-logout button {
   margin: 0 !important;
   text-align: center !important;
 }
+
+
+/* Member sidebar scroll controls — compact, visible and mobile-friendly. */
+.member-experience .member-rail-scroll-controls {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  flex:0 0 auto;
+  margin:12px 0 14px;
+  padding:7px 10px;
+  border:1px solid #4a3d1e;
+  border-radius:12px;
+  background:linear-gradient(110deg,#211b0d,#141416);
+}
+.member-experience .member-rail-scroll-controls span {
+  color:#c7b77f;
+  font-size:.62rem;
+  font-weight:800;
+  letter-spacing:.18em;
+}
+.member-experience .member-rail-scroll-controls button {
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:36px;
+  flex:0 0 38px;
+  border:1px solid #655222;
+  border-radius:9px;
+  background:#302610;
+  color:#f3d36b;
+  font-size:1.2rem;
+  font-weight:800;
+  line-height:1;
+  cursor:pointer;
+  touch-action:manipulation;
+}
+.member-experience .member-rail-scroll-controls button:hover,
+.member-experience .member-rail-scroll-controls button:focus-visible {
+  background:#4a3a13;
+  border-color:#d3b14b;
+  outline:2px solid #d3b14b;
+  outline-offset:2px;
+}
+html[data-theme="light"] .member-experience .member-rail-scroll-controls {
+  background:#fff8e3;
+  border-color:#d6bd70;
+}
+html[data-theme="light"] .member-experience .member-rail-scroll-controls span { color:#65501a; }
+html[data-theme="light"] .member-experience .member-rail-scroll-controls button {
+  background:#f4e7b7;
+  color:#33270a;
+  border-color:#c5a64b;
+}
