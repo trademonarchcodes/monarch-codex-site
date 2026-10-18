@@ -40,20 +40,32 @@
     });
   });
 
-  // Fail closed: if the status endpoint is unavailable, keep the locks visible.
-  fetch('/api/kyc/access-status', {
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers: { Accept: 'application/json' }
-  })
-    .then(function (response) {
-      if (!response.ok) throw new Error('KYC access status unavailable');
-      return response.json();
+  // Retry transient edge/proxy errors before deciding that KYC is unapproved.
+  // Keep the server-side KYC checks authoritative; this only refreshes navigation UI.
+  function loadAccessStatus(attempt) {
+    fetch('/api/kyc/access-status', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
     })
-    .then(function (data) {
-      renderAccess(data && data.approved === true);
-    })
-    .catch(function () {
-      renderAccess(false);
-    });
+      .then(function (response) {
+        if (!response.ok) {
+          var error = new Error('KYC access status unavailable');
+          error.retryable = response.status === 429 || response.status >= 500;
+          throw error;
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        renderAccess(data && data.approved === true);
+      })
+      .catch(function (error) {
+        if (attempt < 2 && (!error || error.retryable !== false)) {
+          window.setTimeout(function () { loadAccessStatus(attempt + 1); }, 900 * (attempt + 1));
+          return;
+        }
+        renderAccess(false);
+      });
+  }
+  loadAccessStatus(0);
 })();
