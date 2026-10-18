@@ -314,6 +314,63 @@ app.get('/api/market-news/crypto', async (_req, res) => {
   }
 });
 
+
+const liveMarketCache = new Map();
+async function getLiveMarketCache(key, ttlMs, loader) {
+  const item = liveMarketCache.get(key);
+  if (item && Date.now() - item.at < ttlMs) return { value: item.value, cached: true };
+  const value = await loader();
+  liveMarketCache.set(key, { at: Date.now(), value });
+  return { value, cached: false };
+}
+app.get('/api/live-markets/crypto', async (req, res) => {
+  const allowed = new Set(['USD', 'NGN', 'EUR', 'GBP']);
+  const convert = String(req.query.convert || 'USD').toUpperCase();
+  if (!allowed.has(convert)) return res.status(400).json({ message: 'Unsupported quote currency.' });
+  try {
+    const result = await getLiveMarketCache('cmc-listings-' + convert, 60 * 1000, async () => {
+      const query = new URLSearchParams({ start: '1', limit: '100', convert });
+      const raw = await fetchMarketSource('https://pro-api.coinmarketcap.com/public-api/v1/cryptocurrency/listings/latest?' + query.toString(), 'application/json');
+      const parsed = JSON.parse(raw);
+      if (parsed.status && parsed.status.error_code) throw new Error(parsed.status.error_message || 'CoinMarketCap API error');
+      const listings = Array.isArray(parsed.data) ? parsed.data : [];
+      if (!listings.length) throw new Error('No crypto listings returned');
+      const coins = listings.map(coin => ({
+        id: coin.id, name: coin.name, symbol: coin.symbol, slug: coin.slug,
+        cmc_rank: coin.cmc_rank, circulating_supply: coin.circulating_supply,
+        quote: coin.quote || {}
+      }));
+      let global = {};
+      try {
+        const globalRaw = await fetchMarketSource('https://pro-api.coinmarketcap.com/public-api/v1/global-metrics/quotes/latest?convert=USD', 'application/json');
+        const globalParsed = JSON.parse(globalRaw);
+        if (!(globalParsed.status && globalParsed.status.error_code)) global = globalParsed.data || {};
+      } catch (error) {
+        console.warn('[live-markets] Global metrics unavailable:', error.message);
+      }
+      return { coins, global, source: 'CoinMarketCap', updatedAt: new Date().toISOString() };
+    });
+    res.set('Cache-Control', 'public, max-age=30').json({ ...result.value, cached: result.cached });
+  } catch (error) {
+    console.warn('[live-markets] Crypto quotes unavailable:', error.message);
+    res.status(502).json({ message: 'Crypto market data is temporarily unavailable. Please refresh shortly.' });
+  }
+});
+app.get('/api/live-markets/forex', async (_req, res) => {
+  try {
+    const result = await getLiveMarketCache('fx-reference-usd', 30 * 60 * 1000, async () => {
+      const raw = await fetchMarketSource('https://open.er-api.com/v6/latest/USD', 'application/json');
+      const parsed = JSON.parse(raw);
+      if (parsed.result !== 'success' || !parsed.rates || typeof parsed.rates !== 'object') throw new Error('Unexpected FX reference response');
+      return { rates: parsed, updatedAt: new Date().toISOString(), source: 'ExchangeRate-API', sourceUrl: 'https://www.exchangerate-api.com/' };
+    });
+    res.set('Cache-Control', 'public, max-age=300').json({ ...result.value, cached: result.cached });
+  } catch (error) {
+    console.warn('[live-markets] FX reference rates unavailable:', error.message);
+    res.status(502).json({ message: 'Foreign-exchange reference rates are temporarily unavailable. Please refresh shortly.' });
+  }
+});
+
 app.get('/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'monarch-codex' }); } catch (_) { res.status(503).json({ ok: false, service: 'monarch-codex' }); } });
 app.get('/api/wallet-balances', requireAuth, async (req,res,next) => {
   try {
