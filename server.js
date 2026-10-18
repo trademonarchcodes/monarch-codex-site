@@ -593,7 +593,7 @@ function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin' || String(active || '').startsWith('/sovereign-admin');
   const groups = deskOnly ? [
     {label:'Workspace',links:[['/sovereign-admin','Desk overview','◫']]},
-    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦']]},
+    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/market-movers.html','Live Markets','⌁']]},
     {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤']]},
     {label:'Governance',links:[['/sovereign-admin/activity','Activity log','◷']]},
     {label:'Your account',links:[['/admin/profile','My admin profile','◎']]}
@@ -601,7 +601,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Overview',links:[['/admin','Dashboard overview','◫']]},
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
-    {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁']]},
+    {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
     {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
