@@ -1083,3 +1083,43 @@ html[data-theme="light"] .dashboard-sidebar-scroll-controls button {
   scroll-behavior: smooth;
   scroll-padding-top: 8px;
 }
+
+
+/* Keep the dashboard menu scrollable independently so every link is reachable. */
+.dashboard-layout .dashboard-sidebar {
+  height: calc(100dvh - 36px);
+  max-height: calc(100dvh - 36px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.dashboard-layout .dashboard-sidebar nav[aria-label="Member dashboard navigation"],
+.dashboard-layout .dashboard-sidebar nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #8a7135 #111113;
+  scroll-behavior: smooth;
+}
+.dashboard-layout .dashboard-sidebar-scroll-controls {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  flex-shrink: 0;
+}
+@media (max-width: 850px) {
+  .dashboard-layout .dashboard-sidebar {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    overflow: hidden !important;
+  }
+  .dashboard-layout .dashboard-sidebar nav[aria-label="Member dashboard navigation"],
+  .dashboard-layout .dashboard-sidebar nav {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto !important;
+  }
+}
