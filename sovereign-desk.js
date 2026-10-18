@@ -404,7 +404,7 @@ function createSovereignDeskRouter(deps) {
     try {
       const m=await getMemberForPage(req,res);if(!m)return;
       const [[slot]]=await pool.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
-      const [[eventWindow]]=await pool.execute("SELECT id FROM monarch_site_events WHERE title='The Sovereign Desk Signals Launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
+      const [[eventWindow]]=await pool.execute("SELECT id FROM monarch_site_events WHERE event_key='sovereign_signals_launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
       const [[access]]=await pool.execute('SELECT access_type,status,payment_reference,requested_at,starts_at,expires_at,review_reason FROM sovereign_signal_access WHERE member_id=? LIMIT 1',[m.id]);
       const claimed=Number(slot&&slot.claimed_count||0),remaining=Math.max(0,20-claimed);
       const active=await signalAccess(m.id);
@@ -431,7 +431,7 @@ function createSovereignDeskRouter(deps) {
       if(existing&&existing.status==='approved'&&existing.expires_at&&new Date(existing.expires_at).getTime()>Date.now()){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?active=1');}
       if(existing&&existing.status==='pending'){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?pending=1');}
       const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
-      const [[eventWindow]]=await conn.execute("SELECT id FROM monarch_site_events WHERE title='The Sovereign Desk Signals Launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
+      const [[eventWindow]]=await conn.execute("SELECT id FROM monarch_site_events WHERE event_key='sovereign_signals_launch' AND status='published' AND starts_at<=CURRENT_TIMESTAMP AND ends_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1");
       const claimed=Number(slot&&slot.claimed_count||0);
       if(!existing&&claimed<20&&eventWindow){
         await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=claimed_count+1 WHERE id=1');
