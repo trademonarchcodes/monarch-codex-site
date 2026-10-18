@@ -32,8 +32,46 @@
     .app-install-button{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.45);border-radius:999px;color:#f7e7ad;background:linear-gradient(135deg,rgba(255,211,61,.13),rgba(255,211,61,.04));font:inherit;font-weight:800;cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease}.app-install-button:hover{transform:translateY(-2px);border-color:#ffda52;background:rgba(255,211,61,.16)}.nav-app-install{display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,211,61,.5);border-radius:999px;padding:8px 13px;color:#ffe16b;font-size:.78rem;font-weight:800;white-space:nowrap;cursor:pointer;background:rgba(255,211,61,.07)}.app-install-panel{position:fixed;z-index:30000;inset:0;display:none;place-items:center;padding:20px;background:rgba(0,0,0,.78);backdrop-filter:blur(8px)}.app-install-panel.is-open{display:grid}.app-install-card{width:min(100%,430px);padding:28px;border:1px solid rgba(255,211,61,.38);border-radius:24px;background:linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 28px 90px #000}.app-install-card h2{font-family:"Playfair Display",Georgia,serif;font-size:2rem;line-height:1.15;margin:10px 0;color:#ffe16b}.app-install-card p,.app-install-card li{color:#d0cec6}.app-install-close{display:flex;margin-left:auto;width:38px;height:38px;align-items:center;justify-content:center;border:1px solid rgba(255,211,61,.25);border-radius:50%;background:transparent;color:#ffe16b;font-size:1.4rem;cursor:pointer}.app-install-card ol{padding-left:22px}.app-install-card li{padding:4px 0}.app-install-card .button{width:100%;justify-content:center;margin-top:10px}@media(max-width:760px){.nav-app-install{align-self:flex-start}.app-install-card{padding:22px}}
     @media(max-width:700px){.partner-grid,.event-grid{grid-template-columns:1fr}.partner-card,.event-card{padding:22px}.faq-item summary{padding:18px}.faq-answer{padding:0 18px 18px}}
   </style>
+
+  <script>if(new URLSearchParams(location.search).get('app')==='1'){document.documentElement.dataset.appMode='true';}</script>
+  <style>
+    #app-entry-screen{display:none}
+    html[data-app-mode="true"],html[data-app-mode="true"] body{min-height:100%;background:#09090b}
+    html[data-app-mode="true"] body{margin:0}
+    html[data-app-mode="true"] body>:not(#app-entry-screen){display:none!important}
+    html[data-app-mode="true"] #app-entry-screen{box-sizing:border-box;min-height:100svh;padding:32px 24px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;text-align:center;color:#f8f3e6;background:radial-gradient(ellipse at 50% 15%,rgba(226,190,82,.16),transparent 42%),radial-gradient(ellipse at 50% 100%,rgba(226,190,82,.07),transparent 40%),#09090b;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    #app-entry-screen:before{content:"";position:absolute;inset:18px;border:1px solid rgba(223,189,98,.13);border-radius:28px;pointer-events:none}
+    .app-welcome-brand{position:relative;display:flex;flex-direction:column;align-items:center;gap:22px;width:min(100%,390px)}
+    .app-welcome-logo{width:clamp(150px,44vw,210px);height:auto;filter:drop-shadow(0 12px 38px rgba(223,189,98,.12))}
+    .app-welcome-kicker{margin:0;color:#dfbd62;font-size:10px;font-weight:850;letter-spacing:.25em;text-transform:uppercase}
+    .app-welcome-title{margin:0;font-size:clamp(29px,8vw,42px);font-weight:900;letter-spacing:.035em;line-height:1.05;color:#f8f3e6}
+    .app-welcome-title span{display:block;color:#dfbd62}
+    .app-welcome-copy{max-width:300px;margin:0;color:#aaa69b;font-size:14px;line-height:1.7}
+    .app-welcome-actions{display:grid;gap:12px;width:100%;margin-top:10px}
+    .app-welcome-action{box-sizing:border-box;min-height:54px;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:16px;text-decoration:none;font-size:14px;font-weight:850;letter-spacing:.015em;transition:transform .18s ease,background .18s ease}
+    .app-welcome-action:active{transform:scale(.985)}
+    .app-welcome-primary{background:linear-gradient(135deg,#f6dc7c,#d9ad42);color:#17130a;box-shadow:0 10px 28px rgba(223,189,98,.16)}
+    .app-welcome-secondary{border:1px solid rgba(223,189,98,.38);background:rgba(255,255,255,.025);color:#f5e8bd}
+    .app-welcome-footer{position:absolute;bottom:34px;left:24px;right:24px;color:#68645b;font-size:10px;letter-spacing:.15em;font-weight:700}
+    @media(min-height:740px){.app-welcome-brand{gap:25px}}
+    @media(prefers-reduced-motion:reduce){.app-welcome-action{transition:none}}
+  </style>
 </head>
 <body>
+
+  <main id="app-entry-screen" aria-label="Monarch Codex app welcome">
+    <div class="app-welcome-brand">
+      <img class="app-welcome-logo" src="/assets/images/monarch-codex-logo.svg" alt="Monarch Codex">
+      <p class="app-welcome-kicker">Knowledge · Strategy · Empowerment</p>
+      <h1 class="app-welcome-title">BUILD WEALTH.<span>BUILD A KINGDOM.</span></h1>
+      <p class="app-welcome-copy">Your Monarch Codex journey starts here. Sign in to continue or create your member account.</p>
+      <div class="app-welcome-actions">
+        <a class="app-welcome-action app-welcome-primary" href="/login">Log In <span aria-hidden="true">→</span></a>
+        <a class="app-welcome-action app-welcome-secondary" href="/register">Create Account <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+    <div class="app-welcome-footer">MONARCH CODEX · OFFICIAL MEMBER APP</div>
+  </main>
   <header class="site-header">
     <a class="brand" href="#top" aria-label="Monarch Codex home">
       <span class="brand-mark"><img src="assets/images/monarch-codex-logo.svg" alt=""></span>
