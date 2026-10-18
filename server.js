@@ -1292,7 +1292,2319 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
     let investmentTotals=[]; let earningsTotals=[]; let investmentDataReady=true; let earningsDataReady=true;
     try { const [investmentRows]=await pool.execute("SELECT currency,SUM(principal_amount) AS total FROM member_investments WHERE member_id=? AND status IN ('active','matured') GROUP BY currency",[member.id]); investmentTotals=investmentRows; } catch(e){ if(e.code==='ER_NO_SUCH_TABLE') investmentDataReady=false; else throw e; }
     try { const [earningRows]=await pool.execute("SELECT currency,SUM(amount) AS total FROM financial_transactions WHERE member_id=? AND transaction_type IN ('investment_profit','admin_bonus') GROUP BY currency",[member.id]); earningsTotals=earningRows; } catch(e){ if(e.code==='ER_NO_SUCH_TABLE') earningsDataReady=false; else throw e; }
-    const moneyPair=rows=>{const v={USD:0,NGN:0};for(const r of rows){if(Object.prototype.hasOwnProperty.call(v,r.currency))v[r.currency]=Number(r.total)||0;}return 'USD '+v.USD.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' · NGN '+v.NGN.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});};
+    let dashboardConversionRate=null;
+    try {
+      const [[fx]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+      const rate=fx && Number(fx.base_usd_ngn_rate)>0 ? Number(fx.base_usd_ngn_rate)*(1+Number(fx.markup_percent||0)/100) : null;
+      if(Number.isFinite(rate) && rate>0) dashboardConversionRate=rate;
+    } catch(e) { if(e.code!=='ER_NO_SUCH_TABLE') throw e; }
+    const moneyPair=rows=>{
+      const v={USD:0,NGN:0},present={USD:false,NGN:false};
+      for(const r of rows){if(Object.prototype.hasOwnProperty.call(v,r.currency)){v[r.currency]=Number(r.total)||0;present[r.currency]=true;}}
+      if(dashboardConversionRate){
+        const totalNgn=v.NGN+(v.USD*dashboardConversionRate);
+        const totalUsd=totalNgn/dashboardConversionRate;
+        return '₦'+totalNgn.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})+' · 
+    const investmentDisplay=investmentDataReady?moneyPair(investmentTotals):'Not available';
+    const earningsDisplay=earningsDataReady?moneyPair(earningsTotals):'Not available';
+    const recentActivityHtml=recentTransactions.length?'<div class="dashboard-recent-list">'+recentTransactions.map(t=>'<a class="dashboard-recent-item" href="/transactions"><span class="dashboard-recent-icon">'+(Number(t.amount)<0?'↗':'✓')+'</span><span class="dashboard-recent-main"><strong>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</strong><small>'+esc(t.reference||'Recorded transaction')+' · '+esc(t.created_at)+'</small></span><strong class="dashboard-recent-amount '+(Number(t.amount)<0?'is-debit':'is-credit')+'">'+(Number(t.amount)<0?'−':'＋')+esc(String(t.currency||''))+' '+esc(Math.abs(Number(t.amount)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</strong></a>').join('')+'</div>':'<div class="section-card"><strong>'+(ledgerReady?'Your activity starts here':'Activity history is being prepared')+'</strong><p class="muted small">'+(ledgerReady?'Completed deposits and investment purchases will appear here as soon as they are recorded. You can view submitted deposit and withdrawal requests in transaction history.':'The financial activity table is not installed yet. Contact support or your administrator to complete the database setup.')+'</p></div>';
+    const body = '<link rel="stylesheet" href="/member-dashboard.css?v=20261018-member-nav-scroll"><div class="dashboard-layout">'+
+      '<button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><aside class="dashboard-sidebar" id="memberSidebar"><div class="sidebar-brand-row"><div class="side-title">MEMBER MENU</div><button class="icon-btn sidebar-close sidebar-desktop-toggle" type="button" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6M4 4v16"/></svg></button><button class="icon-btn sidebar-close" type="button" data-sidebar-close aria-label="Close menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><nav aria-label="Member dashboard navigation">' +
+      renderMemberNavigation('/dashboard') +'</nav><div class="sidebar-uid"><span class="muted small">YOUR MONARCH ID</span><div class="sidebar-uid-value"><strong id="memberUid">' + esc(member.monarch_uid) + '</strong><button class="copy-btn" type="button" data-copy-target="memberUid" aria-label="Copy Monarch ID">Copy</button></div></div><div class="sidebar-logout"><form method="post" action="/logout">' + csrfField(req) + '<button class="sidebar-logout-btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg><span class="nav-text">Log out</span></button></form></div></aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><div class="dashboard-content"><div class="mobile-dashboard-bar"><button class="icon-btn sidebar-open" type="button" data-sidebar-open aria-label="Open navigation" aria-controls="memberSidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span>MEMBER AREA</span><span class="mobile-current-tab">Overview</span></div><section class="panel">' +
+      '<div class="dashboard-topline"><div><div class="muted small">MONARCH MEMBER AREA</div><h1>Welcome, ' + esc(member.full_name.split(' ')[0]) + '</h1><p class="muted">Your membership overview and account tools.</p></div><a href="/notifications" class="member-notification-bell dashboard-notification-bell dashboard-overview-bell" aria-label="Notifications' + (unreadNotificationCount ? ', ' + unreadNotificationCount + ' unread' : '') + '" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>' + (unreadNotificationCount ? '<span class="dashboard-notification-bell-count">' + (unreadNotificationCount > 99 ? '99+' : unreadNotificationCount) + '</span>' : '') + '</a></div>' +
+      '<section id="overview" class="dashboard-section overview-intro"><div class="overview-title-row"><div><span class="muted small">YOUR ACCOUNT</span><h2>Overview</h2></div><span class="account-live"><i></i> Account active</span></div>' +
+      '<div class="grid dashboard-metrics"><div class="stat balance-primary"><span class="muted small balance-display-label">Wallet balance</span><div class="currency-toggle" role="group" aria-label="Choose wallet display currency"><button type="button" class="currency-toggle-option is-active" data-currency-toggle="NGN" aria-pressed="true"><span>₦</span> NGN</button><button type="button" class="currency-toggle-option" data-currency-toggle="USD" aria-pressed="false"><span>$</span> USD</button></div><select id="balanceCurrency" class="currency-select-accessible" aria-label="Wallet display currency"><option value="NGN" selected>Naira (NGN)</option><option value="USD">US Dollars (USD)</option></select><strong id="totalBalance">—</strong><p class="muted small" id="balanceConversionNote">Loading your wallet balances…</p></div><div class="stat"><span class="muted small">Investment balance</span><strong style="font-size:clamp(12px,1.8vw,17px);line-height:1.6">' + esc(investmentDisplay) + '</strong><p class="muted small">' + (investmentDataReady?'Recorded principal across active and matured investments':'Investment records unavailable until setup is complete') + '</p></div><div class="stat"><span class="muted small">Earnings &amp; bonuses</span><strong style="font-size:clamp(12px,1.8vw,17px);line-height:1.6">' + esc(earningsDisplay) + '</strong><p class="muted small">' + (earningsDataReady?'Recorded profit and bonus credits only':'Earnings records unavailable until setup is complete') + '</p></div><div class="stat"><span class="muted small">Verification</span><strong>' + esc(verificationStatus) + '</strong><a class="metric-link" href="/kyc">' + esc(verificationHint) + ' <span aria-hidden="true">→</span></a></div></div>' +
+      '<div class="dashboard-section referral-summary"><div><span class="muted small">SUCCESSFUL REFERRALS</span><strong>' + (Number(counts[0].total) || 0) + '</strong></div><a href="/referrals">View referrals <span aria-hidden="true">→</span></a></div></section>' +
+      '<section class="dashboard-section action-section"><div class="section-heading-row"><div><h2>Quick actions</h2><p class="muted">Everything you need, one tap away.</p></div><a href="/transactions" class="muted small">Activity <span aria-hidden="true">↗</span></a></div><div class="quick-action-grid" id="quickActions"><a href="/deposit"><span>＋</span><strong>Deposit</strong><small>Add funds</small></a><a href="/withdraw"><span>↗</span><strong>Withdraw</strong><small>Cash out</small></a><a href="/kyc"><span>◇</span><strong>Verify</strong><small>Identity check</small></a><a href="/transactions"><span>↻</span><strong>History</strong><small>Transactions</small></a><a href="/investments"><span>◆</span><strong>Investments</strong><small>Buy a package</small></a><a href="/referrals"><span>♧</span><strong>Referrals</strong><small>Invite friends</small></a><a href="/profile"><span>◉</span><strong>Profile</strong><small>Account details</small></a><a href="/online-cooperative"><span>♙</span><strong>Online Cooperative</strong><small>Packages & benefits</small></a></div><button class="show-more-actions" type="button" id="toggleActions" aria-expanded="false" hidden>More actions</button></section>' +
+      '<section class="dashboard-section"><div class="dashboard-topline"><div><h2>Recent activity</h2><p class="muted">Your latest recorded wallet transactions and account activity.</p></div><a href="/transactions" class="copy-btn" style="text-decoration:none">View all activity</a></div><style>.dashboard-recent-list{display:grid;gap:8px}.dashboard-recent-item{display:flex;align-items:center;gap:12px;min-width:0;padding:13px;border:1px solid #34312a;border-radius:13px;background:linear-gradient(145deg,#171719,#111113);color:inherit;text-decoration:none}.dashboard-recent-icon{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:11px;background:#252012;color:#e4c86d}.dashboard-recent-main{display:grid;gap:4px;min-width:0;flex:1}.dashboard-recent-main strong{font-size:12px;color:#f2ecdf;text-transform:capitalize}.dashboard-recent-main small{font-size:10px;color:#a6a093;overflow-wrap:anywhere}.dashboard-recent-amount{font-size:11px;white-space:nowrap}.dashboard-recent-amount.is-credit{color:#9bd0a8}.dashboard-recent-amount.is-debit{color:#e7a59a}@media(max-width:480px){.dashboard-recent-item{gap:8px;padding:10px}.dashboard-recent-amount{font-size:10px}.dashboard-recent-main small{max-width:140px}}</style>'+recentActivityHtml+'</section>' +
+      '</section></div></div>';
+    res.send(page('Member dashboard', body + '<script src="/wallet-balances.js?v=20261016-2" defer></script>' + "<script>(function(){var layout=document.querySelector(\".dashboard-layout\");if(!layout)return;var openers=layout.querySelectorAll(\"[data-sidebar-open]\"),closers=layout.querySelectorAll(\"[data-sidebar-close]\"),collapse=layout.querySelector(\"[data-sidebar-collapse\");function close(){layout.classList.remove(\"sidebar-open\")}openers.forEach(function(b){b.addEventListener(\"click\",function(){layout.classList.add(\"sidebar-open\")})});closers.forEach(function(b){b.addEventListener(\"click\",close)});if(collapse)collapse.addEventListener(\"click\",function(){layout.classList.toggle(\"sidebar-collapsed\");collapse.setAttribute(\"aria-expanded\",String(!layout.classList.contains(\"sidebar-collapsed\")))});document.addEventListener(\"keydown\",function(e){if(e.key===\"Escape\")close()});})();</script>" + '<script src="/member-nav.js?v=20261017-nav-rebuild1" defer></script>'));
+  } catch (e) { next(e); }
+});
+
+function memberPage(title, active, member, content, req) {
+  const nav = renderMemberNavigation(active);
+  const firstName = esc((member.full_name || 'Member').split(' ')[0]);
+  const uid = esc(member.monarch_uid || 'Pending');
+  const body = '<link rel="stylesheet" href="/member-dashboard.css?v=20261018-member-sidebar-contrast3"><link rel="stylesheet" href="/assets/css/deposit-polish.css?v=20261017-nav-rebuild1"><div class="member-experience"><aside class="member-rail" id="memberRail"><a class="member-brand" href="/dashboard"><span class="member-brand-mark" style="display:block;flex:0 0 48px;width:48px;height:48px;aspect-ratio:1/1;overflow:hidden;border-radius:50%;border:2px solid #dfbd62;background:#17171c"><img src="/member-avatar-current" alt="Your profile photo" style="display:block;width:100%;height:100%;aspect-ratio:1/1;object-fit:cover;object-position:center center;border-radius:50%"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><div class="member-rail-label">YOUR ACCOUNT</div><nav aria-label="Member navigation">' + nav + '</nav><div class="member-rail-account"><span class="member-rail-label">MEMBER ID</span><div class="member-rail-uid"><strong id="memberUid">' + uid + '</strong><button type="button" class="member-copy-uid" data-copy-uid aria-label="Copy member ID">Copy</button></div><small>Keep your account details private.</small></div><div class="member-rail-logout"><form method="post" action="/logout">' + csrfField(req) + '<button type="submit">↪ <span>Log out</span></button></form></div></aside><div class="member-workspace"><header class="member-mobile-head"><button type="button" class="member-menu-toggle" aria-label="Open navigation" aria-expanded="false" data-member-menu>☰</button><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/member-avatar-current" alt="Your profile photo" style="width:100%;height:100%;aspect-ratio:1/1;object-fit:cover;object-position:center center;border-radius:50%"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><span class="member-live-dot" aria-label="Secure account"></span></header><div class="member-page-heading"><div><p class="member-overline">MONARCH CODEX / MEMBER AREA</p><h1>' + firstName + ', welcome back.</h1><p>Manage your account, verification and funds in one place.</p></div><div class="member-heading-actions"><a class="member-notification-bell" data-member-notification-bell href="/notifications" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span data-member-notification-count hidden></span></a><div class="member-heading-status"><span></span> Account workspace</div></div></div><main class="member-main"><div class="member-content-heading"><div><span class="member-overline">ACCOUNT MANAGEMENT</span><h2>' + esc(title) + '</h2></div><span class="member-secure-label">⌑ Secure session</span></div>' + content + '</main><footer class="member-footer"><span>MONARCH CODEX</span><span>Move with clarity. Build with purpose.</span></footer></div></div><div class="member-mobile-scrim" data-member-close></div><div class="page-loading" id="pageLoading" aria-live="polite"><span class="page-spinner"></span><strong>Opening page…</strong></div><script>(function(){var rail=document.getElementById("memberRail"),toggle=document.querySelector("[data-member-menu]"),scrim=document.querySelector("[data-member-close]");function close(){rail.classList.remove("is-open");scrim.classList.remove("is-visible");if(toggle)toggle.setAttribute("aria-expanded","false")}if(toggle)toggle.addEventListener("click",function(){rail.classList.toggle("is-open");scrim.classList.toggle("is-visible");toggle.setAttribute("aria-expanded",rail.classList.contains("is-open")?"true":"false")});if(scrim)scrim.addEventListener("click",close);document.querySelectorAll(".member-experience nav a").forEach(function(a){a.addEventListener("click",function(){var loader=document.getElementById("pageLoading");if(loader)loader.classList.add("show")})});var copy=document.querySelector("[data-copy-uid]");if(copy)copy.addEventListener("click",async function(){try{await navigator.clipboard.writeText(document.getElementById("memberUid").textContent);copy.textContent="Copied";setTimeout(function(){copy.textContent="Copy"},1400)}catch(e){copy.textContent="Select ID"}})})();</script>' + '<script>(function(){var bell=document.querySelector("[data-member-notification-bell]"),badge=document.querySelector("[data-member-notification-count]");if(!bell||!badge)return;fetch("/api/notifications/unread-count",{credentials:"same-origin",cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("unavailable");return r.json()}).then(function(d){var n=Number(d.count)||0;if(n>0){badge.hidden=false;badge.textContent=n>99?"99+":String(n);bell.setAttribute("aria-label","Notifications, "+n+" unread")}}).catch(function(){});})();</script>';
+  return page('Member dashboard', body);
+}
+function wizardPage(title, content, req) {
+  if (title === 'KYC Verification') {
+    const body = '<link rel="stylesheet" href="/kyc-wizard.css?v=20261016-rebuild2"><div class="kyc-page"><header class="kyc-page-head"><a class="kyc-cancel" href="/dashboard">Cancel</a><div><p class="kyc-eyebrow">ACCOUNT VERIFICATION</p><h1>KYC Verification</h1></div><span class="kyc-head-spacer" aria-hidden="true"></span></header>' + content + '</div><script src="/kyc-wizard.js" defer></script>';
+    return page(title, body);
+  }
+  const body = '<style>.wizard-shell{max-width:680px;margin:24px auto;padding:clamp(18px,4vw,34px);min-height:70vh}.wizard-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:30px}.wizard-head h1{font-size:1.2rem;margin:0}.wizard-cancel{color:#d7d4cb;text-decoration:none;border:1px solid #403a27;border-radius:10px;padding:10px 14px}.wizard-progress{display:flex;align-items:flex-start;gap:0;margin:0 0 32px}.wizard-progress .wizard-node{display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;min-width:0;color:#8d897e;font-size:.78rem;text-align:center}.wizard-progress .wizard-dot{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;border:1px solid #514721;background:#111115;color:#aaa}.wizard-progress .wizard-node.active .wizard-dot,.wizard-progress .wizard-node.done .wizard-dot{background:#f3cf3c;border-color:#f3cf3c;color:#17140a}.wizard-progress .wizard-node.active,.wizard-progress .wizard-node.done{color:#f3cf3c}.wizard-track{height:2px;background:#403a27;flex:1;margin:15px -2px 0;position:relative}.wizard-track span{display:block;height:100%;width:0;background:#f3cf3c;transition:width .3s ease}.wizard-panel{padding:clamp(18px,4vw,30px);border:1px solid #403a27;border-radius:18px;background:#111115}.wizard-panel h2{margin-top:0}.wizard-actions{display:flex;justify-content:space-between;gap:12px;margin-top:28px}.wizard-actions button{min-width:120px}.wizard-actions .wizard-continue{margin-left:auto}.wizard-foot{color:#8d897e;font-size:.85rem;margin-top:16px}.wizard-panel .member-card{padding:0;border:0;background:transparent}.wizard-panel .member-steps{display:none}@media(max-width:520px){.wizard-shell{margin:8px auto;padding:14px}.wizard-progress .wizard-node{font-size:.68rem}.wizard-progress .wizard-dot{width:28px;height:28px}.wizard-track{margin-top:13px}}</style><div class="wizard-shell"><header class="wizard-head"><a class="wizard-cancel" href="/dashboard">Cancel</a><h1>' + esc(title) + '</h1><span style="width:60px"></span></header><main class="wizard-panel">' + content + '</main></div><script>(function(){var k=document.getElementById("kycWizard"),d=document.getElementById("depositWizard");var form=k||d;if(!form)return;var isKyc=!!k;var progress=document.createElement("div");progress.className="wizard-progress";var count=isKyc?4:3;var names=isKyc?["Details","Address","Identity","Review"]:["Amount","Payment","Review"];for(var i=0;i<count;i++){if(i){var track=document.createElement("div");track.className="wizard-track";track.innerHTML="<span></span>";progress.appendChild(track)}var node=document.createElement("div");node.className="wizard-node";node.innerHTML="<span class=wizard-dot>"+(i+1)+"</span><span>"+names[i]+"</span>";progress.appendChild(node)}form.parentNode.insertBefore(progress,form);var steps=[].slice.call(form.querySelectorAll(isKyc?".kyc-step":".deposit-step"));var next=document.getElementById(isKyc?"kycNext":"depositNext"),back=document.getElementById(isKyc?"kycBack":"depositBack");function sync(){var idx=steps.findIndex(function(x){return !x.hidden});if(idx<0)idx=0;var nodes=progress.querySelectorAll(".wizard-node"),tracks=progress.querySelectorAll(".wizard-track span");nodes.forEach(function(n,i){n.classList.toggle("active",i===idx);n.classList.toggle("done",i<idx)});tracks.forEach(function(t,i){t.style.width=idx>i?"100%":"0"});if(back)back.textContent="Back";if(next)next.classList.add("wizard-continue")}var observer=new MutationObserver(sync);steps.forEach(function(x){observer.observe(x,{attributes:true,attributeFilter:["hidden"]})});if(next)next.addEventListener("click",function(){setTimeout(sync,0)});if(back)back.addEventListener("click",function(){setTimeout(sync,0)});sync()})();</script>' + '<script src="/member-nav.js?v=20261017-nav-rebuild1" defer></script>';
+  return page(title, body);
+}
+async function getMemberForPage(req, res) {
+  const [rows] = await pool.execute('SELECT id, monarch_uid, full_name, email, username FROM members WHERE id = ? LIMIT 1', [req.session.memberId]);
+  if (rows.length) return rows[0];
+  req.session.destroy(() => res.redirect('/login'));
+  return null;
+}
+
+// Profile changes are authenticated, validated, and constrained by KYC status.
+function profileKey() {
+  const key = Buffer.from(String(process.env.KYC_ENCRYPTION_KEY || ''), 'base64');
+  if (key.length !== 32) { const e = new Error('Profile encryption is not configured.'); e.status = 503; throw e; }
+  return key;
+}
+function encryptProfileValue(value) {
+  const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv('aes-256-gcm', profileKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
+}
+function decryptProfileValue(value) {
+  if (!value) return '';
+  const data = Buffer.from(value, 'base64'), iv = data.subarray(0,12), tag = data.subarray(12,28), encrypted = data.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', profileKey(), iv); decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+}
+const profilePhotoUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:3*1024*1024},fileFilter:(_req,file,cb)=>cb(null,['image/jpeg','image/png','image/webp'].includes(file.mimetype))}).single('profilePhoto');
+function investmentSuccessCelebration(returnUrl='/investments'){return '<div class="photo-success-overlay investment-success-overlay" role="status" aria-live="polite"><div class="photo-success-card"><div class="photo-success-burst">🎉 ✨ 👑 ✨ 🎉</div><div class="photo-success-check">✓</div><p class="photo-success-kicker">MONARCH CODEX · INVESTMENTS</p><h2>Investment Package Purchased!</h2><p>Your package purchase has been confirmed. The wallet deduction and investment record have been saved successfully.</p><a class="photo-success-close" href="'+returnUrl+'" style="display:flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box">Continue to Investments</a></div></div><style>.photo-success-overlay{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:20px;background:#030304d9;backdrop-filter:blur(9px);animation:psFade .25s ease-out}.photo-success-card{width:min(100%,420px);padding:30px 24px;text-align:center;color:#f8f1df;border:1px solid #8c7130;border-radius:28px;background:radial-gradient(ellipse at 50% 0,#ecc74d30,transparent 60%),linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 25px 90px #0009}.photo-success-burst{font-size:25px;letter-spacing:3px;animation:psSparkle .8s ease-in-out infinite alternate}.photo-success-check{display:grid;place-items:center;width:76px;height:76px;margin:20px auto 16px;border:2px solid #f0cf63;border-radius:50%;background:#e8c652;color:#17130a;font-size:42px;font-weight:950;box-shadow:0 0 0 9px #e8c65219;animation:psPop .55s cubic-bezier(.2,1.5,.5,1)}.photo-success-kicker{font-size:11px;letter-spacing:.2em;color:#dfbd62;font-weight:900}.photo-success-card h2{font-size:clamp(23px,6vw,30px);line-height:1.15;margin:9px 0 12px}.photo-success-card p:not(.photo-success-kicker){color:#b8b2a5;line-height:1.55}.photo-success-close{width:100%;min-height:50px;margin-top:14px;border:0;border-radius:14px;background:linear-gradient(110deg,#f4dc82,#d8ad3d);color:#17130a;font-weight:900;font-size:15px}@keyframes psFade{from{opacity:0}to{opacity:1}}@keyframes psPop{from{transform:scale(.3) rotate(-18deg);opacity:0}to{transform:scale(1);opacity:1}}@keyframes psSparkle{to{transform:translateY(-4px) scale(1.06);filter:brightness(1.4)}}@media(prefers-reduced-motion:reduce){.photo-success-overlay,.photo-success-check,.photo-success-burst{animation:none}}.investment-success-overlay .photo-success-card{border-color:#d9b84f}.investment-success-overlay .photo-success-close{display:flex;align-items:center;justify-content:center;cursor:pointer}</style><script>(function(){const o=document.querySelector(".photo-success-overlay");if(!o)return;const c=o.querySelector("[data-photo-success-continue]");if(c)c.addEventListener("click",function(){window.location.assign(window.location.pathname.startsWith("/admin/")?"/admin/profile":(window.location.pathname==="/investments"?"/investments":"/profile"))});for(let i=0;i<26;i++){const s=document.createElement("span");s.textContent=["✨","✦","🎉","✧","🎊"][i%5];s.style.cssText="position:absolute;left:"+(4+Math.random()*92)+"%;top:"+(5+Math.random()*85)+"%;font-size:"+(12+Math.random()*18)+"px;pointer-events:none;animation:psConfetti "+(1+Math.random()*1.8)+"s ease-out both";o.appendChild(s)}const st=document.createElement("style");st.textContent="@keyframes psConfetti{0%{transform:translateY(-10px) rotate(0);opacity:0}20%{opacity:1}100%{transform:translateY(70px) rotate(200deg);opacity:0}}";document.head.appendChild(st)})();</script>'}
+function photoSuccessCelebration(returnUrl='/profile'){return '<div class="photo-success-overlay" role="status" aria-live="polite"><div class="photo-success-card"><div class="photo-success-burst">🎉 ✨ 🎊 ✨ 🎉</div><div class="photo-success-check">✓</div><p class="photo-success-kicker">MONARCH CODEX</p><h2>Image Uploaded Successfully!</h2><p>Your new profile picture is saved and ready to use.</p><a class="photo-success-close" href="'+returnUrl+'" style="display:block;text-decoration:none;box-sizing:border-box">Continue</a></div></div><style>.photo-success-overlay{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:20px;background:#030304d9;backdrop-filter:blur(9px);animation:psFade .25s ease-out}.photo-success-card{width:min(100%,420px);padding:30px 24px;text-align:center;color:#f8f1df;border:1px solid #8c7130;border-radius:28px;background:radial-gradient(ellipse at 50% 0,#ecc74d30,transparent 60%),linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 25px 90px #0009}.photo-success-burst{font-size:25px;letter-spacing:3px;animation:psSparkle .8s ease-in-out infinite alternate}.photo-success-check{display:grid;place-items:center;width:76px;height:76px;margin:20px auto 16px;border:2px solid #f0cf63;border-radius:50%;background:#e8c652;color:#17130a;font-size:42px;font-weight:950;box-shadow:0 0 0 9px #e8c65219;animation:psPop .55s cubic-bezier(.2,1.5,.5,1)}.photo-success-kicker{font-size:11px;letter-spacing:.2em;color:#dfbd62;font-weight:900}.photo-success-card h2{font-size:clamp(23px,6vw,30px);line-height:1.15;margin:9px 0 12px}.photo-success-card p:not(.photo-success-kicker){color:#b8b2a5;line-height:1.55}.photo-success-close{width:100%;min-height:50px;margin-top:14px;border:0;border-radius:14px;background:linear-gradient(110deg,#f4dc82,#d8ad3d);color:#17130a;font-weight:900;font-size:15px}@keyframes psFade{from{opacity:0}to{opacity:1}}@keyframes psPop{from{transform:scale(.3) rotate(-18deg);opacity:0}to{transform:scale(1);opacity:1}}@keyframes psSparkle{to{transform:translateY(-4px) scale(1.06);filter:brightness(1.4)}}@media(prefers-reduced-motion:reduce){.photo-success-overlay,.photo-success-check,.photo-success-burst{animation:none}}</style><script>(function(){const o=document.querySelector(".photo-success-overlay");if(!o)return;const c=o.querySelector("[data-photo-success-continue]");if(c)c.addEventListener("click",function(){window.location.assign(window.location.pathname.startsWith("/admin/")?"/admin/profile":(window.location.pathname==="/investments"?"/investments":"/profile"))});for(let i=0;i<26;i++){const s=document.createElement("span");s.textContent=["✨","✦","🎉","✧","🎊"][i%5];s.style.cssText="position:absolute;left:"+(4+Math.random()*92)+"%;top:"+(5+Math.random()*85)+"%;font-size:"+(12+Math.random()*18)+"px;pointer-events:none;animation:psConfetti "+(1+Math.random()*1.8)+"s ease-out both";o.appendChild(s)}const st=document.createElement("style");st.textContent="@keyframes psConfetti{0%{transform:translateY(-10px) rotate(0);opacity:0}20%{opacity:1}100%{transform:translateY(70px) rotate(200deg);opacity:0}}";document.head.appendChild(st)})();</script>'}
+app.get('/profile', requireAuth, async (req,res,next)=>{
+  try {
+    const [rows] = await pool.execute('SELECT id,monarch_uid,full_name,email,username FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+    const m=rows[0]; if(!m){req.session.destroy(()=>res.redirect('/login'));return;}
+    let profile={phone:'',bankName:'',bankAccountName:'',bankAccountNumber:'',avatarKey:null,kycLocked:false};
+    try {
+      const [p]=await pool.execute('SELECT phone_number,bank_details_ciphertext,avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[m.id]);
+      if(p.length){profile.phone=p[0].phone_number||'';profile.avatarKey=p[0].avatar_key; if(p[0].bank_details_ciphertext){const b=JSON.parse(decryptProfileValue(p[0].bank_details_ciphertext));profile.bankName=b.bankName||'';profile.bankAccountName=b.bankAccountName||'';profile.bankAccountNumber=b.bankAccountNumber||'';}}
+    } catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    let savedBankRows=[];
+    try { [savedBankRows]=await pool.execute('SELECT id,details_ciphertext,created_at FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]); }
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const savedBanks=savedBankRows.map(row=>({id:row.id,...JSON.parse(decryptProfileValue(row.details_ciphertext))}));
+    try {const [k]=await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved') LIMIT 1",[m.id]);profile.kycLocked=k.length>0;} catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const avatar=profile.avatarKey?'/member-avatar/'+encodeURIComponent(profile.avatarKey):'/assets/images/monarch-codex-logo.svg';
+    const lock=profile.kycLocked;
+    const content='<style>'+
+      '.profile-experience{display:grid;gap:18px;min-width:0;color:#eee9dc}'+
+      '.profile-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:center;padding:clamp(20px,3.5vw,32px);border:1px solid rgba(223,189,98,.28);border-radius:22px;background:radial-gradient(ellipse at 95% 0%,rgba(223,189,98,.17),transparent 35%),linear-gradient(135deg,#1c1a15,#111113 62%,#19160f)}'+
+      '.profile-hero:after{content:"";position:absolute;z-index:-1;right:-72px;bottom:-115px;width:190px;height:190px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 20px rgba(223,189,98,.025),0 0 0 42px rgba(223,189,98,.02)}'+
+      '.profile-hero-main{display:flex;align-items:center;gap:18px;min-width:0}'+
+      '.profile-avatar{display:block;flex:0 0 auto;width:88px;height:88px;min-width:88px;aspect-ratio:1/1;object-fit:cover;object-position:center center;border-radius:50%;border:2px solid #dfbd62;background:#17171c;box-shadow:0 8px 24px rgba(0,0,0,.25)}'+
+      '.profile-eyebrow{margin:0 0 8px;color:#dfbd62;font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}'+
+      '.profile-hero h3{margin:0;color:#fff8e8;font-size:clamp(22px,3.3vw,32px);line-height:1.15;letter-spacing:-.04em;overflow-wrap:anywhere}'+
+      '.profile-username{margin:7px 0 12px;color:#aaa69a;font-size:13px}'+
+      '.profile-public{display:inline-flex;align-items:center;gap:7px;color:#f0d681;font-size:12px;font-weight:800;text-decoration:none}'+
+      '.profile-public:hover{text-decoration:underline}'+
+      '.profile-state{display:inline-flex;align-items:center;gap:7px;max-width:220px;padding:10px 12px;border:1px solid rgba(223,189,98,.24);border-radius:999px;background:rgba(223,189,98,.07);color:#e8d69e;font-size:10px;font-weight:800;line-height:1.4}'+
+      '.profile-state:before{content:"";width:6px;height:6px;flex:0 0 auto;border-radius:50%;background:#dfbd62}'+
+      '.profile-section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin:2px 0 0}'+
+      '.profile-section-heading h3{margin:0;color:#f8f1df;font-size:18px;letter-spacing:-.025em}'+
+      '.profile-section-heading p{margin:6px 0 0;color:#9e9a8e;font-size:12px;line-height:1.6}'+
+      '.profile-card{min-width:0;padding:clamp(17px,2.7vw,24px);border:1px solid #383328;border-radius:18px;background:linear-gradient(145deg,#18181b,#111113);margin:0}'+
+      '.profile-card-top{display:flex;align-items:flex-start;gap:12px;margin-bottom:19px}'+
+      '.profile-card-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 auto;border:1px solid rgba(223,189,98,.24);border-radius:12px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:16px}'+
+      '.profile-card h4{margin:0;color:#f5efdf;font-size:15px;letter-spacing:-.015em}'+
+      '.profile-card-intro{margin:5px 0 0;color:#a7a295;font-size:12px;line-height:1.65}'+
+      '.profile-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 16px}'+
+      '.profile-form-grid .full{grid-column:1/-1}'+
+      '.profile-experience label{display:block;margin:0 0 7px;color:#c9c2b1;font-size:11px;font-weight:750;letter-spacing:.025em}'+
+      '.profile-experience input[type=text],.profile-experience input[type=email],.profile-experience input[type=tel],.profile-experience input[type=file],.profile-experience input:not([type]){width:100%;min-width:0;box-sizing:border-box;padding:12px 13px;border:1px solid #403a2d;border-radius:11px;background:#0c0c0e;color:#f2ecdf;font:inherit;font-size:13px;outline:none}'+
+      '.profile-experience input:focus-visible{border-color:#dfbd62;box-shadow:0 0 0 3px rgba(223,189,98,.12)}'+
+      '.profile-experience input[readonly]{color:#aaa69a;background:#141416}'+
+      '.profile-hint{margin:14px 0;color:#9e9a8e;font-size:11px;line-height:1.7}'+
+      '.profile-hint strong{color:#d8c98f}'+
+      '.profile-save{display:inline-flex;align-items:center;justify-content:center;width:auto;min-height:42px;margin-top:5px;padding:11px 17px;border:1px solid #dfbd62;border-radius:11px;background:linear-gradient(135deg,#f1d98d,#d5ae4d);color:#17140b;font:inherit;font-size:12px;font-weight:900;cursor:pointer}'+
+      '.profile-save:hover{filter:brightness(1.06)}'+
+      '.profile-upload-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:14px}'+
+      '.profile-bank-list{display:grid;gap:10px}'+
+      '.saved-bank-row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0;padding:14px;border:1px solid #353126;border-radius:13px;background:#101012}'+
+      '.saved-bank-main{display:flex;align-items:center;gap:12px;min-width:0}'+
+      '.saved-bank-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 auto;border-radius:12px;background:#211e16;color:#e6ca7c;font-size:17px}'+
+      '.saved-bank-row strong{display:block;color:#f0eadb;font-size:12px;overflow-wrap:anywhere}'+
+      '.saved-bank-row .profile-hint{margin:5px 0 0;font-size:11px}'+
+      '.saved-bank-row form{margin:0;flex:0 0 auto}'+
+      '.profile-remove{padding:8px 11px;border:1px solid #514035;border-radius:9px;background:#201716;color:#e7b5a5;font:inherit;font-size:11px;font-weight:800;cursor:pointer}'+
+      '.profile-empty{padding:18px;border:1px dashed #403a2d;border-radius:13px;color:#9e9a8e;font-size:12px;line-height:1.7;text-align:center}'+
+      '.profile-private-note{display:flex;align-items:flex-start;gap:10px;padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(223,189,98,.035);color:#a7a295;font-size:11px;line-height:1.7}'+
+      '@media(max-width:620px){.profile-hero{grid-template-columns:1fr;gap:16px}.profile-hero-main{align-items:flex-start}.profile-state{justify-self:start}.profile-avatar{width:72px;height:72px;border-radius:50%}.profile-form-grid{grid-template-columns:1fr}.profile-form-grid .full{grid-column:auto}.profile-upload-row{grid-template-columns:1fr}.profile-section-heading{align-items:flex-start;flex-direction:column}}'+
+      '@media(max-width:380px){.profile-hero-main{gap:12px}.profile-avatar{width:60px;height:60px;border-radius:50%}.profile-save{width:100%}.saved-bank-row{align-items:flex-start}.saved-bank-main{gap:9px}}'+
+      '@media(prefers-reduced-motion:reduce){.profile-experience *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}'+
+      '</style>'+
+      '<div class="profile-experience">'+
+        '<section class="profile-hero"><div class="profile-hero-main"><img class="profile-avatar" src="'+avatar+'" alt="Profile picture" id="profileAvatar"><div><p class="profile-eyebrow">Member account</p><h3>'+esc(m.full_name)+'</h3><p class="profile-username">@'+esc(m.username)+'</p><a class="profile-public" href="/members/'+encodeURIComponent(m.username)+'">View public profile <span aria-hidden="true">↗</span></a></div></div><span class="profile-state">'+(lock?'Identity details locked for KYC':'Personal details editable')+'</span></section>'+
+        '<div class="profile-section-heading"><div><h3>Your account details</h3><p>Keep your contact information accurate and up to date.</p></div></div>'+
+        '<form method="post" action="/profile" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">✦</span><div><h4>Personal information</h4><p class="profile-card-intro">These details identify your member account.</p></div></div><div class="profile-form-grid"><div><label for="fullName">Full name</label><input id="fullName" name="fullName" value="'+esc(m.full_name)+'" maxlength="160" required '+(lock?'readonly':'')+'></div><div><label for="username">Username</label><input id="username" name="username" value="'+esc(m.username)+'" pattern="[A-Za-z0-9_]{3,30}" maxlength="30" required></div><div><label for="email">Email address</label><input id="email" type="email" name="email" value="'+esc(m.email)+'" maxlength="254" autocomplete="email" required></div><div><label for="phone">Phone number</label><input id="phone" type="tel" name="phone" value="'+esc(profile.phone)+'" maxlength="32" autocomplete="tel"></div></div><p class="profile-hint">'+(lock?'Your legal name is locked while KYC is pending or approved. If your application was rejected, correct your details and resubmit.':'Your name can be updated before KYC starts. Once verification is pending or approved, the legal name is locked to protect verification integrity.')+'</p><button class="btn profile-save" type="submit">Save personal details</button></form>'+
+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">◉</span><div><h4>Profile picture</h4><p class="profile-card-intro">Make your member profile easy to recognise.</p></div></div><a class="btn profile-save" href="/profile/photo">Update profile picture</a><p class="profile-hint">Choose a photo from your device or capture one with your camera.</p></section>'+
+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">▤</span><div><h4>Saved bank accounts</h4><p class="profile-card-intro">Private account details are encrypted and shown only in masked form.</p></div></div><div class="profile-bank-list">'+(savedBanks.length?savedBanks.map(b=>'<div class="saved-bank-row"><div class="saved-bank-main"><span class="saved-bank-icon" aria-hidden="true">▤</span><div><strong>'+esc(b.bankName)+'</strong><p class="profile-hint">'+esc(b.bankAccountName)+' · ending '+esc(String(b.bankAccountNumber||'').slice(-4))+'</p></div></div><form method="post" action="/profile/bank/'+encodeURIComponent(b.id)+'/delete">'+csrfField(req)+'<button class="profile-remove" type="submit" aria-label="Remove bank account">Remove</button></form></div>').join(''):'<div class="profile-empty">No saved bank accounts yet.<br>Add an account below to keep your withdrawal details ready.</div>')+'</div></section>'+
+        '<form method="post" action="/profile/bank" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">＋</span><div><h4>Add a bank account</h4><p class="profile-card-intro">Enter the details exactly as registered with your bank.</p></div></div><div class="profile-form-grid"><div><label for="bankName">Bank name</label><input id="bankName" name="bankName" maxlength="120" required></div><div><label for="bankAccountName">Account name</label><input id="bankAccountName" name="bankAccountName" maxlength="160" required></div><div class="full"><label for="bankAccountNumber">Account number</label><input id="bankAccountNumber" name="bankAccountNumber" inputmode="numeric" maxlength="34" autocomplete="off" required></div></div><p class="profile-hint">Saving bank details does not initiate a payment. You can remove a saved account at any time.</p><button class="btn profile-save" type="submit">Save bank account</button></form>'+
+        '<div class="profile-private-note"><span aria-hidden="true">◆</span><span><strong>Privacy note:</strong> Your bank account is never displayed in full here. Only the final four digits are shown for recognition.</span></div>'+
+      '<div class="profile-card"><div class="profile-card-top"><span class="profile-card-icon">♙</span><div><h4>Homepage Monarchs</h4><p class="profile-card-intro">Choose your public nickname and request to be featured. Approved KYC and admin approval are required.</p></div></div><a class="btn profile-save" href="/profile/monarchs">Manage my Monarchs profile</a></div>' +
+      '</div>';    res.send(memberPage('Profile','/profile',m,content+(req.query.photo==='success'?photoSuccessCelebration('/profile'):''),req));
+  } catch(e){next(e);}
+});
+app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{    const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
+    if(!/^[A-Za-z0-9_]{3,30}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||phone.length>32||fullName.length===0||fullName.length>160) return res.status(400).send(page('Invalid profile','<h1>Check your profile details</h1><a class="btn" href="/profile">Back to profile</a>'));
+    let hasKyc=false;
+    try { const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved')) AS has_kyc",[req.session.memberId]); hasKyc=Number(status.has_kyc)>0; }
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    if(hasKyc){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">Your KYC is pending or approved. Your legal name cannot be changed during this status.</p><a class="btn" href="/profile">Back to profile</a>'));}
+    const [[dupe]]=await pool.execute('SELECT SUM(username = ?) AS username_used, SUM(email = ?) AS email_used FROM members WHERE id <> ?',[username,email,req.session.memberId]);
+    if(Number(dupe.username_used)>0||Number(dupe.email_used)>0)return res.status(409).send(page('Profile conflict','<h1>Username or email is already in use</h1><a class="btn" href="/profile">Back to profile</a>'));
+    await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
+    await pool.execute('INSERT INTO member_profiles (member_id,phone_number) VALUES (?,?) ON DUPLICATE KEY UPDATE phone_number=VALUES(phone_number)',[req.session.memberId,phone||null]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Profile temporarily unavailable','<h1>Profile updates are temporarily unavailable</h1><p class="muted">Please try again later.</p>'));next(e);}
+});
+app.post('/profile/bank', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{
+    const bankName=String(req.body.bankName||'').trim(),bankAccountName=String(req.body.bankAccountName||'').trim(),bankAccountNumber=String(req.body.bankAccountNumber||'').trim();
+    if(!bankName||!bankAccountName||!/^\d{6,34}$/.test(bankAccountNumber)||bankName.length>120||bankAccountName.length>160||(/[<>]/.test(bankName+bankAccountName)))return res.status(400).send(page('Invalid bank details','<h1>Check your bank details</h1><p class="muted">Enter a bank name, account name, and account number containing 6–34 digits.</p><a class="btn" href="/profile">Back to profile</a>'));
+    const ciphertext=encryptProfileValue(JSON.stringify({bankName,bankAccountName,bankAccountNumber}));
+    await pool.execute('INSERT INTO member_bank_accounts (member_id,details_ciphertext) VALUES (?,?)',[req.session.memberId,ciphertext]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE'||e.status===503)return res.status(503).send(page('Profile temporarily unavailable','<h1>Bank account updates are temporarily unavailable</h1><p class="muted">Please try again later.</p><a class="btn" href="/profile">Back to profile</a>'));next(e);}
+});
+app.post('/profile/bank/:id/delete', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).send(page('Invalid bank account','<h1>Invalid bank account</h1><a class="btn" href="/profile">Back to profile</a>'));
+    await pool.execute('UPDATE member_bank_accounts SET deleted_at=CURRENT_TIMESTAMP WHERE id=? AND member_id=? AND deleted_at IS NULL',[id,req.session.memberId]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Bank accounts temporarily unavailable','<h1>Bank account updates are temporarily unavailable</h1><a class="btn" href="/profile">Back to profile</a>'));next(e);}
+});
+function profilePhotoChooserPage(req, action, backUrl, title, currentPhoto) {
+  const html = '<main class="photo-chooser"><a class="back" href="'+backUrl+'">← Back</a><p class="eyebrow">MONARCH CODEX / PROFILE</p><h1>'+title+'</h1><p class="sub">Choose an image or take a new photo. Preview it, then confirm to upload.</p><form id="photoForm" method="post" action="'+action+'" enctype="multipart/form-data">'+csrfField(req)+
+  '<div class="preview-wrap"><img id="photoPreview" src="'+currentPhoto+'" alt="Selected profile photo preview"><div id="photoSpinner" class="photo-spinner" aria-hidden="true"></div></div>'+
+  '<div class="photo-options"><label class="option"><span class="option-icon">▧</span><strong>Upload a picture</strong><small>Choose JPG, PNG or WebP</small><input id="galleryPhoto" type="file" name="profilePhoto" accept="image/jpeg,image/png,image/webp" hidden></label>'+
+  '<label class="option"><span class="option-icon">◎</span><strong>Capture a photo</strong><small>Open your camera</small><input id="cameraPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="user" hidden></label></div>'+
+  '<p id="photoHint" class="hint">Maximum file size: 3 MB.</p><button id="confirmPhoto" class="confirm" type="submit" disabled>Confirm and upload photo</button><p class="privacy">Your new photo replaces the previous one after it is saved successfully.</p></form></main>'+
+  '<style>*{box-sizing:border-box}.photo-chooser{max-width:620px;margin:0 auto;padding:24px 18px 48px;color:#f7f0df;font-family:inherit}.photo-chooser .back{display:inline-block;color:#e5c75f;text-decoration:none;margin:0 0 30px}.photo-chooser .eyebrow{letter-spacing:.18em;color:#dfbd62;font-weight:800;font-size:12px}.photo-chooser h1{font-size:clamp(28px,7vw,42px);margin:8px 0}.photo-chooser .sub,.photo-chooser .hint,.photo-chooser .privacy{color:#aaa59a;line-height:1.55}.preview-wrap{position:relative;width:190px;height:190px;margin:28px auto 24px;border-radius:50%;padding:5px;border:2px solid #dfbd62;background:#171615;box-shadow:0 0 0 8px #dfbd6217}.preview-wrap img{width:100%;height:100%;object-fit:cover;object-position:center;border-radius:50%}.photo-spinner{display:none;position:absolute;inset:0;border-radius:50%;border:5px solid #dfbd6230;border-top-color:#f5d45e;animation:photoSpin .8s linear infinite}.photo-chooser.is-uploading .photo-spinner{display:block}.photo-chooser.is-uploading .preview-wrap img{opacity:.35}.photo-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0}.option{display:flex;min-height:138px;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;padding:18px;border:1px solid #5e5129;border-radius:18px;background:linear-gradient(145deg,#211f18,#121214);cursor:pointer}.option:focus-within,.option:active{border-color:#f3d15b}.option-icon{font-size:26px;color:#e6c85e}.option small{color:#aaa59a}.confirm{width:100%;min-height:52px;border:0;border-radius:14px;background:#e9c957;color:#17130a;font-weight:900;font-size:15px}.confirm:disabled{opacity:.4}.privacy{font-size:12px;text-align:center;margin-top:15px}@keyframes photoSpin{to{transform:rotate(360deg)}}@media(max-width:390px){.preview-wrap{width:160px;height:160px}.option{padding:13px}}</style>'+
+  '<script>(function(){const root=document.querySelector(".photo-chooser"),form=document.getElementById("photoForm"),gallery=document.getElementById("galleryPhoto"),camera=document.getElementById("cameraPhoto"),preview=document.getElementById("photoPreview"),confirm=document.getElementById("confirmPhoto"),hint=document.getElementById("photoHint");let selected=null,objectUrl=null;function choose(input){const f=input.files&&input.files[0];if(!f)return;if(!["image/jpeg","image/png","image/webp"].includes(f.type)||f.size>3*1024*1024){input.value="";hint.textContent="Please choose a JPG, PNG or WebP image under 3 MB.";confirm.disabled=true;selected=null;return}selected=f;if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(f);preview.src=objectUrl;confirm.disabled=false;hint.textContent=f.name+" · "+(f.size/1024).toFixed(0)+" KB · Ready to upload"}gallery.addEventListener("change",()=>choose(gallery));camera.addEventListener("change",()=>choose(camera));form.addEventListener("submit",e=>{if(!selected){e.preventDefault();hint.textContent="Choose or capture a photo first.";return}if(selected===camera.files[0]){const transfer=new DataTransfer();transfer.items.add(selected);gallery.files=transfer.files}root.classList.add("is-uploading");confirm.disabled=true;confirm.textContent="Uploading your photo…";hint.textContent="Saving securely. Please keep this page open.";setTimeout(()=>HTMLFormElement.prototype.submit.call(form),1800)});})();</script>';
+  return page(title, html);
+}
+app.get('/profile/photo', requireAuth, async(req,res,next)=>{try{const [rows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);const key=rows[0]?.avatar_key;const photo=key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(key))?'/member-avatar/'+encodeURIComponent(key):'/assets/images/monarch-codex-logo.svg';res.send(profilePhotoChooserPage(req,'/profile/photo','/profile','Update profile picture',photo));}catch(e){next(e);}});
+app.get('/admin/profile/photo', requireAdmin, async(req,res,next)=>{try{const [rows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);const key=rows[0]?.avatar_key;const photo=key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(key))?'/member-avatar/'+encodeURIComponent(key):'/assets/images/monarch-codex-logo.svg';res.send(profilePhotoChooserPage(req,'/admin/profile/photo','/admin/profile','Update administrator photo',photo));}catch(e){next(e);}});
+app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,res,async err=>{
+  if(err)return res.status(400).send(page('Photo upload failed','<h1>Choose a JPG, PNG or WebP image under 3 MB.</h1><a class="btn" href="/profile">Back to profile</a>'));
+  try{
+    csrfCheck(req,res,async csrfErr=>{
+      if(csrfErr)return;
+      if(!req.file)return res.status(400).send(page('Photo required','<h1>Choose a profile picture</h1><a class="btn" href="/profile">Back to profile</a>'));
+      const mime=req.file.mimetype,buf=req.file.buffer;
+      const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+      if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/profile">Back to profile</a>'));
+      const dir=process.env.PROFILE_UPLOAD_DIR;
+      if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Profile photo storage is not configured</h1><p class="muted">The site owner must configure private upload storage.</p>'));
+      fs.mkdirSync(dir,{recursive:true,mode:0o700});
+      const key=crypto.randomBytes(24).toString('hex')+({ 'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime]);
+      const newPath=path.join(dir,key);
+      fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+      let previousKey=null;
+      try {
+        const [oldRows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
+        previousKey=oldRows[0] && String(oldRows[0].avatar_key||'');
+      } catch(e) { if(e.code!=='ER_NO_SUCH_TABLE') { try{fs.unlinkSync(newPath);}catch(_){} throw e; } }
+      try {
+        await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);
+      } catch(e) { try{fs.unlinkSync(newPath);}catch(_){} throw e; }
+      // Remove the previous private image only after the database points to the new one.
+      if(previousKey && previousKey!==key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(previousKey)) {
+        try { fs.unlinkSync(path.join(dir,previousKey)); } catch(e) { if(e.code!=='ENOENT') console.error('[profile photo cleanup] Unable to remove previous image'); }
+      }
+      res.redirect('/profile?photo=success');
+    });
+  }catch(e){next(e);}
+}));
+app.post('/admin/profile/photo', requireAdmin, (req,res,next)=>profilePhotoUpload(req,res,async err=>{
+  if(err)return res.status(400).send(page('Photo upload failed','<h1>Choose a JPG, PNG or WebP image under 3 MB.</h1><a class="btn" href="/admin/profile/photo">Back</a>'));
+  try { csrfCheck(req,res,async csrfErr=>{
+    if(csrfErr)return;
+    if(!req.file)return res.status(400).send(page('Photo required','<h1>Choose a profile picture</h1><a class="btn" href="/admin/profile/photo">Back</a>'));
+    const mime=req.file.mimetype,buf=req.file.buffer;
+    const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+    if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/admin/profile/photo">Back</a>'));
+    const dir=process.env.PROFILE_UPLOAD_DIR;
+    if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Private profile photo storage is not configured.</h1>'));
+    fs.mkdirSync(dir,{recursive:true,mode:0o700});
+    const key=crypto.randomBytes(24).toString('hex')+({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime]),newPath=path.join(dir,key);
+    fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+    let previousKey=null;
+    try{const [old]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);previousKey=old[0]&&String(old[0].avatar_key||'');}
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE'){try{fs.unlinkSync(newPath)}catch(_){}throw e;}}
+    try{await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);}
+    catch(e){try{fs.unlinkSync(newPath)}catch(_){}throw e;}
+    if(previousKey&&previousKey!==key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(previousKey)){try{fs.unlinkSync(path.join(dir,previousKey))}catch(e){if(e.code!=='ENOENT')console.error('[admin profile photo cleanup] Unable to remove previous image');}}
+    res.redirect('/admin/profile?photo=success');
+  }); } catch(e){next(e);}
+}));
+app.get('/member-avatar-current', requireAuth, async (req,res,next)=>{
+  try {
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
+    const [rows] = await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
+    const key = rows[0] && String(rows[0].avatar_key || '');
+    if (!key || !/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
+    const [owned] = await pool.execute('SELECT member_id FROM member_profiles WHERE member_id=? AND avatar_key=? LIMIT 1',[req.session.memberId,key]);
+    const dir = process.env.PROFILE_UPLOAD_DIR;
+    if (!owned.length || !dir || !path.isAbsolute(dir) || dir===path.resolve(__dirname) || dir.startsWith(path.resolve(__dirname)+path.sep)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
+    const file = path.join(dir,key);
+    return res.sendFile(file,{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, private','X-Content-Type-Options':'nosniff'}},err=>{if(err && !res.headersSent) next(err);});
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg')); next(e); }
+});
+app.get('/member-avatar/:key', async(req,res,next)=>{
+  try{
+    const key=String(req.params.key||'');
+    if(!/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key))return res.sendStatus(404);
+    const [rows]=await pool.execute('SELECT member_id FROM member_profiles WHERE avatar_key=? LIMIT 1',[key]);
+    if(!rows.length)return res.sendStatus(404);
+    const dir=process.env.PROFILE_UPLOAD_DIR;
+    if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.sendStatus(404);
+    res.set('Cache-Control','public, max-age=3600');
+    res.sendFile(path.join(dir,key),{headers:{'X-Content-Type-Options':'nosniff'}},err=>{if(err&&!res.headersSent)res.sendStatus(404);});
+  }catch(e){next(e);}
+});
+app.get('/members/:username', async(req,res,next)=>{
+  try{
+    const username=String(req.params.username||'');
+    const [rows]=await pool.execute('SELECT id,full_name,username FROM members WHERE username=? LIMIT 1',[username]);
+    if(!rows.length)return res.status(404).send(page('Profile not found','<h1>Member not found</h1><a class="btn" href="/">Return home</a>'));
+    let avatar='/assets/images/monarch-codex-logo.svg';
+    try{const [p]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[rows[0].id]);if(p[0]&&p[0].avatar_key)avatar='/member-avatar/'+encodeURIComponent(p[0].avatar_key);}catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const body='<style>.public-profile{max-width:560px;margin:0 auto;text-align:center}.public-avatar{display:block;width:130px;height:130px;aspect-ratio:1/1;object-fit:cover;object-position:50% 50%;border-radius:50%;border:3px solid #dfbd62;margin:10px auto 20px}</style><div class="public-profile"><img class="public-avatar" src="'+avatar+'" alt="Profile picture"><h1>'+esc(rows[0].full_name)+'</h1><p class="muted">@'+esc(rows[0].username)+'</p><p class="muted">Monarch Codex member</p><a class="btn" href="/">Return to Monarch Codex</a></div>';
+    res.send(page('Member profile',body));
+  }catch(e){next(e);}
+});
+
+
+const kycUploadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
+function getKycStorageConfig() {
+  const directory = process.env.KYC_STORAGE_DIR;
+  const keyText = process.env.KYC_ENCRYPTION_KEY;
+  if (!directory || !path.isAbsolute(directory) || directory === path.resolve(__dirname) || directory.startsWith(path.resolve(__dirname) + path.sep)) {
+    const err = new Error('Private KYC storage must be configured as an absolute directory outside the application folder.');
+    err.status = 503; throw err;
+  }
+  let key;
+  try { key = Buffer.from(keyText || '', 'base64'); } catch (_) { key = Buffer.alloc(0); }
+  if (key.length !== 32) { const err = new Error('KYC encryption key is not configured.'); err.status = 503; throw err; }
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  return { directory, key };
+}
+function encryptKycBuffer(buffer, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  return Buffer.concat([Buffer.from('MC1'), iv, cipher.getAuthTag(), encrypted]);
+}
+function decryptKycBuffer(payload, key) {
+  if (!Buffer.isBuffer(payload) || payload.length < 31 || payload.subarray(0,3).toString('ascii') !== 'MC1') throw new Error('Invalid encrypted KYC file.');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, payload.subarray(3,15));
+  decipher.setAuthTag(payload.subarray(15,31));
+  return Buffer.concat([decipher.update(payload.subarray(31)), decipher.final()]);
+}
+const kycUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 3, fileSize: 8 * 1024 * 1024, fields: 20, fieldSize: 4096 },
+  fileFilter: (_req, file, cb) => {
+    if (!['image/jpeg', 'image/png'].includes(file.mimetype)) return cb(new Error('Only JPG and PNG identity images are accepted.'));
+    cb(null, true);
+  }
+}).fields([{ name: 'documentFront', maxCount: 1 }, { name: 'documentBack', maxCount: 1 }, { name: 'selfie', maxCount: 1 }]);
+function validKycText(value, max) { return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max; }
+app.get('/kyc/draft', requireAuth, async (req,res,next) => {
+  try {
+    const config = getKycStorageConfig();
+    const [rows] = await pool.execute('SELECT encrypted_payload,current_step,updated_at FROM kyc_drafts WHERE member_id=? LIMIT 1',[req.session.memberId]);
+    res.set('Cache-Control','no-store');
+    if (!rows.length) return res.json({draft:null});
+    const raw = decryptKycBuffer(Buffer.from(rows[0].encrypted_payload,'base64'),config.key).toString('utf8');
+    return res.json({draft:JSON.parse(raw),currentStep:Number(rows[0].current_step)||0,updatedAt:rows[0].updated_at});
+  } catch(e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({error:'Draft saving is not configured yet.'});
+    if (e && e.status === 503) return res.status(503).json({error:'Secure draft storage is not configured yet.'});
+    return next(e);
+  }
+});
+app.post('/kyc/draft', requireAuth, async (req,res,next) => {
+  try {
+    csrfCheck(req,res,async csrfErr => {
+      if (csrfErr) return;
+      try {
+        const config = getKycStorageConfig();
+        const body = req.body || {}, source = body.fields && typeof body.fields === 'object' ? body.fields : {};
+        const allowed = ['legalFullName','dateOfBirth','phoneNumber','contactEmail','countryCode','stateRegion','localityLga','streetAddress','documentType','documentIssuerCountry','documentNumber'];
+        const draft = {};
+        for (const key of allowed) if (typeof source[key] === 'string') draft[key] = source[key].slice(0, key === 'streetAddress' ? 240 : key === 'documentNumber' ? 80 : 254);
+        const encrypted = encryptKycBuffer(Buffer.from(JSON.stringify(draft),'utf8'),config.key).toString('base64');
+        const step = Math.max(0,Math.min(3,Number.parseInt(body.currentStep,10)||0));
+        await pool.execute('INSERT INTO kyc_drafts (member_id,encrypted_payload,current_step) VALUES (?,?,?) ON DUPLICATE KEY UPDATE encrypted_payload=VALUES(encrypted_payload),current_step=VALUES(current_step),updated_at=CURRENT_TIMESTAMP',[req.session.memberId,encrypted,step]);
+        return res.json({ok:true,savedAt:new Date().toISOString()});
+      } catch(e) {
+        if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({error:'Draft saving is not configured yet.'});
+        if (e && e.status === 503) return res.status(503).json({error:'Secure draft storage is not configured yet.'});
+        return next(e);
+      }
+    });
+  } catch(e) { next(e); }
+});
+app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
+  kycUpload(req, res, async err => {
+    if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Each image must be 8 MB or smaller.' : 'Upload rejected. Use JPG or PNG images.' });
+    try {
+      csrfCheck(req, res, async csrfErr => {
+        if (csrfErr) return;
+        let config;
+        try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
+        const b = req.body || {};
+        const [existingKycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
+        if (existingKycRows.length && ['pending','approved'].includes(existingKycRows[0].status)) {
+          const alreadyApproved = String(existingKycRows[0].status || '').toLowerCase() === 'approved';
+          return res.status(409).json({
+            error: alreadyApproved ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',
+            status: existingKycRows[0].status
+          });
+        }
+        const files = req.files || {};
+        const front = files.documentFront && files.documentFront[0];
+        const back = files.documentBack && files.documentBack[0];
+        const selfie = files.selfie && files.selfie[0];
+        const docNumber = String(b.documentNumber || '').trim();
+        if (!validKycText(b.legalFullName,160) || !/^\d{4}-\d{2}-\d{2}$/.test(b.dateOfBirth || '') ||
+            !validKycText(b.phoneNumber,32) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.contactEmail || '') ||
+            !['NG','GH','KE','ZA'].includes(b.countryCode) || !validKycText(b.stateRegion,120) ||
+            !validKycText(b.localityLga,120) || !validKycText(b.streetAddress,240) ||
+            !['national_id','passport','drivers_license','voters_card'].includes(b.documentType) ||
+            !['NG','GH','KE','ZA'].includes(b.documentIssuerCountry) || !validKycText(docNumber,80) ||
+            (b.documentType === 'national_id' && b.documentIssuerCountry === 'NG' && !/^\d{11}$/.test(docNumber)) ||
+            !front || (!back && b.documentType !== 'passport') || !selfie || b.confirmOwnership !== 'yes') {
+          return res.status(400).json({ error: 'Check all required fields, the NIN length, consent, and required document images. A passport back image is optional.' });
+        }
+        if (![front,back,selfie].filter(Boolean).every(f => ['image/jpeg','image/png'].includes(f.mimetype))) return res.status(400).json({ error: 'Only JPG and PNG images are accepted.' });
+        const stored = [];
+        try {
+          for (const [kind,file] of [['front',front],['back',back],['selfie',selfie]]) {
+            if (!file) { stored.push(null); continue; }
+            const id = crypto.randomBytes(24).toString('hex') + '.enc';
+            fs.writeFileSync(path.join(config.directory,id), encryptKycBuffer(file.buffer,config.key), { flag:'wx', mode:0o600 });
+            stored.push(id);
+          }
+          const numberCipher = encryptKycBuffer(Buffer.from(docNumber,'utf8'),config.key).toString('base64');
+          const conn = await pool.getConnection();
+          let submissionId;
+          let previousPrivateKeys = [];
+          try {
+            await conn.beginTransaction();
+            await conn.execute('SELECT id FROM members WHERE id=? FOR UPDATE',[req.session.memberId]);
+            const [latestRows] = await conn.execute('SELECT id,status,document_front_private_key,document_back_private_key,selfie_private_key FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1 FOR UPDATE',[req.session.memberId]);
+            const latest = latestRows[0] || null;
+            const latestStatus = String(latest && latest.status || '').toLowerCase();
+            if (latest && ['pending','approved'].includes(latestStatus)) {
+              await conn.rollback();
+              for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+              return res.status(409).json({error:latestStatus === 'approved' ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',status:latestStatus});
+            }
+            const values = [b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]];
+            if (latest && ['rejected','needs_resubmission'].includes(latestStatus)) {
+              submissionId = latest.id;
+              previousPrivateKeys = [latest.document_front_private_key,latest.document_back_private_key,latest.selfie_private_key].filter(Boolean);
+              await conn.execute("UPDATE kyc_submissions SET legal_full_name=?,date_of_birth=?,country_code=?,state_region=?,locality_lga=?,street_address=?,phone_number=?,contact_email=?,document_type=?,document_issuer_country=?,document_number_ciphertext=?,document_number_last4=?,document_front_private_key=?,document_back_private_key=?,selfie_private_key=?,status='pending',reviewer_member_id=NULL,reviewer_note=NULL,reviewed_at=NULL,submitted_at=CURRENT_TIMESTAMP WHERE id=? AND member_id=?",[...values,submissionId,req.session.memberId]);
+              await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,'submitted','Member resubmitted corrected information; existing application record updated')",[submissionId,req.session.memberId]);
+            } else {
+              const [result] = await conn.execute("INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",[req.session.memberId,...values]);
+              submissionId = result.insertId;
+              await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            }
+            await conn.commit();
+          } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
+          for (const id of previousPrivateKeys) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+          try { await pool.execute('DELETE FROM kyc_drafts WHERE member_id=?',[req.session.memberId]); } catch (draftErr) { if (!draftErr || draftErr.code !== 'ER_NO_SUCH_TABLE') console.error('[kyc draft cleanup]',draftErr.code||'cleanup_failed'); }
+          return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
+        } catch (e) {
+          for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+          if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'Secure verification is temporarily unavailable. Please try again later.' });
+          console.error('[kyc submission]', e && e.code ? e.code : 'submission_failed');
+          return res.status(500).json({ error:'Could not save verification securely. Please try again later.' });
+        }
+      });
+    } catch (e) { next(e); }
+  });
+});
+
+app.get('/kyc', requireAuth, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    let existingKycStatus = null;
+    let existingKycNote = '';
+    try {
+      const [existingKycRows] = await pool.execute('SELECT status, reviewer_note, submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[m.id]);
+      if (existingKycRows.length) {
+        existingKycStatus = String(existingKycRows[0].status || '').trim().toLowerCase();
+        existingKycNote = existingKycRows[0].reviewer_note || '';
+      }
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    let kycReady = false;
+    let kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted.';
+    try {
+      const storage = getKycStorageConfig();      fs.accessSync(storage.directory, fs.constants.W_OK);
+      await pool.execute('SELECT 1 FROM kyc_submissions LIMIT 0');
+      await pool.execute('SELECT 1 FROM kyc_review_events LIMIT 0');
+      kycReady = true;
+      kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';    } catch (readinessError) {
+      if (readinessError && readinessError.code === 'ER_NO_SUCH_TABLE') {
+        kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted. Please try again later.';
+      } else if (readinessError && ['ER_ACCESS_DENIED_ERROR','ECONNREFUSED','ETIMEDOUT','ENOTFOUND'].includes(readinessError.code)) {
+        kycReadinessMessage = 'Secure verification cannot connect to its database right now. Your information and documents will not be submitted.';
+      } else if (readinessError && readinessError.status === 503) {        kycReadinessMessage = 'Secure document storage is not configured yet. Your information and documents will not be submitted.';
+      } else {
+        console.error('[kyc readiness]', readinessError && readinessError.code ? readinessError.code : 'readiness_check_failed');
+        kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
+      }
+    }
+    res.set('Cache-Control','no-store');
+    if (existingKycStatus === 'approved') {
+      const approvedContent = '<main class="kyc-status-card kyc-status-approved" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">✓</div><p class="kyc-status-overline">IDENTITY CHECK COMPLETE</p><p class="kyc-status-chip"><span aria-hidden="true"></span> VERIFIED MEMBER</p><h2 id="kycStatusTitle">Your identity is verified.</h2><p class="kyc-status-lead">Your identity review is complete. Your verification remains on file, so you do not need to submit these documents again unless our review team requests an update.</p><div class="kyc-status-facts"><div><span>Verification status</span><strong>Approved · No action needed</strong></div><div><span>Account access</span><strong>Your member workspace is ready</strong></div></div><section class="kyc-member-next" aria-labelledby="kycMemberNextTitle"><p class="kyc-member-next-kicker">YOUR MEMBER SPACE</p><h3 id="kycMemberNextTitle">Where would you like to go?</h3><div class="kyc-member-links"><a href="/dashboard"><span class="kyc-member-link-icon" aria-hidden="true">⌂</span><span><strong>Dashboard</strong><small>Return to your account overview</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/profile"><span class="kyc-member-link-icon" aria-hidden="true">◎</span><span><strong>Profile &amp; payout details</strong><small>Review your personal and bank details</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/transactions"><span class="kyc-member-link-icon" aria-hidden="true">↔</span><span><strong>Account activity</strong><small>Review your financial activity and records</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a></div></section><p class="kyc-status-foot">Your KYC approval is a verification result, not a promise of financial eligibility. Any financial request is subject to its own account requirements and review.</p></main>';
+      return res.send(wizardPage('KYC Verification',approvedContent,req));
+    }
+    if (existingKycStatus === 'pending') {
+      const pendingContent = '<main class="kyc-status-card kyc-status-pending" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">◷</div><p class="kyc-status-overline">APPLICATION RECEIVED</p><p class="kyc-status-chip">UNDER REVIEW</p><h2 id="kycStatusTitle">Your verification is in review.</h2><p class="kyc-status-lead">Your documents have been submitted for review. There is nothing else you need to submit right now.</p><div class="kyc-review-timeline"><span class="kyc-review-check" aria-hidden="true">✓</span><div><strong>Submission received</strong><small>Your application is saved securely.</small></div><span class="kyc-review-current" aria-hidden="true"></span><div><strong>Review in progress</strong><small>We will update your account when a decision is made.</small></div></div><div class="kyc-status-actions"><a class="kyc-btn kyc-btn-primary" href="/dashboard">Return to dashboard</a></div><p class="kyc-status-foot">Please avoid submitting a duplicate application while this review is in progress.</p></main>';
+      return res.send(wizardPage('KYC Verification',pendingContent,req));
+    }
+    const statusNotice = existingKycStatus === 'rejected'
+      ? '<section class="kyc-review-notice is-rejected" role="status"><span class="kyc-notice-icon" aria-hidden="true">!</span><div><strong>Updates needed before approval</strong><p>' + esc(existingKycNote || 'Your previous submission was not approved. Review the note and update your details before resubmitting.') + '</p></div></section>'
+      : existingKycStatus === 'needs_resubmission'
+        ? '<section class="kyc-review-notice is-resubmit" role="status"><span class="kyc-notice-icon" aria-hidden="true">↻</span><div><strong>Please update your verification</strong><p>' + esc(existingKycNote || 'The review team has requested an updated submission. Review your details and documents before resubmitting.') + '</p></div></section>'
+        : '';
+    const content = `
+      ${statusNotice}
+      <div class="kyc-intro"><span class="kyc-intro-badge" aria-hidden="true">01 — 04</span><div><strong>Your identity. Protected.</strong><p>Complete four short steps using accurate details that match your identity document. You can review each step before submitting.</p></div></div>
+      <div class="kyc-security-note ${kycReady ? 'is-ready' : 'is-unavailable'}" role="status" aria-live="polite"><span class="kyc-lock" aria-hidden="true">⌑</span><span><strong>${kycReady ? 'Secure verification ready' : 'Secure verification unavailable'}</strong><small>${esc(kycReadinessMessage)}</small></span></div>
+      <div class="kyc-progress" role="list" aria-label="Verification progress">
+        <div class="kyc-progress-step is-active" data-progress-step="0" role="listitem"><span class="kyc-step-dot">1</span><span class="kyc-step-name">Personal</span></div><span class="kyc-progress-line"><i></i></span>
+        <div class="kyc-progress-step" data-progress-step="1" role="listitem"><span class="kyc-step-dot">2</span><span class="kyc-step-name">Address</span></div><span class="kyc-progress-line"><i></i></span>
+        <div class="kyc-progress-step" data-progress-step="2" role="listitem"><span class="kyc-step-dot">3</span><span class="kyc-step-name">Identity</span></div><span class="kyc-progress-line"><i></i></span>
+        <div class="kyc-progress-step" data-progress-step="3" role="listitem"><span class="kyc-step-dot">4</span><span class="kyc-step-name">Photos</span></div>
+      </div>
+      <form id="kycWizard" novalidate>
+        ${csrfField(req)}
+        <section class="kyc-stage is-current" data-stage="0">
+          <p class="kyc-stage-kicker">STEP 01 OF 04</p><h2>Let's start with you</h2><p class="kyc-stage-copy">Enter your personal details exactly as they appear on your identity document.</p>
+          <label for="kycName">Full legal name</label><input id="kycName" name="legalFullName" value="${esc(m.full_name)}" maxlength="160" autocomplete="name" required>
+          <div class="kyc-two-col"><div><label for="kycDob">Date of birth</label><input id="kycDob" name="dateOfBirth" type="date" required></div><div><label for="kycPhone">Phone number</label><input id="kycPhone" name="phoneNumber" type="tel" maxlength="32" autocomplete="tel" required></div></div>
+          <label for="kycEmail">Email address</label><input id="kycEmail" name="contactEmail" type="email" value="${esc(m.email)}" maxlength="254" autocomplete="email" required>
+        </section>
+        <section class="kyc-stage" data-stage="1" hidden>
+          <p class="kyc-stage-kicker">STEP 02 OF 04</p><h2>Where do you live?</h2><p class="kyc-stage-copy">Use your current residential address. We may use it to confirm your identity.</p>
+          <label for="kycCountry">Country of residence</label><select id="kycCountry" name="countryCode" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option><option value="OTHER">Other</option></select>
+          <label for="kycState">State / region</label><input id="kycState" name="stateRegion" maxlength="120" autocomplete="address-level1" required>
+          <div class="kyc-two-col"><div><label for="kycLga">City / LGA</label><input id="kycLga" name="localityLga" maxlength="120" autocomplete="address-level2" required></div><div><label for="kycAddress">Street address</label><input id="kycAddress" name="streetAddress" maxlength="240" autocomplete="street-address" required></div></div>
+        </section>
+        <section class="kyc-stage" data-stage="2" hidden>
+          <p class="kyc-stage-kicker">STEP 03 OF 04</p><h2>Verify your identity</h2><p class="kyc-stage-copy">Choose the document you will use and enter its details carefully.</p>
+          <label for="kycDocType">Identity document</label><select id="kycDocType" name="documentType" required><option value="">Select a document</option><option value="national_id">National identity card</option><option value="passport">International passport</option><option value="drivers_license">Driver's licence</option><option value="voters_card">Voter's card</option></select>
+          <label for="kycDocCountry">Issuing country</label><select id="kycDocCountry" name="documentIssuerCountry" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option></select>
+          <label for="kycDocNumber">Document number</label><input id="kycDocNumber" name="documentNumber" maxlength="80" autocomplete="off" aria-describedby="kycDocNumberError" required><p id="kycDocNumberError" class="kyc-field-error" role="alert" hidden></p>
+          <div class="kyc-hint">Your document details are encrypted before storage. Submit only genuine documents belonging to you.</div>
+        </section>
+        <section class="kyc-stage" data-stage="3" hidden>
+          <p class="kyc-stage-kicker">STEP 04 OF 04</p><h2>Documents & selfie</h2><p class="kyc-stage-copy">Please provide clear images of your document and a selfie. Do not continue if verification is unavailable.</p>
+          <div class="kyc-upload-grid">
+            <label class="kyc-upload-card" for="kycFront"><span class="kyc-upload-icon">＋</span><strong>Front of ID</strong><small>Upload an image from your device</small><input id="kycFront" name="documentFront" type="file" accept="image/jpeg,image/png" data-preview="kycFrontPreview"><img id="kycFrontPreview" alt="Front of ID preview" hidden></label>
+            <label class="kyc-upload-card" for="kycBackImage"><span class="kyc-upload-icon">＋</span><strong>Back of ID / document</strong><small>Required for cards and licences; optional for passports</small><input id="kycBackImage" name="documentBack" type="file" accept="image/jpeg,image/png" data-preview="kycBackPreview"><img id="kycBackPreview" alt="Back of ID preview" hidden></label>
+            <div class="kyc-upload-card kyc-selfie-card"><span class="kyc-upload-icon">◎</span><strong>Live selfie</strong><small>Use your front camera to take a selfie</small><video id="kycSelfieVideo" autoplay playsinline muted hidden></video><canvas id="kycSelfieCanvas" hidden></canvas><img id="kycSelfiePreview" alt="Captured selfie preview" hidden><div class="kyc-camera-actions"><button type="button" class="kyc-camera-btn" id="kycStartCamera">Open camera</button><button type="button" class="kyc-camera-btn" id="kycCaptureSelfie" hidden>Capture selfie</button><button type="button" class="kyc-camera-btn" id="kycRetakeSelfie" hidden>Retake</button></div><p class="kyc-camera-status" id="kycCameraStatus" aria-live="polite">Selfie is camera capture only; image file selection is disabled.</p></div>
+          </div>
+          <div class="kyc-consent"><label for="kycConfirm"><input type="checkbox" id="kycConfirm" required> I confirm that the information is accurate and the images belong to me.</label></div>
+          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Your documents are encrypted for private storage. Submission is checked securely when you send your application.</div>
+        </section>
+        <div class="kyc-actions"><button type="button" id="kycBack" class="kyc-btn kyc-btn-secondary" hidden>Back</button><span class="kyc-steps-count" id="kycStepCount">Step 1 of 4</span><button type="button" id="kycNext" class="kyc-btn kyc-btn-primary">Continue <span aria-hidden="true">→</span></button></div>
+        <p class="kyc-form-message" id="kycMessage" aria-live="polite"></p>
+      </form>`;
+    res.send(wizardPage('KYC Verification', content, req));
+  } catch (e) { next(e); }
+});
+app.get('/api/deposit-quote', requireAuth, async (req,res,next) => {
+  try {
+    const currency=String(req.query.currency||''), amount=Number(req.query.amount), methodId=String(req.query.payment_method_id||'');
+    if (!['NGN','USD'].includes(currency) || !Number.isFinite(amount) || amount<=0 || amount>1000000000) return res.status(400).json({error:'invalid_quote'});
+    const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
+    const base=pricing && Number(pricing.base_usd_ngn_rate);
+    if (!base || !Number.isFinite(base) || base<=0) return res.status(503).json({error:'quote_unavailable'});
+    const rate=base*(1+Number(pricing.markup_percent||0)/100);
+    let feeUsd=null;
+    if(methodId){
+      if(!/^\d{1,20}$/.test(methodId))return res.status(400).json({error:'invalid_destination'});
+      const [[method]]=await pool.execute('SELECT method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
+      if(!method || !Number(method.is_active) || method.currency!==currency || (method.method_type==='wallet' && currency!=='USD'))return res.status(400).json({error:'destination_unavailable'});
+      feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd);
+    }
+    const amountUsd=currency==='USD'?amount:amount/rate, amountNgn=currency==='NGN'?amount:amount*rate;
+    const feeNgn=feeUsd===null?null:feeUsd*rate, totalUsd=feeUsd===null?null:amountUsd+feeUsd, totalNgn=feeUsd===null?null:amountNgn+feeNgn;
+    res.set('Cache-Control','no-store');
+    res.json({currency,amountUsd,amountNgn,feeUsd,feeNgn,totalUsd,totalNgn,hasMethod:feeUsd!==null});
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'quote_unavailable'}); next(e); }
+});
+app.get('/deposit', requireAuth, requireApprovedKyc, async (req,res,next) => {
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
+    const [methods] = await pool.query('SELECT id,method_type,currency,label,bank_name,account_name,account_number,bank_code,wallet_network,wallet_asset,wallet_address,instructions FROM deposit_payment_methods WHERE is_active=1 ORDER BY currency,method_type,label');
+    const [history] = await pool.query('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 30',[m.id]);
+    const baseRate=pricing && pricing.base_usd_ngn_rate!==null ? Number(pricing.base_usd_ngn_rate) : null;
+    const effectiveRate=baseRate!==null ? baseRate*(1+Number(pricing.markup_percent)/100) : null;
+    const methodsJson=JSON.stringify(methods.map(x=>({id:Number(x.id),method_type:x.method_type,currency:x.currency,label:x.label,bank_name:x.bank_name,account_name:x.account_name,account_number:x.account_number,bank_code:x.bank_code,wallet_network:x.wallet_network,wallet_asset:x.wallet_asset,wallet_address:x.wallet_address,instructions:x.instructions}))).replace(/</g,'\\u003c');
+    const pricingJson=JSON.stringify({configured:effectiveRate!==null,bankFeeUsd:Number(pricing && pricing.bank_fee_usd || 0),walletFeeUsd:Number(pricing && pricing.wallet_fee_usd || 0)}).replace(/</g,'\\u003c');
+    const requestedDepositId=String(req.query.request||'');
+    let submittedDeposit=null;
+    if(req.query.submitted==='1' && /^\d{1,20}$/.test(requestedDepositId)){
+      const [[submittedRow]]=await pool.execute('SELECT id,status,currency,amount,reviewer_note FROM deposit_requests WHERE id=? AND member_id=?',[requestedDepositId,m.id]);
+      submittedDeposit=submittedRow||null;
+    }
+    const historyRows=history.map(d=>'<tr><td>#'+Number(d.id)+'<br><small>'+esc(d.created_at)+'</small></td><td>'+esc(d.currency+' '+Number(d.amount).toLocaleString('en-US',{maximumFractionDigits:8}))+'<br><small>Fee '+esc(d.currency+' '+Number(d.fee_amount).toLocaleString('en-US',{maximumFractionDigits:8}))+'</small></td><td>'+esc(d.payment_label)+'<br><small>'+esc(d.payment_reference)+'</small></td><td><span class="ac-pill">'+esc(d.status.toUpperCase())+'</span>'+(d.reviewer_note?'<p class="muted small">'+esc(d.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    const notice='';
+    const notReady=effectiveRate===null?'<div class="deposit-inline-notice">Deposits are temporarily unavailable. Please try again later.</div>':(methods.length===0?'<div class="deposit-inline-notice">No payment destinations are available right now. Please check back later.</div>':'');
+    const workflow=req.query.submitted==='1'
+       ? (submittedDeposit && submittedDeposit.status==='approved' ? '<section class="deposit-success-panel is-approved"><span class="deposit-success-icon" aria-hidden="true">✓</span><p class="deposit-eyebrow">PAYMENT CONFIRMED</p><h2>Your deposit was successful</h2><p>'+esc(Number(submittedDeposit.amount).toLocaleString('en-US',{maximumFractionDigits:8})+' '+submittedDeposit.currency)+' has been credited to your wallet.</p><div class="deposit-success-actions"><a class="btn" href="/dashboard">Back to dashboard</a><a class="deposit-secondary-link" href="/notifications">View notification</a></div></section>' : submittedDeposit && submittedDeposit.status==='rejected' ? '<section class="deposit-success-panel is-rejected"><span class="deposit-success-icon" aria-hidden="true">!</span><p class="deposit-eyebrow">PAYMENT NEEDS ATTENTION</p><h2>Your deposit was not approved</h2><p>'+esc(submittedDeposit.reviewer_note||'Please review your notification for next steps.')+'</p><div class="deposit-success-actions"><a class="btn" href="/deposit">Submit another deposit</a><a class="deposit-secondary-link" href="/notifications">View notification</a></div></section>' : '<section class="deposit-success-panel"><span class="deposit-success-icon" aria-hidden="true">✓</span><p class="deposit-eyebrow">REQUEST RECEIVED</p><h2>Your deposit is under review</h2><p>We have received your payment details and receipt. We will notify you when the review is complete. Your wallet will only be credited after approval.</p><div class="deposit-success-actions"><a class="btn" href="/dashboard">Back to dashboard</a><a class="deposit-secondary-link" href="/notifications">View notifications</a></div></section>')
+      : '<form id="depositForm" method="post" action="/deposit" enctype="multipart/form-data" class="deposit-workflow">'+csrfField(req)+
+        '<ol class="deposit-progress" aria-label="Deposit progress"><li class="is-active" data-step-indicator="0"><span>01</span><div><b>Amount</b><small>Set your deposit</small></div></li><li data-step-indicator="1"><span>02</span><div><b>Payment</b><small>Choose how to pay</small></div></li><li data-step-indicator="2"><span>03</span><div><b>Receipt</b><small>Upload proof securely</small></div></li></ol>'+
+        '<div class="deposit-step" data-deposit-step="0"><div class="deposit-step-heading"><span class="deposit-step-kicker">STEP 1 OF 3</span><h3>How much would you like to fund?</h3><p>Enter the amount you want credited to your wallet. You can review the fee and full payment total before sending.</p></div><div class="deposit-input-grid"><div class="deposit-field"><label for="depositCurrency">Wallet currency</label><select id="depositCurrency" name="currency" required><option value="NGN">Naira (NGN)</option><option value="USD">US Dollars (USD)</option></select><small class="deposit-field-hint">Crypto wallet deposits are processed in USD.</small></div><div class="deposit-field"><label for="depositAmount">Amount to fund</label><input id="depositAmount" name="amount" type="number" min="1" max="1000000000" step="0.01" inputmode="decimal" required placeholder="e.g. 50000"><small class="deposit-field-hint">Enter the amount in the currency selected.</small></div></div><div class="deposit-step-actions"><a class="deposit-cancel-link" href="/dashboard">Cancel</a><button class="btn deposit-next" type="button" id="depositNextAmount">Continue to payment <span aria-hidden="true">→</span></button></div></div>'+
+        '<div class="deposit-step" data-deposit-step="1" hidden><div class="deposit-step-heading"><span class="deposit-step-kicker">STEP 2 OF 3</span><h3>Choose how you want to pay</h3><p>Confirm the destination and amount carefully. Use the copy buttons to avoid transfer mistakes.</p></div><div class="deposit-summary-strip"><span>Amount to fund</span><strong id="depositStepAmount">—</strong><button type="button" class="deposit-text-button" id="depositEditAmount">Edit amount</button></div><div class="deposit-method-switch" role="group" aria-label="Choose payment method"><button type="button" class="deposit-method-tab is-active" data-payment-mode="bank" aria-pressed="true"><span aria-hidden="true">▤</span><strong>Bank transfer</strong><small>Pay from your bank</small></button><button type="button" class="deposit-method-tab" data-payment-mode="wallet" aria-pressed="false"><span aria-hidden="true">◇</span><strong>Wallet address</strong><small>Crypto transfer</small></button></div><div id="depositMethodNotice" class="deposit-inline-notice" hidden></div><div class="deposit-destination-picker"><label for="depositMethod">Select payment destination</label><select id="depositMethod" name="payment_method_id" required><option value="">Choose an active destination</option></select></div><div id="depositPaymentDetails" class="deposit-payment-details" hidden></div>'+
+        '<section class="section-card deposit-calculator" aria-live="polite"><div class="deposit-calculator-heading"><div><span class="deposit-eyebrow">PAYMENT SUMMARY</span><h3>Amount, fee &amp; total</h3></div><span class="deposit-live-pill"><i></i> Live estimate</span></div><p class="deposit-rate-line"></p><div class="deposit-calculator-grid"><div class="deposit-calc-item"><span>Amount to fund</span><strong id="calcAmount">—</strong><small id="calcAmountOther">USD / NGN equivalent: —</small></div><div class="deposit-calc-item"><span>Transaction fee</span><strong id="calcFee">—</strong><small id="calcFeeOther">USD / NGN equivalent: —</small></div><div class="deposit-calc-item deposit-calc-total"><span>Total amount to pay</span><strong id="calcTotal">—</strong><small id="calcTotalOther">USD / NGN equivalent: —</small></div></div><p class="muted small deposit-calculator-note">The summary always includes the USD amount and its Naira equivalent. Pay the total shown for your selected destination. Crypto transfers must use the exact asset and network displayed.</p></section><div class="deposit-step-actions"><button class="deposit-back" type="button" id="depositBackAmount">← Back</button><button class="btn deposit-next" type="button" id="depositNextPayment">I have completed payment <span aria-hidden="true">→</span></button></div></div>'+
+        '<div class="deposit-step" data-deposit-step="2" hidden><div class="deposit-step-heading"><span class="deposit-step-kicker">STEP 3 OF 3</span><h3>Upload your payment receipt</h3><p>After sending the exact total shown in the previous step, provide your transfer reference and proof so the team can verify it.</p></div><div class="deposit-final-summary"><div><span>Payment destination</span><strong id="depositFinalMethod">—</strong></div><div><span>Total to pay</span><strong id="depositFinalTotal">—</strong></div></div><label for="paymentReference">Transfer reference / transaction ID</label><input id="paymentReference" name="payment_reference" maxlength="190" autocomplete="off" required placeholder="Bank reference or blockchain transaction ID"><label for="paymentProof">Payment receipt / proof (JPG, PNG, WEBP or PDF · max 5 MB)</label><input id="paymentProof" name="payment_proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required><p class="muted small">Your receipt is stored privately for the admin review. Accepted formats: JPG, PNG, WEBP or PDF, up to 5 MB.</p><label for="memberNote">Additional note (optional)</label><textarea id="memberNote" name="member_note" maxlength="1000" rows="3" placeholder="Optional details to help verify your payment"></textarea><label class="deposit-confirm-check"><input type="checkbox" id="depositPaymentAttestation" required><span>I confirm that I have sent the payment and the details above are accurate.</span></label><div class="deposit-step-actions"><button class="deposit-back" type="button" id="depositBackPayment">← Back to payment</button><button class="btn deposit-next" type="submit" id="depositConfirmSubmit">Confirm deposit</button></div><p class="muted small deposit-final-note">Your deposit remains pending until an administrator verifies the payment. Never upload a receipt for a payment you have not made.</p></div></form>';
+    const statusPollScript=submittedDeposit && submittedDeposit.status==='pending' ? '<script>(function(){var id='+Number(submittedDeposit.id)+',timer=setInterval(function(){fetch("/api/deposit-status/"+id,{credentials:"same-origin",cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("status unavailable");return r.json()}).then(function(d){if(d.status==="approved"||d.status==="rejected"){clearInterval(timer);window.location.assign("/deposit?submitted=1&request="+id)}}).catch(function(){})},15000)})();</script>' : '';
+    const content='<div class="member-card deposit-page-card"><div class="deposit-page-intro"><span class="deposit-eyebrow">FUND YOUR ACCOUNT</span><h2>Make a deposit</h2><p class="muted">Complete the three secure steps to fund your Monarch Codex wallet.</p></div>'+notice+notReady+workflow+statusPollScript+'</div>'+
+      '<div class="member-card deposit-history-card"><div class="deposit-history-heading"><div><span class="deposit-eyebrow">YOUR ACTIVITY</span><h2>Deposit history</h2></div><span class="deposit-history-count">'+history.length+' recent '+(history.length===1?'request':'requests')+'</span></div><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Request</th><th>Amount / fee</th><th>Payment details</th><th>Status</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="4">No deposit requests yet.</td></tr>')+'</tbody></table></div></div>'+
+      '<script>window.monarchDepositMethods='+methodsJson+';window.monarchDepositPricing='+pricingJson+';</script><script src="/assets/js/deposit-wizard.js?v=20261016-layout2" defer></script>';
+    res.send(memberPage('Deposit','/deposit',m,content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Deposit','/deposit',await getMemberForPage(req,res),'<div class="member-card"><h2>Deposits temporarily unavailable</h2><p>Please try again later.</p></div>',req)); next(e); }
+});
+app.post('/deposit', requireAuth, requireApprovedKyc, parseDepositProof, csrfCheck, async (req,res,next) => {
+  const currency=String(req.body.currency||''), methodId=String(req.body.payment_method_id||''), reference=String(req.body.payment_reference||'').trim().slice(0,190), note=String(req.body.member_note||'').trim().slice(0,1000);
+  const amount=Number(req.body.amount);
+  if (!['NGN','USD'].includes(currency) || !/^\d{1,20}$/.test(methodId) || !Number.isFinite(amount) || amount<=0 || amount>1000000000 || !reference || !req.file) return res.status(400).send(formError('Check your deposit details','Enter a valid currency and amount, choose an active payment destination, and provide your transfer reference and receipt.','/deposit'));
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
+    if(!pricing || pricing.base_usd_ngn_rate===null || Number(pricing.base_usd_ngn_rate)<=0) return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit'));
+    const [[method]]=await pool.execute('SELECT id,method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
+    if(!method || !Number(method.is_active) || method.currency!==currency || (method.method_type==='wallet' && currency!=='USD')) return res.status(400).send(formError('Payment destination unavailable','Choose an active payment destination for the selected currency.','/deposit'));
+    const base=Number(pricing.base_usd_ngn_rate), rate=base*(1+Number(pricing.markup_percent)/100), feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd), fee=currency==='NGN'?feeUsd*rate:feeUsd, total=amount+fee;
+    const [insertResult]=await pool.execute('INSERT INTO deposit_requests (member_id,currency,amount,fee_usd,fee_amount,base_usd_ngn_rate,effective_usd_ngn_rate,total_due,payment_method_id,payment_reference,proof_storage_key,proof_mime_type,proof_original_name,member_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[m.id,currency,amount,feeUsd,fee,base,rate,total,methodId,reference,req.file.filename,req.file.mimetype,path.basename(req.file.originalname).slice(0,255),note||null]);
+    res.redirect('/deposit?submitted=1&request='+encodeURIComponent(insertResult.insertId));
+  } catch(e) { if(req.file) fs.unlink(req.file.path,()=>{}); if(e.code==='ER_DUP_ENTRY') return res.status(409).send(formError('Reference already submitted','This payment reference has already been submitted for your account. Check your deposit history or contact support.','/deposit')); if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit')); next(e); }
+});
+app.get('/withdraw', requireAuth, requireApprovedKyc, async (req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [bankRows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);
+    const banks=bankRows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));
+    const [[latestKyc]]=await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",[m.id]);
+    const kycStatus=latestKyc?String(latestKyc.status||'').trim().toLowerCase():'not_submitted', kycApproved=kycStatus==='approved';
+    const [walletRows]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[m.id]);
+    const [reservedRows]=await pool.execute("SELECT currency,COALESCE(SUM(amount),0) AS reserved FROM withdrawal_requests WHERE member_id=? AND status IN ('pending','approved') GROUP BY currency",[m.id]);
+    const wallet={NGN:0,USD:0},reserved={NGN:0,USD:0};
+    walletRows.forEach(r=>{if(Object.prototype.hasOwnProperty.call(wallet,r.currency))wallet[r.currency]=Number(r.balance)||0;});
+    reservedRows.forEach(r=>{if(Object.prototype.hasOwnProperty.call(reserved,r.currency))reserved[r.currency]=Number(r.reserved)||0;});
+    const available={NGN:Math.max(0,wallet.NGN-reserved.NGN),USD:Math.max(0,wallet.USD-reserved.USD)};
+    const hasFunds=available.NGN>0||available.USD>0, canRequest=kycApproved&&banks.length>0&&hasFunds;
+    const heroStatus=!kycApproved?(kycStatus==='pending'?'KYC under review':'KYC approval required'):!banks.length?'Add a payout account':!hasFunds?'No available wallet balance':'Ready to request';
+    const bankOptions=banks.map(b=>'<option value="'+esc(b.id)+'">'+esc((b.bankName||'Saved bank')+' · '+(b.bankAccountName||'Account holder')+' · •••• '+String(b.bankAccountNumber||'').slice(-4))+'</option>').join('');
+    const currencyOptions=(available.NGN>0?'<option value="NGN">Nigerian naira (NGN)</option>':'')+(available.USD>0?'<option value="USD"'+(available.NGN>0?'':' selected')+'>US dollars (USD)</option>':'');
+    const requestPanel=canRequest
+      ? '<aside class="withdraw-panel"><p class="withdraw-kicker">WITHDRAWAL REQUEST</p><h3>Your verification is approved</h3><p class="withdraw-sub">Choose a saved payout account and request an amount within your available wallet balance. An administrator must independently confirm maturity and eligibility before approval. No transfer happens automatically.</p><form method="post" action="/withdraw" class="withdraw-form">'+csrfField(req)+'<label for="withdrawBank">Payout account</label><select id="withdrawBank" name="bank_account_id" required>'+bankOptions+'</select><label for="withdrawCurrency">Wallet currency</label><select id="withdrawCurrency" name="currency" data-max-ngn="'+available.NGN.toFixed(8)+'" data-max-usd="'+available.USD.toFixed(8)+'" required>'+currencyOptions+'</select><div class="withdraw-available"><span>Available NGN</span><strong>₦'+available.NGN.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong><span>Available USD</span><strong>$'+available.USD.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong></div><label for="withdrawAmount">Amount to request</label><input id="withdrawAmount" name="amount" type="number" min="0.01" max="'+(available.NGN>0?available.NGN:available.USD).toFixed(8)+'" step="0.01" inputmode="decimal" required><label for="withdrawNote">Note for the review team (optional)</label><textarea id="withdrawNote" name="member_note" rows="2" maxlength="500" placeholder="Add context for your request"></textarea><button class="btn withdraw-submit" type="submit">Submit withdrawal request →</button></form><p class="withdraw-sub">Requests remain pending until reviewed. A request is not a payment confirmation.</p><script>(function(){var c=document.getElementById("withdrawCurrency"),a=document.getElementById("withdrawAmount");if(!c||!a)return;function sync(){var max=Number(c.value==="NGN"?c.dataset.maxNgn:c.dataset.maxUsd)||0;a.max=String(max);if(Number(a.value)>max)a.value=max>0?String(max):""}c.addEventListener("change",sync);sync()})();</script></aside>'
+      : '<aside class="withdraw-panel"><p class="withdraw-kicker">WITHDRAWAL READINESS</p><h3>'+(!kycApproved?'Identity approval required':!banks.length?'Add a payout destination':'No available wallet balance')+'</h3><p class="withdraw-sub">'+(!kycApproved?(kycStatus==='pending'?'Your KYC submission is awaiting administrator review. Withdrawal requests unlock after approval.':'Complete KYC and wait for an administrator to approve it before requesting a withdrawal.') : !banks.length?'Save a bank account in your profile before requesting a withdrawal.':'Your available balance is zero or currently reserved by pending or approved requests.')+'</p><ul class="withdraw-checks"><li><strong>'+(kycApproved?'✓':'01')+' · Identity verification</strong><span>'+(kycApproved?'Approved':'Must be approved by the review team')+'</span></li><li><strong>'+(banks.length?'✓':'02')+' · Payout account</strong><span>'+(banks.length?'Saved account available':'Add a bank account to your profile')+'</span></li><li><strong>'+(hasFunds?'✓':'03')+' · Available wallet balance</strong><span>'+(hasFunds?'Funds available for a request':'A positive unreserved balance is required')+'</span></li></ul><a class="withdraw-link" href="'+(!kycApproved?'/kyc':!banks.length?'/profile':'/transactions')+'">'+(!kycApproved?'Review verification status':!banks.length?'Manage bank account':'View wallet activity')+' ↗</a></aside>';
+    const [history]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 10',[m.id]);
+    const historyRows=history.map(w=>'<tr><td>#'+Number(w.id)+'<br><small>'+esc(w.created_at)+'</small></td><td>'+esc(w.currency+' '+Number(w.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</td><td><span class="withdraw-status-label status-'+esc(w.status)+'">'+esc(w.status.toUpperCase())+'</span>'+(w.reviewer_note?'<p class="withdraw-sub">'+esc(w.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    let requestNotice='';
+    const requestedId=String(req.query.request||'');
+    if(/^\d{1,20}$/.test(requestedId)){
+      const [[requested]]=await pool.execute('SELECT id,status FROM withdrawal_requests WHERE id=? AND member_id=?',[requestedId,m.id]);
+      if(requested)requestNotice='<div class="withdraw-notice" role="status"><strong>Request #'+Number(requested.id)+' received.</strong> Current status: '+esc(requested.status.toUpperCase())+'. This is a review request, not a payment confirmation.</div>';
+    }
+    const bankCards=banks.length?banks.map((b,i)=>'<div class="withdraw-bank-row"><span class="withdraw-bank-icon">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-bank-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-recent">RECENT</span>':'')+'</div>').join(''):'<div class="withdraw-empty"><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready.</p><a class="withdraw-link" href="/profile">Add bank account ↗</a></div>';
+    const body = `<style>
+.withdraw-page{--wd-gold:#dfbd62;--wd-gold-bright:#f7e4a0;--wd-border:rgba(223,189,98,.2);--wd-muted:#aaa79e;display:grid;gap:18px;width:100%;max-width:1120px;margin:0 auto;color:#f5f1e8;min-width:0}
+.withdraw-page *{box-sizing:border-box}
+.withdraw-page .withdraw-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.16),transparent 42%),linear-gradient(135deg,#191916,#10100f 70%,#1b1810);min-width:0}
+.withdraw-page .withdraw-hero-copy{min-width:0;max-width:680px}
+.withdraw-page .withdraw-eyebrow,.withdraw-page .withdraw-kicker{display:block;color:var(--wd-gold);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase;margin:0 0 10px}
+.withdraw-page .withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.04em;margin:0 0 10px;color:#fff}
+.withdraw-page .withdraw-hero p,.withdraw-page .withdraw-sub{color:#bdb8aa;font-size:13px;line-height:1.7;margin:8px 0}
+.withdraw-page .withdraw-hero-side{display:grid;justify-items:end;gap:12px;flex:0 0 auto}
+.withdraw-page .withdraw-status-label{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid var(--wd-border);border-radius:999px;background:rgba(216,180,90,.1);color:#f0d994;font-size:10px;font-weight:850;letter-spacing:.035em;white-space:normal}
+.withdraw-page .withdraw-status-label:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px}
+.withdraw-page .withdraw-hero-nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.withdraw-page .withdraw-hero-nav a,.withdraw-page .withdraw-link{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:9px 12px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold-bright);text-decoration:none;font-size:11px;font-weight:800;transition:background .18s,border-color .18s}
+.withdraw-page .withdraw-hero-nav a:hover,.withdraw-page .withdraw-link:hover{background:rgba(216,180,90,.09);border-color:rgba(223,189,98,.48)}
+.withdraw-page .withdraw-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.withdraw-page .withdraw-metric{display:grid;gap:8px;min-width:0;padding:16px;border:1px solid rgba(255,255,255,.075);border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012))}
+.withdraw-page .withdraw-metric-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#a9a397;font-size:11px}
+.withdraw-page .withdraw-metric-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:rgba(216,180,90,.1);color:var(--wd-gold-bright);font-size:15px}
+.withdraw-page .withdraw-metric strong{font-size:clamp(15px,2vw,19px);color:#f5edcf;overflow-wrap:anywhere}
+.withdraw-page .withdraw-metric small{font-size:11px;color:#a9a397;line-height:1.5}
+.withdraw-page .withdraw-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+.withdraw-page .withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012));overflow:hidden}
+.withdraw-page .withdraw-panel h3{margin:6px 0;color:#fff;font-size:19px;letter-spacing:-.02em}.withdraw-page .withdraw-bank-list{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}
+.withdraw-page .withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}
+.withdraw-page .withdraw-bank-copy strong,.withdraw-page .withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.withdraw-page .withdraw-bank-copy strong{font-size:12px;color:#f4f0e7}.withdraw-page .withdraw-bank-copy small,.withdraw-page .withdraw-mask{font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-mask{white-space:nowrap}
+.withdraw-page .withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-empty{padding:24px 16px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-empty strong{color:#f4edda}
+.withdraw-page .withdraw-empty p{color:var(--wd-muted);font-size:12px;line-height:1.6}
+.withdraw-page .withdraw-form{display:grid;gap:10px;margin-top:16px}.withdraw-page .withdraw-form label{display:block;margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}
+.withdraw-page .withdraw-form input,.withdraw-page .withdraw-form select,.withdraw-page .withdraw-form textarea{display:block;width:100%;min-width:0;min-height:44px;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px;line-height:1.45}
+.withdraw-page .withdraw-form textarea{resize:vertical;min-height:72px}
+.withdraw-page .withdraw-form input:focus,.withdraw-page .withdraw-form select:focus,.withdraw-page .withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}
+.withdraw-page .withdraw-available{display:grid;grid-template-columns:1fr auto;gap:7px 10px;padding:13px;border:1px solid rgba(216,180,90,.16);border-radius:12px;background:rgba(0,0,0,.13);font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-available strong{text-align:right;color:#f4e3a4;font-variant-numeric:tabular-nums}
+.withdraw-page .withdraw-submit{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;cursor:pointer;border:1px solid #f1d575!important;border-radius:11px!important;background:linear-gradient(120deg,#d3ad4a,#f5df8c)!important;color:#18150c!important;font-size:12px;font-weight:900;box-shadow:0 9px 24px rgba(213,173,56,.1)}
+.withdraw-page .withdraw-submit:hover{filter:brightness(1.05)}
+.withdraw-page .withdraw-checks{display:grid;gap:10px;padding:0;margin:18px 0;list-style:none}
+.withdraw-page .withdraw-checks li{display:grid;gap:5px;min-width:0;padding:13px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-checks strong{font-size:12px;color:#eee8d8}
+.withdraw-page .withdraw-checks span{font-size:11px;color:#bdb8aa;line-height:1.5}
+.withdraw-page .withdraw-notice{padding:14px 16px;border:1px solid var(--wd-border);border-radius:12px;background:rgba(216,180,90,.07);color:#e9ce86;font-size:13px;line-height:1.6}
+.withdraw-page .withdraw-status-label.status-paid{background:rgba(55,145,89,.14);color:#94e3b0}
+.withdraw-page .withdraw-status-label.status-rejected{background:rgba(190,75,75,.13);color:#f0aaaa}
+.withdraw-page .withdraw-history{grid-column:1/-1}
+.withdraw-page .withdraw-table-wrap{width:100%;overflow-x:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px}
+.withdraw-page .withdraw-table{width:100%;border-collapse:collapse;min-width:420px}
+.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:13px 12px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07);font-size:12px;overflow-wrap:anywhere}
+.withdraw-page .withdraw-table th{color:#aaa18a;font-size:10px;text-transform:uppercase;letter-spacing:.1em;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-table tr:last-child td{border-bottom:0}
+.withdraw-page .withdraw-table small{color:#aaa18a}
+.withdraw-page .withdraw-history-empty{padding:24px;text-align:center;color:#aaa79e;font-size:12px}
+.withdraw-page .withdraw-page-foot{margin:0;padding:0 2px;color:#98958c;font-size:11px;line-height:1.7}
+@media(max-width:820px){.withdraw-page .withdraw-hero{align-items:flex-start;flex-direction:column}.withdraw-page .withdraw-hero-side{justify-items:start;width:100%}.withdraw-page .withdraw-hero-nav{justify-content:flex-start}.withdraw-page .withdraw-layout{grid-template-columns:1fr}.withdraw-page .withdraw-history{grid-column:auto}}
+@media(max-width:560px){.withdraw-page{gap:13px}.withdraw-page .withdraw-hero{padding:21px 17px;border-radius:18px}.withdraw-page .withdraw-overview{grid-template-columns:1fr;gap:9px}.withdraw-page .withdraw-metric{grid-template-columns:36px minmax(0,1fr);align-items:center;column-gap:10px;padding:12px}.withdraw-page .withdraw-metric-icon{grid-row:span 2}.withdraw-page .withdraw-metric-top{align-self:end}.withdraw-page .withdraw-metric strong{font-size:16px}.withdraw-page .withdraw-panel{padding:16px 13px;border-radius:16px}.withdraw-page .withdraw-bank-row{gap:8px;padding:10px}.withdraw-page .withdraw-recent{display:none}.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:11px 9px}.withdraw-page .withdraw-hero-nav a{flex:1 1 auto}}
+@media(prefers-reduced-motion:reduce){.withdraw-page *{scroll-behavior:auto!important;transition:none!important}}
+
+</style>
+<div class="withdraw-page">
+  ${requestNotice}
+  <section class="withdraw-hero">
+    <div class="withdraw-hero-copy">
+      <span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span>
+      <h2>Withdrawals, with clarity.</h2>
+      <p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p>
+    </div>
+    <div class="withdraw-hero-side">
+      <span class="withdraw-status-label">${esc(heroStatus)}</span>
+      <nav class="withdraw-hero-nav" aria-label="Account shortcuts">
+        <a href="/dashboard">Dashboard ↗</a>
+        <a href="/profile">Profile ↗</a>
+        <a href="/transactions">Activity ↗</a>
+      </nav>
+    </div>
+  </section>
+  <section class="withdraw-overview" aria-label="Withdrawal readiness summary">
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">✓</span>
+      <span class="withdraw-metric-top">Identity verification</span>
+      <strong>${kycApproved ? 'Approved' : kycStatus === 'pending' ? 'In review' : 'Action needed'}</strong>
+      <small>${kycApproved ? 'KYC is complete' : kycStatus === 'pending' ? 'Waiting for review' : 'Review your verification status'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◎</span>
+      <span class="withdraw-metric-top">Payout destination</span>
+      <strong>${banks.length ? banks.length + ' saved account' + (banks.length === 1 ? '' : 's') : 'Not added'}</strong>
+      <small>${banks.length ? 'Bank details are saved securely' : 'Add an account in your profile'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◈</span>
+      <span class="withdraw-metric-top">Available funds</span>
+      <strong>${available.NGN > 0 ? '₦' + available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}) : available.USD > 0 ? '$' + available.USD.toLocaleString('en-US',{maximumFractionDigits:2}) : 'No available funds'}</strong>
+      <small>Unreserved wallet balance</small>
+    </div>
+  </section>
+  <div class="withdraw-layout">
+    <section class="withdraw-panel">
+      <p class="withdraw-kicker">PAYOUT DESTINATION</p>
+      <h3>Your bank accounts</h3>
+      <p class="withdraw-sub">Account numbers remain masked for privacy.</p>
+      <div class="withdraw-bank-list">${bankCards}</div>
+      ${banks.length ? '<a class="withdraw-link" href="/profile">Manage payout details ↗</a>' : ''}
+    </section>
+    ${requestPanel}
+    <section class="withdraw-panel withdraw-history">
+      <p class="withdraw-kicker">YOUR ACTIVITY</p>
+      <h3>Withdrawal requests</h3>
+      <p class="withdraw-sub">Track each request through review and verified payment.</p>
+      <div class="withdraw-table-wrap">
+        <table class="withdraw-table">
+          <thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead>
+          <tbody>${historyRows || '<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p>
+</div>`;
+    res.set('Cache-Control','no-store');
+    res.send(memberPage('Withdraw','/withdraw',m,body,req));
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'<div class="member-card"><h2>Withdrawal setup needs one final step</h2><p>Apply <code>migrations/009_withdrawal_requests.sql</code> after the KYC, bank-account and deposit-ledger migrations. No request has been created.</p><a class="btn" href="/profile">Manage bank accounts</a></div>',req));
+    next(e);
+  }
+});
+app.post('/withdraw', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const currency=String(req.body.currency||''), bankId=String(req.body.bank_account_id||''), amountText=String(req.body.amount||'').trim(), memberNote=String(req.body.member_note||'').trim().slice(0,500);
+  if(!['NGN','USD'].includes(currency)||!/^\d{1,20}$/.test(bankId)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText))return res.status(400).send(formError('Check withdrawal details','Choose a saved payout account, a supported currency and a valid amount.','/withdraw'));
+  const amount=Number(amountText);
+  if(!Number.isFinite(amount)||amount<=0||amount>1000000000000)return res.status(400).send(formError('Invalid amount','Enter a positive amount within your available balance.','/withdraw'));
+  try{
+    const [[kyc]]=await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",[req.session.memberId]);
+    if(!kyc||String(kyc.status||'').trim().toLowerCase()!=='approved')return res.status(403).send(formError('KYC approval required','Withdrawal requests unlock only after your identity verification is approved by an administrator.','/kyc'));
+    const conn=await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[bank]]=await conn.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE id=? AND member_id=? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',[bankId,req.session.memberId]);
+      if(!bank){await conn.rollback();return res.status(400).send(formError('Payout account unavailable','Choose one of your active saved bank accounts.','/profile'));}
+      const [[walletRow]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[req.session.memberId,currency]);
+      const [[reservedRow]]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM withdrawal_requests WHERE member_id=? AND currency=? AND status IN ('pending','approved')",[req.session.memberId,currency]);
+      const available=Math.max(0,(walletRow?Number(walletRow.balance):0)-(reservedRow?Number(reservedRow.total):0));
+      if(amount>available+1e-8){await conn.rollback();return res.status(400).send(formError('Amount exceeds available balance','Your request must not exceed the unreserved wallet balance shown on the withdrawal page.','/withdraw'));}
+      const [result]=await conn.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')",[req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,memberNote||null]);
+      await conn.commit();
+      return res.redirect('/withdraw?request='+encodeURIComponent(result.insertId));
+    }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(formError('Withdrawal setup incomplete','The withdrawal database migration has not been applied yet. No request was created.','/withdraw'));
+    next(e);
+  }
+});
+app.get('/transactions', requireAuth, async (req,res,next) => {
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    let transactions=[]; try { const [txRows]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,admin_note,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]); transactions=txRows; } catch(e) { if(e.code!=='ER_BAD_FIELD_ERROR') throw e; const [txRows]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]); transactions=txRows; }
+    const [requests]=await pool.execute('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 100',[m.id]);
+    const [withdrawals]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const money=(currency,amount)=>esc(String(currency)+' '+Number(amount||0).toLocaleString('en-US',{maximumFractionDigits:8}));
+    const completedCount=transactions.length;
+    const requestCount=requests.length;
+    const withdrawalCount=withdrawals.length;
+    const pendingCount=requests.filter(d=>['pending','submitted','under_review','processing'].includes(String(d.status||'').toLowerCase())).length + withdrawals.filter(w=>['pending','submitted','under_review','processing','approved'].includes(String(w.status||'').toLowerCase())).length;
+    const statusClass=status=>String(status||'pending').toLowerCase().replace(/[^a-z0-9_-]/g,'-');
+    const txRows=transactions.map(t=>'<tr><td data-label="Date"><span class="tx-date">'+esc(t.created_at)+'</span></td><td data-label="Type"><span class="tx-type"><span class="tx-type-icon" aria-hidden="true">↗</span>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(t.currency,t.amount)+'</strong></td><td data-label="Reference"><span class="tx-reference">'+esc(t.reference)+(t.admin_note?'<br>'+esc(t.admin_note):'')+'</span></td><td data-label="Status"><span class="tx-status tx-status-completed"><span></span>Completed</span></td></tr>').join('');
+    const reqRows=requests.map(d=>'<tr><td data-label="Date"><span class="tx-date">'+esc(d.created_at)+'</span></td><td data-label="Payment"><div class="tx-payment-name">'+esc(d.payment_label)+'</div><span class="tx-reference">'+esc(d.payment_reference)+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(d.currency,d.amount)+'</strong><span class="tx-fee">Fee '+money(d.currency,d.fee_amount)+' · Total '+money(d.currency,d.total_due)+'</span></td><td data-label="Status"><span class="tx-status tx-status-'+statusClass(d.status)+'"><span></span>'+esc(String(d.status||'pending').replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))+'</span>'+(d.reviewer_note?'<p class="tx-review-note">'+esc(d.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    const body='<style>'+
+      '.tx-experience{display:grid;gap:18px;min-width:0;color:#eee9dc}'+
+      '.tx-hero{position:relative;isolation:isolate;overflow:hidden;display:flex;justify-content:space-between;align-items:center;gap:18px;padding:clamp(20px,3.5vw,30px);border:1px solid rgba(223,189,98,.25);border-radius:21px;background:radial-gradient(ellipse at 92% 0%,rgba(223,189,98,.16),transparent 36%),linear-gradient(135deg,#1b1a16,#111113 66%,#19160e)}'+
+      '.tx-hero:after{content:"";position:absolute;z-index:-1;right:-60px;bottom:-110px;width:180px;height:180px;border:1px solid rgba(223,189,98,.13);border-radius:50%;box-shadow:0 0 0 22px rgba(223,189,98,.025),0 0 0 44px rgba(223,189,98,.02)}'+
+      '.tx-eyebrow{margin:0 0 9px;color:#dfbd62;font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}'+
+      '.tx-hero h3{margin:0;color:#fff8e8;font-size:clamp(23px,3.4vw,33px);letter-spacing:-.04em;line-height:1.12}'+
+      '.tx-hero p{max-width:560px;margin:10px 0 0;color:#b3aea2;font-size:12px;line-height:1.7}'+
+      '.tx-hero-mark{display:grid;place-items:center;flex:0 0 auto;width:68px;height:68px;border:1px solid rgba(223,189,98,.28);border-radius:20px;background:rgba(223,189,98,.07);color:#f0d681;font-size:29px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}'+
+      '.tx-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}'+
+      '.tx-summary{min-width:0;padding:17px;border:1px solid #383328;border-radius:16px;background:linear-gradient(145deg,#18181b,#111113)}'+
+      '.tx-summary-label{display:flex;align-items:center;gap:8px;color:#aaa69a;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}'+
+      '.tx-summary-icon{display:grid;place-items:center;width:27px;height:27px;border-radius:9px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:14px}'+
+      '.tx-summary-value{display:block;margin:13px 0 5px;color:#f3e4ad;font-size:clamp(24px,3vw,32px);font-weight:850;letter-spacing:-.04em;line-height:1.1}'+
+      '.tx-summary-note{margin:0;color:#969186;font-size:10px;line-height:1.6}'+
+      '.tx-panel{min-width:0;overflow:hidden;border:1px solid #373227;border-radius:18px;background:linear-gradient(145deg,#171719,#111113)}'+
+      '.tx-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:21px 22px 17px;border-bottom:1px solid #302d25}'+
+      '.tx-panel-head h4{margin:0;color:#f6efdf;font-size:16px;letter-spacing:-.02em}'+
+      '.tx-panel-head p{margin:6px 0 0;color:#a09b8f;font-size:11px;line-height:1.65}'+
+      '.tx-count{flex:0 0 auto;padding:7px 10px;border:1px solid rgba(223,189,98,.19);border-radius:999px;background:rgba(223,189,98,.06);color:#e5ce85;font-size:10px;font-weight:850}'+
+      '.tx-table-wrap{width:100%;overflow-x:auto}'+
+      '.tx-table{width:100%;border-collapse:collapse;min-width:600px}'+
+      '.tx-table th{padding:12px 15px;background:#141416;color:#928d82;font-size:9px;font-weight:850;letter-spacing:.11em;text-align:left;text-transform:uppercase;white-space:nowrap}'+
+      '.tx-table td{padding:15px;border-bottom:1px solid #2d2a24;color:#ded8c9;font-size:11px;vertical-align:middle}'+
+      '.tx-table tbody tr:last-child td{border-bottom:0}'+
+      '.tx-table tbody tr:hover{background:rgba(223,189,98,.025)}'+
+      '.tx-date{color:#b8b2a5;white-space:nowrap;font-size:10px}'+
+      '.tx-type{display:inline-flex;align-items:center;gap:8px;font-weight:750;white-space:nowrap}'+
+      '.tx-type-icon{display:grid;place-items:center;width:27px;height:27px;border:1px solid #383328;border-radius:9px;color:#e3c875;background:#1d1a13;font-size:14px}'+
+      '.tx-amount{display:block;color:#f2e5b6;font-size:12px;white-space:nowrap}'+
+      '.tx-reference{display:inline-block;max-width:190px;margin-top:4px;color:#8f8a7f;font-size:10px;overflow-wrap:anywhere}'+
+      '.tx-payment-name{color:#e9e2d3;font-size:11px;font-weight:750}'+
+      '.tx-fee{display:block;margin-top:6px;color:#999387;font-size:10px;line-height:1.7}'+
+      '.tx-status{display:inline-flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid #45402f;border-radius:999px;background:#1a1914;color:#e1d4a0;font-size:9px;font-weight:850;white-space:nowrap}'+
+      '.tx-status>span{width:5px;height:5px;border-radius:50%;background:#d7b958}'+
+      '.tx-status-completed,.tx-status-approved,.tx-status-credited{border-color:#2d4938;background:#121e17;color:#9bd0a8}'+
+      '.tx-status-completed>span,.tx-status-approved>span,.tx-status-credited>span{background:#65b87b}'+
+      '.tx-status-rejected,.tx-status-failed,.tx-status-cancelled{border-color:#523532;background:#211514;color:#e7a59a}'+
+      '.tx-status-rejected>span,.tx-status-failed>span,.tx-status-cancelled>span{background:#d87869}'+
+      '.tx-status-pending,.tx-status-submitted,.tx-status-under_review,.tx-status-processing{border-color:#4a4029;background:#201b11;color:#e5cb7e}'+
+      '.tx-review-note{max-width:240px;margin:8px 0 0;color:#b4a99a;font-size:10px;line-height:1.6;overflow-wrap:anywhere}'+
+      '.tx-empty{display:grid;place-items:center;gap:8px;padding:30px 18px;text-align:center}'+
+      '.tx-empty-icon{display:grid;place-items:center;width:42px;height:42px;border:1px solid #383328;border-radius:14px;background:#1c1a14;color:#e5c66f;font-size:20px}'+
+      '.tx-empty strong{color:#e8e1d2;font-size:12px}'+
+      '.tx-empty p{max-width:350px;margin:0;color:#9c978b;font-size:11px;line-height:1.7}'+
+      '.tx-note{padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(223,189,98,.035);color:#9f9a8e;font-size:11px;line-height:1.7}'+
+      '@media(max-width:680px){.tx-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.tx-summary{padding:12px}.tx-summary-label{align-items:flex-start;flex-direction:column;gap:6px;font-size:9px}.tx-summary-value{font-size:23px}.tx-hero-mark{width:52px;height:52px;border-radius:15px;font-size:23px}.tx-panel-head{padding:17px 16px 14px}.tx-table-wrap{overflow:visible}.tx-table{display:block;min-width:0}.tx-table thead{display:none}.tx-table tbody{display:grid;gap:10px;padding:10px}.tx-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px;padding:10px 12px;border:1px solid #332f26;border-radius:13px;background:#121214}.tx-table td{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0;padding:9px 0;border:0;overflow-wrap:anywhere}.tx-table td:before{content:attr(data-label);color:#888377;font-size:9px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.tx-table td[data-label=Date],.tx-table td[data-label=Type],.tx-table td[data-label=Payment]{grid-column:1/-1}.tx-table td[data-label=Type],.tx-table td[data-label=Payment]{padding-top:4px;padding-bottom:10px;border-bottom:1px solid #2d2a24;margin-bottom:2px}.tx-table td[data-label=Reference]{grid-column:1/-1}.tx-table td[data-label=Status]{align-self:start}.tx-reference{max-width:100%}.tx-fee{overflow-wrap:anywhere}.tx-panel-head p{max-width:260px}}'+
+      '@media(max-width:390px){.tx-hero{align-items:flex-start}.tx-hero-mark{display:none}.tx-summary-grid{grid-template-columns:1fr}.tx-summary{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:11px}.tx-summary-icon{grid-row:span 2}.tx-summary-label{flex-direction:row;align-items:center}.tx-summary-value{margin:5px 0 2px;font-size:24px}.tx-summary-note{grid-column:2}.tx-table tr{grid-template-columns:minmax(0,1fr)}}'+
+      '@media(prefers-reduced-motion:reduce){.tx-experience *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}'+
+      '</style>'+
+      '<div class="tx-experience">'+
+        '<section class="tx-hero"><div><p class="tx-eyebrow">Account activity</p><h3>Transaction history</h3><p>A clear record of completed wallet credits and deposit requests, with their latest review status and payment details.</p></div><span class="tx-hero-mark" aria-hidden="true">↗</span></section>'+
+        '<div class="tx-summary-grid"><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">✓</span>Completed credits</div><strong class="tx-summary-value">'+completedCount+'</strong><p class="tx-summary-note">Deposits credited to your wallet</p></article><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">▤</span>Deposit requests</div><strong class="tx-summary-value">'+requestCount+'</strong><p class="tx-summary-note">Requests recorded on your account</p></article><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">◷</span>Awaiting review</div><strong class="tx-summary-value">'+pendingCount+'</strong><p class="tx-summary-note">Requests not yet decided</p></article></div>'+
+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Completed transactions</h4><p>Only ledger entries that were credited to your wallet are listed here.</p></div><span class="tx-count">'+completedCount+' records</span></div>'+(txRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>'+txRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">↗</span><strong>No completed transactions yet</strong><p>When a deposit is approved and credited to your wallet, its record will appear here.</p></div>')+'</section>'+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Deposit requests</h4><p>Track submitted deposits, fees, payment references and any review notes.</p></div><span class="tx-count">'+requestCount+' requests</span></div>'+(reqRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Payment destination / reference</th><th>Amount / fee</th><th>Status</th></tr></thead><tbody>'+reqRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">▤</span><strong>No deposit requests yet</strong><p>Deposit requests you submit will be listed here with their review status.</p></div>')+'</section>'+
+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Withdrawal requests</h4><p>Track payout requests and their review status.</p></div><span class="tx-count">'+withdrawalCount+' requests</span></div>'+(withdrawals.length?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Request</th><th>Amount</th><th>Status</th></tr></thead><tbody>'+withdrawals.map(w=>'<tr><td data-label="Date"><span class="tx-date">'+esc(w.created_at)+'</span></td><td data-label="Request"><div class="tx-payment-name">Withdrawal request #'+Number(w.id)+'</div><span class="tx-reference">Payout request</span></td><td data-label="Amount"><strong class="tx-amount">'+money(w.currency,w.amount)+'</strong></td><td data-label="Status"><span class="tx-status tx-status-'+statusClass(w.status)+'"><span></span>'+esc(String(w.status||'pending').replace(/[_-]+/g,' '))+'</span>'+(w.reviewer_note?'<p class="tx-review-note">'+esc(w.reviewer_note)+'</p>':'')+'</td></tr>').join('')+'</tbody></table></div>':'<div class="tx-empty"><strong>No withdrawal requests yet</strong><p>Withdrawal requests you submit will be listed here with their current status.</p></div>')+'</section>'+
+        '<div class="tx-note">Deposit requests remain separate until credited to the wallet ledger. Withdrawal requests are listed separately until processed. Values shown here come from your account records.</div>'+
+      '</div>';
+    res.send(memberPage('Transaction history','/transactions',m,body,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
+});
+app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,next)=>{
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const content = `<style>
+    .coop-member{display:grid;gap:20px;min-width:0;color:#f5f0e3}
+    .coop-member-hero{padding:clamp(24px,4vw,42px);border:1px solid rgba(223,189,98,.3);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(223,189,98,.2),transparent 38%),linear-gradient(135deg,#1d1a13,#101114 72%)}
+    .coop-member-kicker{color:#e6c66e;font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
+    .coop-member h3{font-size:clamp(25px,4vw,38px);line-height:1.15;margin:12px 0;color:#fff6df;letter-spacing:-.035em}
+    .coop-member p{color:#bdb8aa;font-size:13px;line-height:1.85}
+    .coop-member-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .coop-member-card,.coop-member-section{padding:22px;border:1px solid rgba(223,189,98,.2);border-radius:16px;background:linear-gradient(145deg,#181814,#111216)}
+    .coop-member-card small{font-size:10px;letter-spacing:.13em;color:#e6c66e;font-weight:800}
+    .coop-member-card h4,.coop-member-section h4{margin:10px 0;font-size:18px;color:#fff4d5}
+    .coop-member-price{font-size:30px!important;font-weight:800;color:#ffe6a3!important;margin:4px 0}
+    .coop-member-card ul{padding-left:18px;color:#bdb8aa;font-size:12px;line-height:1.9}
+    .coop-member-bonuses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .coop-member-bonus{padding:17px;border-radius:12px;background:#1a1914;border:1px solid rgba(223,189,98,.14)}
+    .coop-member-bonus strong{display:block;color:#ffe6a3;font-size:25px;margin-bottom:5px}
+    .coop-member-bonus span{font-size:12px;color:#d6cebd}
+    .coop-member-cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px}
+    .coop-member-cta a{display:inline-flex;align-items:center;justify-content:center;padding:13px 18px;border-radius:10px;font-size:12px;font-weight:800}
+    .coop-member-cta .primary{background:linear-gradient(120deg,#c49a47,#ffe6a3);color:#17130b}
+    .coop-member-cta .secondary{border:1px solid rgba(223,189,98,.35);color:#ffe6a3}
+    @media(max-width:760px){.coop-member-grid,.coop-member-bonuses{grid-template-columns:1fr}.coop-member-card,.coop-member-section{padding:19px}.coop-member-cta{flex-direction:column;align-items:stretch}.coop-member-cta a{width:100%}}
+    </style>
+    <div class="coop-member">
+      <section class="coop-member-hero"><div class="coop-member-kicker">Partner opportunity · separate platform</div><h3>The Online Cooperative</h3><p>Explore the package levels, referral network and member benefits offered by The Online Cooperative, a separate opportunity with its own registration website.</p><div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Visit cooperative registration ↗</a><a class="secondary" href="#coop-packages">Explore packages ↓</a></div></section>
+      <section id="coop-packages"><div class="coop-member-kicker">01 / Packages</div><h3>Explore the three levels</h3><p>Explore the package levels, member benefits and earning structure available through The Online Cooperative.</p><div class="coop-member-grid">
+      <article class="coop-member-card"><small>STARTER</small><h4>Starter Package</h4><p class="coop-member-price">$10</p><p>Described target: $150 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and dashboard access</li><li>Upgrade prompt at stated target</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      <article class="coop-member-card"><small>PROFESSIONAL</small><h4>Professional Package</h4><p class="coop-member-price">$100</p><p>Described target: $1,500 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and priority support</li><li>Higher earning potential, as described</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      <article class="coop-member-card"><small>ELITE</small><h4>Elite Package</h4><p class="coop-member-price">$1,000</p><p>Described target: $15,000 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and VIP support</li><li>Advertised unlimited earning potential</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      </div></section>
+      <section class="coop-member-section"><h4>02 / How the system is described</h4><p><strong>1. Contribute:</strong> choose a stated $10, $100 or $1,000 package. <strong>2. Placement:</strong> referred members are described as automatically placed, with up to 10 direct members per person. <strong>3. Earn:</strong> the description lists referral and network bonuses. <strong>4. Reach the target:</strong> an upgrade prompt is described when the target is reached. <strong>5. Upgrade:</strong> review the next tier and its conditions. <strong>6. Elite:</strong> the final level is described as offering VIP benefits.</p></section>
+      <section class="coop-member-section"><h4>03 / Earning structure described</h4><div class="coop-member-bonuses"><div class="coop-member-bonus"><strong>10%</strong><span>Direct referral bonus on eligible contributions, as described</span></div><div class="coop-member-bonus"><strong>$1.00</strong><span>System placement bonus for qualifying placements, up to 10</span></div><div class="coop-member-bonus"><strong>$0.50</strong><span>Network depth bonus for qualifying wider-network members</span></div></div><p>Members can also benefit from the 10% monthly earning feature described by The Online Cooperative, even without direct referrals.</p></section>
+      <section class="coop-member-section"><h4>04 / Features highlighted</h4><p>Members can track activity through the dashboard, build a direct network of up to 10 referrals, benefit from automatic placement, and work toward package milestones.</p></section>
+      <div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Continue to Online Cooperative ↗</a><a class="secondary" href="/dashboard">Return to member overview</a></div>
+    </div>`;
+    res.send(memberPage('The Online Cooperative','/online-cooperative',m,content,req));
+  } catch(e) { next(e); }
+});
+
+app.get('/investments', requireAuth, requireApprovedKyc, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res); if (!m) return;
+    const [packages] = await pool.execute("SELECT id,name,description,currency,price,duration_days,terms FROM investment_packages WHERE status='active' ORDER BY price,id");
+    const [walletRows] = await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[m.id]);
+    const balances = {NGN:0,USD:0};
+    for (const w of walletRows) if (balances[w.currency] !== undefined) balances[w.currency] = Number(w.balance || 0);
+    const [[fx]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+    const conversionRate = fx && Number(fx.base_usd_ngn_rate)>0 ? Number(fx.base_usd_ngn_rate)*(1+Number(fx.markup_percent||0)/100) : null;
+    const actualBalances={NGN:balances.NGN,USD:balances.USD};
+    if(conversionRate){
+      // Show the combined wallet value in either currency for display and package affordability.
+      const combinedNgn=actualBalances.NGN+(actualBalances.USD*conversionRate);
+      balances.NGN=combinedNgn;
+      balances.USD=combinedNgn/conversionRate;
+    }
+    const [investments] = await pool.execute('SELECT id,package_name_snapshot,currency,principal_amount,fee_amount,total_charged,duration_days,status,purchase_reference,created_at,matures_at FROM member_investments WHERE member_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[m.id]);
+    const [ledger] = await pool.execute("SELECT currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? AND transaction_type='investment_purchase' ORDER BY created_at DESC LIMIT 50",[m.id]);
+    const fmt=(c,n)=>(c==='NGN'?'₦':'$')+Number(n||0).toLocaleString(c==='NGN'?'en-NG':'en-US',{minimumFractionDigits:2,maximumFractionDigits:8});
+    const active=investments.filter(x=>x.status==='active');
+    const notice=req.query.purchase==='success'?investmentSuccessCelebration('/investments'):req.query.purchase==='already'?'<div class="inv-alert" role="status">This purchase was already processed. Your wallet was not charged again.</div>':req.query.error==='insufficient'?'<div class="inv-alert" role="alert">Your available balance is not enough for the package price plus the 1% fee. No funds were deducted.</div>':'';
+    const cards=packages.map(p=>{
+      const price=Number(p.price),fee=Math.round(price*1e6)/1e8,total=Math.round((price+fee)*1e8)/1e8;
+      const enough=Number(balances[p.currency]||0)+1e-8>=total;
+      return '<article class="inv-card"><div class="inv-pills"><span>'+esc(p.currency)+'</span><span>1% purchase fee</span></div><h3>'+esc(p.name)+'</h3><p>'+esc(p.description||'Review the package terms before purchasing.')+'</p><strong class="inv-price">'+fmt(p.currency,price)+'</strong><div class="inv-rate-note"><span>Stated monthly profit rate</span><strong>10% · '+fmt(p.currency,price*0.10)+' per full month</strong><small>Illustrative amount based on the stated rate; actual earnings must be recorded through the authorised earnings process.</small></div><div class="inv-breakdown"><div><span>Package price</span><b>'+fmt(p.currency,price)+'</b></div><div><span>1% fee</span><b>'+fmt(p.currency,fee)+'</b></div><div class="inv-total"><span>Total wallet deduction</span><b>'+fmt(p.currency,total)+'</b></div><div><span>Available balance</span><b>'+fmt(p.currency,balances[p.currency])+'</b></div></div><p class="inv-duration">'+(p.duration_days?esc(p.duration_days)+' day term':'Term as described in package terms')+'</p>'+(p.terms?'<details><summary>Read package terms</summary><p class="inv-terms">'+esc(p.terms)+'</p></details>':'')+(enough?'':'<p class="inv-insufficient" id="inv-insufficient-'+esc(p.id)+'" role="status">Insufficient '+esc(p.currency)+' balance. You need '+fmt(p.currency,total)+' including the 1% fee; your available converted balance is '+fmt(p.currency,balances[p.currency])+'.</p>')+'<form method="post" action="/investments/'+encodeURIComponent(p.id)+'/purchase">'+csrfField(req)+'<input type="hidden" name="idempotency_key" value="'+esc(crypto.randomUUID())+'"><button class="inv-buy" type="submit" '+(enough?'':'disabled aria-describedby="inv-insufficient-'+esc(p.id)+'"')+'>'+(enough?'Buy package now':'Insufficient '+esc(p.currency)+' balance')+' →</button></form></article>';
+    }).join('');
+    const invRows=investments.map(x=>'<tr><td><b>'+esc(x.package_name_snapshot)+'</b><br><small>'+esc(x.purchase_reference)+'</small></td><td>'+fmt(x.currency,x.principal_amount)+'</td><td>'+fmt(x.currency,x.fee_amount)+'</td><td>'+fmt(x.currency,x.total_charged)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.matures_at||'—')+'</td></tr>').join('');
+    const ledgerRows=ledger.map(x=>'<tr><td>'+esc(x.created_at)+'</td><td>'+esc(x.reference)+'</td><td>'+esc(x.currency)+'</td><td class="inv-debit">−'+fmt(x.currency,Math.abs(Number(x.amount||0)))+'</td></tr>').join('');
+    const content=`<style>
+      .inv-page{display:grid;gap:20px;color:var(--mc-text,#f5f2ea);min-width:0}.inv-hero{padding:clamp(22px,4vw,36px);border:1px solid #655326;border-radius:22px;background:radial-gradient(ellipse at 90% 5%,#4a3b1738,transparent 38%),linear-gradient(135deg,#211d10,#121216 68%);color:#f8f5eb}.inv-kicker{color:#e5c66f;font-size:.72rem;letter-spacing:.15em;font-weight:900}.inv-hero h2{font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.15;margin:12px 0;color:#fff;font-weight:850}.inv-hero p{max-width:70ch;line-height:1.7;color:#e5e0d2;font-weight:650}.inv-alert{padding:13px 15px;border:1px solid #806b2b;border-radius:12px;background:#28210f;color:#ffe9a1;font-weight:750}.inv-alert.success{border-color:#287b58;background:#10271e;color:#b6f1d3}.inv-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.inv-stat,.inv-card,.inv-table-wrap,.inv-empty{min-width:0;border:1px solid var(--mc-line,#393326);border-radius:16px;background:var(--mc-surface,#151518);padding:18px}.inv-stat span{display:block;color:var(--mc-muted,#aaa7af);font-size:.8rem}.inv-stat strong{display:block;margin-top:8px;font-size:1.2rem;overflow-wrap:anywhere}.inv-section h2{margin:8px 0;font-size:1.35rem}.inv-section>p{color:var(--mc-muted,#aaa7af);line-height:1.6}.inv-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.inv-card{padding:22px;display:flex;flex-direction:column;gap:12px}.inv-pills{display:flex;gap:8px;flex-wrap:wrap}.inv-pills span{padding:6px 9px;border:1px solid #655326;border-radius:99px;background:#30250d;color:#e5c66f;font-size:.72rem;font-weight:850}.inv-card h3{margin:0;font-size:1.25rem}.inv-card>p{margin:0;color:var(--mc-muted,#aaa7af);line-height:1.6}.inv-price{font-size:clamp(1.6rem,3vw,2.1rem);color:#f2d77b;overflow-wrap:anywhere}.inv-rate-note{display:grid;gap:5px;padding:12px 13px;border:1px solid #655326;border-radius:12px;background:linear-gradient(120deg,#2b230f,#171714)}.inv-rate-note span,.inv-rate-note small{color:var(--mc-muted,#aaa7af);font-size:.78rem;line-height:1.5}.inv-rate-note strong{color:#f2d77b;font-size:.98rem}.inv-breakdown{display:grid;gap:9px;padding:13px;border-radius:12px;background:#0002}.inv-breakdown>div{display:flex;justify-content:space-between;gap:12px;font-size:.85rem}.inv-breakdown span{color:var(--mc-muted,#aaa7af)}.inv-breakdown b{text-align:right}.inv-breakdown .inv-total{border-top:1px solid #655326;padding-top:10px}.inv-duration{font-size:.82rem;font-weight:750}.inv-terms{white-space:pre-wrap;line-height:1.6}.inv-buy{width:100%;padding:13px 15px;border:0;border-radius:12px;background:linear-gradient(110deg,#f3d76b,#d6ad38);color:#16140d;font:inherit;font-weight:900;cursor:pointer}.inv-buy:disabled{cursor:not-allowed;background:#3a3935;color:#e0ded8;opacity:1}.inv-insufficient{margin:0;padding:11px 12px;border:1px solid #a34d43;border-radius:10px;background:#321b1a;color:#ffd0c9;font-size:.84rem;font-weight:750;line-height:1.55;overflow-wrap:anywhere}.inv-table-wrap{overflow-x:auto;padding:0}.inv-table{width:100%;min-width:690px;border-collapse:collapse;font-size:.85rem}.inv-table th,.inv-table td{text-align:left;padding:13px 15px;border-bottom:1px solid var(--mc-line,#393326);white-space:nowrap}.inv-table th{font-size:.72rem;text-transform:uppercase;color:var(--mc-muted,#aaa7af)}.inv-table small{color:var(--mc-muted,#aaa7af)}.inv-debit{color:#ffb4a8;font-weight:850}.inv-empty{color:var(--mc-muted,#aaa7af);line-height:1.7;border-style:dashed}.inv-terms{white-space:pre-wrap}html[data-theme="light"] .inv-page{color:#17191f!important}html[data-theme="light"] .inv-hero{background:linear-gradient(135deg,#fff9e8,#fff)!important;border-color:#e1d3a6}html[data-theme="light"] .inv-hero h2{color:#111318!important}html[data-theme="light"] .inv-hero p{color:#252832!important;font-weight:750}html[data-theme="light"] .inv-stat,html[data-theme="light"] .inv-card,html[data-theme="light"] .inv-table-wrap,html[data-theme="light"] .inv-empty{background:#fff!important;color:#17191f!important;border-color:#d9dce2!important}html[data-theme="light"] .inv-card h3,html[data-theme="light"] .inv-breakdown b,html[data-theme="light"] .inv-stat strong{color:#111318!important}html[data-theme="light"] .inv-card>p,html[data-theme="light"] .inv-breakdown span,html[data-theme="light"] .inv-duration{color:#343944!important;font-weight:700}html[data-theme="light"] .inv-table th,html[data-theme="light"] .inv-table td{border-color:#e0e2e6!important;color:#17191f!important}@media(max-width:760px){.inv-cards,.inv-stats{grid-template-columns:minmax(0,1fr)}.inv-card{padding:17px}}.inv-page,.inv-page *{box-sizing:border-box}.inv-page{width:100%;max-width:100%;min-width:0;overflow-wrap:anywhere}.inv-hero,.inv-section,.inv-card,.inv-stat,.inv-empty{min-width:0;max-width:100%}.inv-hero h2,.inv-hero p,.inv-section h2,.inv-section>p,.inv-card h3,.inv-card>p,.inv-terms,.inv-alert,.inv-insufficient{max-width:100%;overflow-wrap:anywhere;word-break:normal}.inv-cards{grid-template-columns:repeat(2,minmax(0,1fr));min-width:0}.inv-breakdown>div{min-width:0;flex-wrap:wrap}.inv-breakdown span,.inv-breakdown b{min-width:0;max-width:100%;overflow-wrap:anywhere}.inv-table-wrap{width:100%;max-width:100%;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}@media(max-width:560px){.inv-page{gap:16px}.inv-hero{padding:20px 16px}.inv-hero h2{font-size:clamp(1.45rem,7vw,2rem);line-height:1.2}.inv-hero p{font-size:.94rem;line-height:1.65}.inv-cards,.inv-stats{grid-template-columns:minmax(0,1fr)}.inv-card{padding:16px;gap:11px}.inv-breakdown{padding:11px}.inv-breakdown>div{gap:6px}.inv-breakdown b{text-align:left}.inv-table{min-width:650px}}
+    .inv-hero{position:relative;isolation:isolate;overflow:hidden;box-shadow:0 18px 50px #0003}.inv-hero:after{content:"M";position:absolute;z-index:-1;right:clamp(10px,4vw,42px);top:50%;transform:translateY(-50%);font-size:clamp(120px,24vw,230px);line-height:1;font-weight:950;letter-spacing:-.12em;color:#f2d77b0b;pointer-events:none}.inv-kicker{display:inline-flex;align-items:center;gap:8px}.inv-kicker:before{content:"";width:7px;height:7px;border-radius:50%;background:#f2d77b;box-shadow:0 0 14px #f2d77b}.inv-hero h2{max-width:680px;letter-spacing:-.045em}.inv-hero p{max-width:620px}.inv-hero-chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px}.inv-hero-chips span{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid #e5c66f35;border-radius:999px;background:#ffffff08;color:#f5e8bc;font-size:.75rem;font-weight:800}.inv-stat{position:relative;overflow:hidden;transition:transform .18s ease,border-color .18s ease,background .18s ease}.inv-stat:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:linear-gradient(#ffe8a0,#b58a28)}.inv-stat:hover{transform:translateY(-2px);border-color:#b99a4d}.inv-stat span{font-weight:750;letter-spacing:.015em}.inv-stat strong{font-size:clamp(1.1rem,2vw,1.4rem);letter-spacing:-.025em}.inv-section{min-width:0}.inv-section h2{display:flex;align-items:center;gap:10px;letter-spacing:-.025em}.inv-section h2:before{content:"";display:inline-block;width:5px;height:22px;border-radius:8px;background:linear-gradient(#ffe8a0,#b58a28);flex:0 0 auto}.inv-section>p{margin-top:0}.inv-card{position:relative;overflow:hidden;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease;background:radial-gradient(ellipse at 100% 0%,#d4ad3710,transparent 40%),var(--mc-surface,#151518)}.inv-card:before{content:"";position:absolute;left:0;top:0;right:0;height:2px;background:linear-gradient(90deg,#7b6024,#ffe6a3,#7b6024);opacity:.7}.inv-card:hover{transform:translateY(-3px);border-color:#9b7c35;box-shadow:0 18px 35px #0002}.inv-pills span:first-child{background:linear-gradient(120deg,#35280e,#201b10)}.inv-rate-note{box-shadow:inset 0 1px #ffffff05}.inv-buy{box-shadow:0 6px 18px #c49a3026;transition:transform .16s ease,filter .16s ease,box-shadow .16s ease}.inv-buy:not(:disabled):hover{transform:translateY(-1px);filter:brightness(1.07);box-shadow:0 9px 24px #c49a3040}.inv-buy:focus-visible{outline:3px solid #fff0a8;outline-offset:3px}.inv-table-wrap{box-shadow:0 10px 30px #0002}.inv-table th{background:#ffffff04}.inv-table tbody tr:hover{background:#d7b54d09}.inv-empty{padding:26px;background:linear-gradient(135deg,#1b1914,#141416)}.inv-alert{box-shadow:0 8px 22px #0002}.inv-alert.success{display:flex;align-items:center;gap:10px}.inv-alert.success:before{content:"✓";display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#1e5b40;color:#d1ffe7;flex:0 0 auto}html[data-theme="light"] .inv-hero-chips span{color:#5d4716;border-color:#c8aa5d;background:#fff9e8}html[data-theme="light"] .inv-card{background:radial-gradient(ellipse at 100% 0%,#d4ad3710,transparent 40%),#fff!important}html[data-theme="light"] .inv-card:before{opacity:1}html[data-theme="light"] .inv-stat:before{background:linear-gradient(#c7a34b,#94701f)}@media(prefers-reduced-motion:reduce){.inv-stat,.inv-card,.inv-buy{transition:none!important}.inv-stat:hover,.inv-card:hover,.inv-buy:not(:disabled):hover{transform:none!important}}@media(max-width:560px){.inv-hero:after{right:-8px;top:15%;transform:none;font-size:112px}.inv-hero-chips{gap:7px}.inv-hero-chips span{font-size:.7rem;padding:7px 9px}.inv-section h2:before{height:19px}.inv-card:hover,.inv-stat:hover{transform:none}}</style><div class="inv-page">${notice}<section class="inv-hero"><span class="inv-kicker">MONARCH CODEX · WEALTH PATHWAYS</span><h2>Make your next move count.</h2><p>Explore the packages currently available to you, review the full cost and terms, and purchase directly from your wallet. The 1% purchase fee is shown before confirmation. Investment returns are not guaranteed.</p><div class="inv-hero-chips"><span>✦ Transparent pricing</span><span>◈ Secure wallet checkout</span><span>✓ Clear purchase records</span></div></section>
+    <div class="inv-stats"><div class="inv-stat"><span>Active investments</span><strong>${active.length}</strong></div><div class="inv-stat"><span>${conversionRate?'Total wallet value (NGN)':'NGN wallet'}</span><strong>${conversionRate?fmt('NGN',balances.NGN):(actualBalances.NGN>0?fmt('NGN',actualBalances.NGN):'FX rate unavailable')}</strong></div><div class="inv-stat"><span>${conversionRate?'Total wallet value (USD)':'USD wallet'}</span><strong>${conversionRate?fmt('USD',balances.USD):(actualBalances.USD>0?fmt('USD',actualBalances.USD):'FX rate unavailable')}</strong></div></div>
+    <section class="inv-section"><h2>Available packages</h2><p>Price, fee and total wallet deduction are shown before purchase. Packages only appear after the team publishes them.</p><div class="inv-cards">${cards||'<div class="inv-empty">No investment packages are published yet. The team must configure and activate packages before members can purchase them.</div>'}</div></section>
+    <section class="inv-section"><h2>My investments</h2><p>Confirmed package purchases, recorded fees and maturity dates.</p>${investments.length?'<div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>Package / reference</th><th>Principal</th><th>Fee</th><th>Total charged</th><th>Status</th><th>Maturity</th></tr></thead><tbody>'+invRows+'</tbody></table></div>':'<div class="inv-empty">You have not purchased an investment package yet.</div>'}</section>
+    <section class="inv-section"><h2>Purchase ledger</h2><p>Each purchase creates one wallet debit for the package price plus the fee.</p>${ledger.length?'<div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>Date</th><th>Reference</th><th>Currency</th><th>Wallet debit</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>':'<div class="inv-empty">No investment purchases have been recorded.</div>'}</section>
+    <p>Purchasing does not guarantee profit. Maturity and later withdrawal remain subject to the published package terms and platform review.</p></div>`;
+    res.send(memberPage('Investments','/investments',m,content,req));
+  } catch(e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));
+    next(e);
+  }
+});
+
+app.post('/investments/:packageId/purchase', requireAuth, requireApprovedKyc, csrfCheck, async (req,res,next) => {
+  const packageId=String(req.params.packageId||''), key=String(req.body.idempotency_key||'').trim();
+  if (!/^\d{1,20}$/.test(packageId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) return res.status(400).send(formError('Purchase could not be processed','Refresh the investment page and try again.','/investments'));
+  const conn=await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[prior]]=await conn.execute('SELECT id FROM member_investments WHERE member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE',[req.session.memberId,key]);
+    if(prior){await conn.commit();return res.redirect('/investments?purchase=already');}
+    const [[pkg]]=await conn.execute("SELECT id,name,currency,price,duration_days,terms FROM investment_packages WHERE id=? AND status='active' LIMIT 1 FOR UPDATE",[packageId]);
+    if(!pkg){await conn.rollback();return res.status(404).send(formError('Package unavailable','This package is no longer active. Refresh to see available offers.','/investments'));}
+    const [[amounts]]=await conn.execute('SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.01,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.01,8),8) AS total',[pkg.price,pkg.price,pkg.price,pkg.price]);
+    const principal=String(amounts.principal),fee=String(amounts.fee),total=String(amounts.total);
+    let walletCurrency=pkg.currency, wallet=null, debitAmount=Number(total), conversionRate=1;
+    const [[nativeWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[req.session.memberId,pkg.currency]);
+    if(nativeWallet && Number(nativeWallet.balance)+1e-8>=Number(total)) wallet=nativeWallet;
+    else {
+      const [[pricing]]=await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+      conversionRate=Number(pricing&&pricing.base_usd_ngn_rate)*(1+Number(pricing&&pricing.markup_percent||0)/100);
+      if(!Number.isFinite(conversionRate)||conversionRate<=0){await conn.rollback();return res.status(503).send(formError('Currency conversion unavailable','The configured exchange rate is unavailable. No funds were deducted.','/investments'));}
+      if(pkg.currency==='USD'){
+        walletCurrency='NGN'; debitAmount=Math.round(Number(total)*conversionRate*100)/100;
+        const [[otherWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'NGN\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
+        if(otherWallet && Number(otherWallet.balance)+1e-8>=debitAmount) wallet=otherWallet;
+      } else if(pkg.currency==='NGN') {
+        walletCurrency='USD'; debitAmount=Math.round((Number(total)/conversionRate)*100)/100;
+        const [[otherWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'USD\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
+        if(otherWallet && Number(otherWallet.balance)+1e-8>=debitAmount) wallet=otherWallet;
+      }
+    }
+    if(!wallet){await conn.rollback();return res.redirect('/investments?error=insufficient');}
+    const [debit]=await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',[debitAmount,wallet.id,debitAmount]);
+    if(debit.affectedRows!==1){await conn.rollback();return res.redirect('/investments?error=insufficient');}
+    const reference='INV-'+crypto.randomUUID().replace(/-/g,'').toUpperCase();
+    const [created]=await conn.execute("INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",[req.session.memberId,pkg.id,pkg.name,pkg.currency,principal,fee,total,pkg.duration_days,pkg.terms||'',reference,key,pkg.duration_days,pkg.duration_days]);
+    const walletDebitReference=walletCurrency===pkg.currency?reference:reference+'-FX';
+    await conn.execute("INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",[req.session.memberId,created.insertId,walletCurrency,(-debitAmount).toFixed(8),walletDebitReference,walletCurrency===pkg.currency?null:(pkg.currency==='USD'?'USD package converted to NGN at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' USD':'NGN package converted to USD at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' NGN')]);
+    await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[req.session.memberId,'investment_purchase','Investment package purchased','Your '+pkg.name+' package purchase was recorded. Package price: '+principal+' '+pkg.currency+'; 1% fee: '+fee+' '+pkg.currency+'; total wallet deduction: '+total+' '+pkg.currency+'.','/investments','investment-purchase:'+created.insertId]);
+    await conn.commit();
+    return res.redirect('/investments?purchase=success');
+  } catch(e) {
+    try{await conn.rollback();}catch(_){}
+    if(e&&e.code==='ER_DUP_ENTRY'){try{const [[prior]]=await pool.execute('SELECT id FROM member_investments WHERE member_id=? AND idempotency_key=? LIMIT 1',[req.session.memberId,key]);if(prior)return res.redirect('/investments?purchase=already');}catch(_){}}
+    if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));
+    next(e);
+  } finally {conn.release();}
+});
+
+app.get('/referrals', requireAuth, requireApprovedKyc, async (req,res,next)=>{  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [m.id]);
+    const base = String(process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/[/]+$/, '');
+    const link = base + '/register?ref=' + encodeURIComponent(m.monarch_uid);
+    const total = Number(counts[0].total || 0);
+    const content = `<style>.referral-experience{display:grid;gap:18px;min-width:0}
+.referral-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 112px;align-items:center;gap:22px;padding:clamp(22px,4vw,36px);border:1px solid rgba(223,189,98,.25);border-radius:22px;background:radial-gradient(ellipse at 88% 12%,rgba(223,189,98,.19),transparent 36%),linear-gradient(135deg,#1b1a16 0%,#111113 58%,#19160e 100%)}
+.referral-hero:after{content:"";position:absolute;z-index:-1;width:210px;height:210px;right:-82px;bottom:-125px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 22px rgba(223,189,98,.025),0 0 0 44px rgba(223,189,98,.02)}
+.referral-kicker{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:#e5c66f;font-size:10px;font-weight:850;letter-spacing:.17em;text-transform:uppercase}
+.referral-kicker:before{content:"";width:20px;height:1px;background:#dfbd62}
+.referral-hero h3{max-width:620px;margin:0;color:#fff8e8;font-size:clamp(25px,3.6vw,37px);line-height:1.12;letter-spacing:-.045em}
+.referral-hero p{max-width:590px;margin:12px 0 0;color:#bdb8aa;font-size:13px;line-height:1.75}
+.referral-hero-art{display:grid;place-items:center;width:100px;height:100px;justify-self:center;border:1px solid rgba(223,189,98,.32);border-radius:28px;background:linear-gradient(145deg,rgba(223,189,98,.16),rgba(223,189,98,.025));box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 35px rgba(0,0,0,.18);transform:rotate(3deg)}
+.referral-hero-art svg{width:48px;height:48px;fill:none;stroke:#f1d98d;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.referral-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.referral-stat-card{position:relative;min-width:0;overflow:hidden;padding:21px;border:1px solid #383328;border-radius:17px;background:linear-gradient(145deg,#18181b,#111113)}
+.referral-stat-card:after{content:"";position:absolute;width:90px;height:90px;right:-42px;top:-44px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 12px rgba(223,189,98,.025)}
+.referral-stat-label{display:flex;align-items:center;gap:8px;color:#aaa79e;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.referral-stat-label svg{width:16px;height:16px;stroke:#dfbd62;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.referral-stat-number{display:block;margin:14px 0 6px;color:#f6e7b3;font-size:clamp(28px,4vw,38px);font-weight:850;letter-spacing:-.045em;line-height:1.1;overflow-wrap:anywhere}
+.referral-stat-note{margin:0;color:#99958b;font-size:11px;line-height:1.6}
+.referral-share-card{min-width:0;padding:clamp(18px,3vw,26px);border:1px solid rgba(223,189,98,.23);border-radius:19px;background:linear-gradient(150deg,rgba(28,27,23,.98),rgba(16,16,18,.98))}
+.referral-card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:20px}
+.referral-card-heading h3{margin:0;color:#f8f2e3;font-size:18px;letter-spacing:-.025em}
+.referral-card-heading p{margin:6px 0 0;color:#a8a397;font-size:12px;line-height:1.65}
+.referral-secure-pill{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:7px 9px;border:1px solid rgba(223,189,98,.19);border-radius:999px;background:rgba(223,189,98,.07);color:#e4ca7c;font-size:9px;font-weight:800;letter-spacing:.06em}
+.referral-secure-pill:before{content:"";width:5px;height:5px;border-radius:50%;background:#dfbd62}
+.referral-field{display:grid;gap:8px;margin-top:17px;min-width:0}
+.referral-field:first-of-type{margin-top:0}
+.referral-field label{color:#c7c1b3;font-size:10px;font-weight:850;letter-spacing:.11em;text-transform:uppercase}
+.referral-field-row{display:flex;align-items:stretch;gap:9px;min-width:0}
+.referral-value{display:flex;align-items:center;min-width:0;flex:1;padding:12px 14px;border:1px solid #3d382a;border-radius:12px;background:#0c0c0e;color:#f2e6be;font-size:14px;font-weight:800;letter-spacing:.035em;overflow-wrap:anywhere}
+.referral-value input{width:100%;min-width:0;padding:0;border:0;outline:none;background:transparent;color:#f2e6be;font:inherit;font-size:12px;letter-spacing:0}
+.referral-copy-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;min-width:112px;padding:11px 14px;border:1px solid #dfbd62;border-radius:12px;background:linear-gradient(135deg,#f1d98d,#d5ae4d);color:#17140b;font:inherit;font-size:11px;font-weight:900;cursor:pointer;transition:transform .18s,filter .18s}
+.referral-copy-btn:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.referral-copy-btn:focus-visible{outline:2px solid #f5e6b5;outline-offset:3px}
+.referral-copy-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.referral-field-help{margin:0;color:#8f8b82;font-size:11px;line-height:1.65}
+.referral-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.referral-step{min-width:0;padding:17px;border:1px solid #302d25;border-radius:15px;background:rgba(19,19,21,.76)}
+.referral-step-num{display:grid;place-items:center;width:30px;height:30px;margin-bottom:12px;border:1px solid rgba(223,189,98,.28);border-radius:10px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:11px;font-weight:900}
+.referral-step h4{margin:0 0 6px;color:#e9e2d2;font-size:12px}
+.referral-step p{margin:0;color:#99958b;font-size:11px;line-height:1.65}
+.referral-footnote{display:flex;align-items:flex-start;gap:10px;padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(255,255,255,.018);color:#99958b;font-size:11px;line-height:1.7}
+.referral-footnote svg{flex:0 0 17px;width:17px;height:17px;margin-top:1px;fill:none;stroke:#dfbd62;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:650px){.referral-hero{grid-template-columns:minmax(0,1fr) 68px;gap:12px;padding:22px 18px}.referral-hero-art{width:64px;height:64px;border-radius:19px}.referral-hero-art svg{width:34px;height:34px}.referral-stat-grid{gap:10px}.referral-stat-card{padding:16px}.referral-card-heading{display:grid}.referral-secure-pill{justify-self:start}.referral-steps{grid-template-columns:1fr}.referral-step{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:11px;padding:14px}.referral-step-num{grid-row:span 2;margin:0}.referral-step h4{align-self:end}.referral-step p{align-self:start}}
+@media(max-width:420px){.referral-hero{grid-template-columns:1fr}.referral-hero-art{display:none}.referral-stat-grid{grid-template-columns:1fr}.referral-field-row{flex-direction:column}.referral-copy-btn{width:100%;min-height:44px}.referral-value{min-height:45px}.referral-share-card{padding:17px 14px}}
+@media(prefers-reduced-motion:reduce){.referral-copy-btn{transition:none}.referral-copy-btn:hover{transform:none}}
+</style>
+<div class="referral-experience">
+  <section class="referral-hero">
+    <div><p class="referral-kicker">Grow your circle</p><h3>Good things are better when shared.</h3><p>Invite people into Monarch Codex with your personal referral link. Your account keeps track of members who register with your code.</p></div>
+    <div class="referral-hero-art" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="18" cy="15" r="6"/><path d="M6 36v-3a9 9 0 0 1 9-9h6a9 9 0 0 1 9 9v3"/><circle cx="34" cy="17" r="4"/><path d="M33 25h2a7 7 0 0 1 7 7v4M29 9l3-3 3 3M32 6v7"/></svg></div>
+  </section>
+  <section class="referral-stat-grid" aria-label="Referral summary">
+    <article class="referral-stat-card"><span class="referral-stat-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg> Registered referrals</span><strong class="referral-stat-number">${total.toLocaleString('en-US')}</strong><p class="referral-stat-note">Members linked to your referral code.</p></article>
+    <article class="referral-stat-card"><span class="referral-stat-label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4M7 13h10M16 9h1"/></svg> Your member code</span><strong class="referral-stat-number" style="font-size:clamp(20px,3vw,28px)">${esc(m.monarch_uid)}</strong><p class="referral-stat-note">Your unique identity across Monarch Codex.</p></article>
+  </section>
+  <section class="referral-share-card">
+    <div class="referral-card-heading"><div><h3>Your personal invite link</h3><p>Copy your link or code and share it with someone you trust.</p></div><span class="referral-secure-pill">Personal invite</span></div>
+    <div class="referral-field"><label for="pageReferralLink">Referral link</label><div class="referral-field-row"><div class="referral-value"><input id="pageReferralLink" value="${esc(link)}" readonly aria-label="Your personal referral link"></div><button class="referral-copy-btn" type="button" data-copy-target="pageReferralLink"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy invite link</button></div><p class="referral-field-help">The link opens registration with your referral code attached.</p></div>
+    <div class="referral-field"><label for="pageUid">Member referral code</label><div class="referral-field-row"><div class="referral-value" id="pageUid">${esc(m.monarch_uid)}</div><button class="referral-copy-btn" type="button" data-copy-target="pageUid"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy code</button></div><p class="referral-field-help">Friends can enter this code during registration if they don't use your link.</p></div>
+  </section>
+  <section class="referral-steps" aria-label="How referrals work"><article class="referral-step"><span class="referral-step-num">01</span><h4>Share your link</h4><p>Send your personal invite link or referral code to a friend.</p></article><article class="referral-step"><span class="referral-step-num">02</span><h4>They register</h4><p>Your code is attached when they successfully create their account.</p></article><article class="referral-step"><span class="referral-step-num">03</span><h4>Track your circle</h4><p>See the number of registered members linked to your account above.</p></article></section>
+  <p class="referral-footnote"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Referral attribution is recorded when a new account successfully registers using your code. This page reports registered referrals; it does not promise rewards or commissions.</span></p>
+</div>`;
+    res.send(memberPage('Referrals','/referrals',m,content,req));
+  } catch(e) { next(e); }
+});
+app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
+  if (err) return next(err);
+  res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  res.redirect('/');
+}));
+app.get('/forgot-password', (req, res) => res.send(page('Reset password', '<h1>Reset your password</h1><p class="muted">Enter your account email. If it exists, we will send reset instructions.</p><form method="post" action="/forgot-password">' + csrfField(req) + '<label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required maxlength="254"><button class="btn" type="submit">Send reset link</button></form><div class="links"><a href="/login">Back to login</a></div>')));
+app.post('/forgot-password', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const [rows] = await pool.execute('SELECT id, email FROM members WHERE email = ? LIMIT 1', [email]);
+    if (rows.length && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
+      const token = crypto.randomBytes(32).toString('hex'), tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      await pool.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].id]);
+      await pool.execute('INSERT INTO password_resets (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))', [rows[0].id, tokenHash]);
+      const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: String(process.env.SMTP_SECURE || 'false') === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } });
+      const link = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/reset-password?token=' + token;
+      await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to: rows[0].email, subject: 'Reset your Monarch Codex password', text: 'Use this one-time link within 30 minutes to reset your password: ' + link + '\nIf you did not request this, ignore this email.' });
+    }
+    res.send(page('Check your email', '<h1>Check your email</h1><p class="muted">If an account exists for that address and email delivery is configured, reset instructions will arrive shortly.</p><a class="btn" href="/login">Return to login</a>'));
+  } catch (e) { next(e); }
+});
+app.get('/reset-password', async (req, res, next) => {
+  try {
+    const token = String(req.query.token || '');
+    if (!/^[a-f0-9]{64}$/.test(token)) return res.status(400).send(formError('Invalid reset link', 'Request a new password reset link.', '/forgot-password'));
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await pool.execute('SELECT id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
+    if (!rows.length) return res.status(400).send(formError('Expired reset link', 'Request a new password reset link.', '/forgot-password'));
+    req.session.resetTokenHash = tokenHash;
+    res.send(page('Choose a new password', '<h1>Choose a new password</h1><form method="post" action="/reset-password">' + csrfField(req) + '<label for="password">New password</label><div class="password-wrap"><input id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="password-toggle" type="button" data-toggle-password="password" onclick="togglePassword(&quot;password&quot;,this)" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><button class="btn" type="submit">Update password</button></form>'));
+  } catch (e) { next(e); }
+});
+app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const password = String(req.body.password || ''), tokenHash = req.session.resetTokenHash;
+    if (password.length < 12 || password.length > 128) return res.status(400).send(formError('Check your password', 'Use a password between 12 and 128 characters.', '/forgot-password'));
+    if (!tokenHash) return res.status(400).send(formError('Reset session expired', 'Request a new password reset link.', '/forgot-password'));
+    const [rows] = await pool.execute('SELECT id, member_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
+    if (!rows.length) return res.status(400).send(formError('Expired reset link', 'Request a new password reset link.', '/forgot-password'));
+    const hash = await bcrypt.hash(password, 12), conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute('UPDATE members SET password_hash = ? WHERE id = ?', [hash, rows[0].member_id]);
+      await conn.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].member_id]);
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    req.session.destroy(() => res.redirect('/login'));
+  } catch (e) { next(e); }
+});
+// Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
+app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
+app.use(createMonarchsDirectoryRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
+
+// Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
+app.get('/', async (_req, res, next) => {
+  try {
+    let html = await fs.promises.readFile(path.join(__dirname, 'index.html'), 'utf8');
+    const monarchsSection = `
+<section id="monarchs" class="monarchs-directory" aria-labelledby="monarchs-title">
+  <div class="monarchs-directory-inner">
+    <p class="monarchs-kicker">THE PEOPLE BEHIND THE KINGDOM</p>
+    <h2 id="monarchs-title">MONARCHS</h2>
+    <p class="monarchs-intro">Meet the members building with Monarch Codex.</p>
+    <div class="monarchs-grid" id="monarchsGrid"><p class="monarchs-empty">Our featured Monarchs will appear here soon.</p></div>
+  </div>
+</section>
+<style>
+.monarchs-directory{padding:clamp(52px,8vw,100px) 20px;background:radial-gradient(ellipse at 50% 0,rgba(221,184,75,.12),transparent 55%),#0a0a0c;color:#f8f3e6}
+.monarchs-directory-inner{max-width:1180px;margin:auto;text-align:center}
+.monarchs-kicker{font-size:11px;letter-spacing:.2em;font-weight:800;color:#dfbd62}
+.monarchs-directory h2{font-size:clamp(34px,6vw,62px);line-height:1;margin:12px 0;color:#f6d56b;letter-spacing:.06em}
+.monarchs-intro{color:#aaa69b;margin:0 auto 22px;max-width:540px}
+.monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,168px));justify-content:center;gap:16px;max-width:900px;margin:28px auto 0}
+.monarch-card{padding:16px 12px 14px;border:1px solid rgba(223,189,98,.2);border-radius:16px;background:linear-gradient(145deg,#191817,#101012);min-width:0;max-width:168px;width:100%;margin:auto;box-sizing:border-box}
+.monarch-card-photo{display:block;flex:0 0 auto;width:76px;height:76px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:50%;object-fit:cover;object-position:50% 50%;border:2px solid #dfbd62;box-shadow:0 0 0 4px rgba(223,189,98,.07);background:#191919}
+.monarch-card-name{font-size:15px;line-height:1.35;font-weight:800;margin:0 0 9px;overflow-wrap:anywhere;color:#f8f3e6}
+.monarch-card-id{display:inline-block;max-width:100%;padding:4px 7px;border:1px solid rgba(223,189,98,.22);border-radius:7px;color:#cbb46a;font-size:10px;line-height:1.35;font-weight:750;overflow-wrap:anywhere}
+.monarch-card-title{display:block;margin-top:9px;color:#aaa69b;font-size:10px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+.monarchs-empty{grid-column:1/-1;color:#aaa69b;padding:25px}
+@media(max-width:380px){.monarchs-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.monarch-card{padding:13px 8px}.monarch-card-photo{width:68px;height:68px}.monarch-card-name{font-size:14px}}
+</style>
+<script>
+(async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Approved profile picture';img.loading='lazy';const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.nickname||'Monarch';const uid=document.createElement('span');uid.className='monarch-card-id';uid.textContent=p.monarchId||'Monarch';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,uid,title);grid.append(card)}}catch(_){}})();
+</script>`;
+    if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', monarchsSection + '<footer class="footer">');
+    else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
+    else if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
+    else html += monarchsSection;
+    res.type('html').send(html);
+  } catch (e) { next(e); }
+});
+app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.js', '/wallet-balances.js', '/member-nav.js'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
+app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
+app.use((err, _req, res, _next) => {
+  console.error('[app error]', err && err.message ? err.message : 'Unknown error');
+  if (res.headersSent) return;
+  res.status(500).send(page('Something went wrong', '<h1>Something went wrong</h1><p class="muted">Please try again shortly.</p><a class="btn" href="/">Return home</a>'));
+});
+app.listen(port, () => console.log('Monarch Codex server listening on port', port));+totalUsd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' equivalent';
+      }
+      const actual=[];
+      if(present.USD) actual.push('
+    const investmentDisplay=investmentDataReady?moneyPair(investmentTotals):'Not available';
+    const earningsDisplay=earningsDataReady?moneyPair(earningsTotals):'Not available';
+    const recentActivityHtml=recentTransactions.length?'<div class="dashboard-recent-list">'+recentTransactions.map(t=>'<a class="dashboard-recent-item" href="/transactions"><span class="dashboard-recent-icon">'+(Number(t.amount)<0?'↗':'✓')+'</span><span class="dashboard-recent-main"><strong>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</strong><small>'+esc(t.reference||'Recorded transaction')+' · '+esc(t.created_at)+'</small></span><strong class="dashboard-recent-amount '+(Number(t.amount)<0?'is-debit':'is-credit')+'">'+(Number(t.amount)<0?'−':'＋')+esc(String(t.currency||''))+' '+esc(Math.abs(Number(t.amount)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</strong></a>').join('')+'</div>':'<div class="section-card"><strong>'+(ledgerReady?'Your activity starts here':'Activity history is being prepared')+'</strong><p class="muted small">'+(ledgerReady?'Completed deposits and investment purchases will appear here as soon as they are recorded. You can view submitted deposit and withdrawal requests in transaction history.':'The financial activity table is not installed yet. Contact support or your administrator to complete the database setup.')+'</p></div>';
+    const body = '<link rel="stylesheet" href="/member-dashboard.css?v=20261018-member-nav-scroll"><div class="dashboard-layout">'+
+      '<button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><aside class="dashboard-sidebar" id="memberSidebar"><div class="sidebar-brand-row"><div class="side-title">MEMBER MENU</div><button class="icon-btn sidebar-close sidebar-desktop-toggle" type="button" data-sidebar-collapse aria-label="Collapse sidebar" title="Collapse sidebar" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6M4 4v16"/></svg></button><button class="icon-btn sidebar-close" type="button" data-sidebar-close aria-label="Close menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><nav aria-label="Member dashboard navigation">' +
+      renderMemberNavigation('/dashboard') +'</nav><div class="sidebar-uid"><span class="muted small">YOUR MONARCH ID</span><div class="sidebar-uid-value"><strong id="memberUid">' + esc(member.monarch_uid) + '</strong><button class="copy-btn" type="button" data-copy-target="memberUid" aria-label="Copy Monarch ID">Copy</button></div></div><div class="sidebar-logout"><form method="post" action="/logout">' + csrfField(req) + '<button class="sidebar-logout-btn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3M21 4v16"/></svg><span class="nav-text">Log out</span></button></form></div></aside><button class="sidebar-scrim" type="button" data-sidebar-close aria-label="Close navigation"></button><div class="dashboard-content"><div class="mobile-dashboard-bar"><button class="icon-btn sidebar-open" type="button" data-sidebar-open aria-label="Open navigation" aria-controls="memberSidebar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span>MEMBER AREA</span><span class="mobile-current-tab">Overview</span></div><section class="panel">' +
+      '<div class="dashboard-topline"><div><div class="muted small">MONARCH MEMBER AREA</div><h1>Welcome, ' + esc(member.full_name.split(' ')[0]) + '</h1><p class="muted">Your membership overview and account tools.</p></div><a href="/notifications" class="member-notification-bell dashboard-notification-bell dashboard-overview-bell" aria-label="Notifications' + (unreadNotificationCount ? ', ' + unreadNotificationCount + ' unread' : '') + '" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>' + (unreadNotificationCount ? '<span class="dashboard-notification-bell-count">' + (unreadNotificationCount > 99 ? '99+' : unreadNotificationCount) + '</span>' : '') + '</a></div>' +
+      '<section id="overview" class="dashboard-section overview-intro"><div class="overview-title-row"><div><span class="muted small">YOUR ACCOUNT</span><h2>Overview</h2></div><span class="account-live"><i></i> Account active</span></div>' +
+      '<div class="grid dashboard-metrics"><div class="stat balance-primary"><span class="muted small balance-display-label">Wallet balance</span><div class="currency-toggle" role="group" aria-label="Choose wallet display currency"><button type="button" class="currency-toggle-option is-active" data-currency-toggle="NGN" aria-pressed="true"><span>₦</span> NGN</button><button type="button" class="currency-toggle-option" data-currency-toggle="USD" aria-pressed="false"><span>$</span> USD</button></div><select id="balanceCurrency" class="currency-select-accessible" aria-label="Wallet display currency"><option value="NGN" selected>Naira (NGN)</option><option value="USD">US Dollars (USD)</option></select><strong id="totalBalance">—</strong><p class="muted small" id="balanceConversionNote">Loading your wallet balances…</p></div><div class="stat"><span class="muted small">Investment balance</span><strong style="font-size:clamp(12px,1.8vw,17px);line-height:1.6">' + esc(investmentDisplay) + '</strong><p class="muted small">' + (investmentDataReady?'Recorded principal across active and matured investments':'Investment records unavailable until setup is complete') + '</p></div><div class="stat"><span class="muted small">Earnings &amp; bonuses</span><strong style="font-size:clamp(12px,1.8vw,17px);line-height:1.6">' + esc(earningsDisplay) + '</strong><p class="muted small">' + (earningsDataReady?'Recorded profit and bonus credits only':'Earnings records unavailable until setup is complete') + '</p></div><div class="stat"><span class="muted small">Verification</span><strong>' + esc(verificationStatus) + '</strong><a class="metric-link" href="/kyc">' + esc(verificationHint) + ' <span aria-hidden="true">→</span></a></div></div>' +
+      '<div class="dashboard-section referral-summary"><div><span class="muted small">SUCCESSFUL REFERRALS</span><strong>' + (Number(counts[0].total) || 0) + '</strong></div><a href="/referrals">View referrals <span aria-hidden="true">→</span></a></div></section>' +
+      '<section class="dashboard-section action-section"><div class="section-heading-row"><div><h2>Quick actions</h2><p class="muted">Everything you need, one tap away.</p></div><a href="/transactions" class="muted small">Activity <span aria-hidden="true">↗</span></a></div><div class="quick-action-grid" id="quickActions"><a href="/deposit"><span>＋</span><strong>Deposit</strong><small>Add funds</small></a><a href="/withdraw"><span>↗</span><strong>Withdraw</strong><small>Cash out</small></a><a href="/kyc"><span>◇</span><strong>Verify</strong><small>Identity check</small></a><a href="/transactions"><span>↻</span><strong>History</strong><small>Transactions</small></a><a href="/investments"><span>◆</span><strong>Investments</strong><small>Buy a package</small></a><a href="/referrals"><span>♧</span><strong>Referrals</strong><small>Invite friends</small></a><a href="/profile"><span>◉</span><strong>Profile</strong><small>Account details</small></a><a href="/online-cooperative"><span>♙</span><strong>Online Cooperative</strong><small>Packages & benefits</small></a></div><button class="show-more-actions" type="button" id="toggleActions" aria-expanded="false" hidden>More actions</button></section>' +
+      '<section class="dashboard-section"><div class="dashboard-topline"><div><h2>Recent activity</h2><p class="muted">Your latest recorded wallet transactions and account activity.</p></div><a href="/transactions" class="copy-btn" style="text-decoration:none">View all activity</a></div><style>.dashboard-recent-list{display:grid;gap:8px}.dashboard-recent-item{display:flex;align-items:center;gap:12px;min-width:0;padding:13px;border:1px solid #34312a;border-radius:13px;background:linear-gradient(145deg,#171719,#111113);color:inherit;text-decoration:none}.dashboard-recent-icon{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:11px;background:#252012;color:#e4c86d}.dashboard-recent-main{display:grid;gap:4px;min-width:0;flex:1}.dashboard-recent-main strong{font-size:12px;color:#f2ecdf;text-transform:capitalize}.dashboard-recent-main small{font-size:10px;color:#a6a093;overflow-wrap:anywhere}.dashboard-recent-amount{font-size:11px;white-space:nowrap}.dashboard-recent-amount.is-credit{color:#9bd0a8}.dashboard-recent-amount.is-debit{color:#e7a59a}@media(max-width:480px){.dashboard-recent-item{gap:8px;padding:10px}.dashboard-recent-amount{font-size:10px}.dashboard-recent-main small{max-width:140px}}</style>'+recentActivityHtml+'</section>' +
+      '</section></div></div>';
+    res.send(page('Member dashboard', body + '<script src="/wallet-balances.js?v=20261016-2" defer></script>' + "<script>(function(){var layout=document.querySelector(\".dashboard-layout\");if(!layout)return;var openers=layout.querySelectorAll(\"[data-sidebar-open]\"),closers=layout.querySelectorAll(\"[data-sidebar-close]\"),collapse=layout.querySelector(\"[data-sidebar-collapse\");function close(){layout.classList.remove(\"sidebar-open\")}openers.forEach(function(b){b.addEventListener(\"click\",function(){layout.classList.add(\"sidebar-open\")})});closers.forEach(function(b){b.addEventListener(\"click\",close)});if(collapse)collapse.addEventListener(\"click\",function(){layout.classList.toggle(\"sidebar-collapsed\");collapse.setAttribute(\"aria-expanded\",String(!layout.classList.contains(\"sidebar-collapsed\")))});document.addEventListener(\"keydown\",function(e){if(e.key===\"Escape\")close()});})();</script>" + '<script src="/member-nav.js?v=20261017-nav-rebuild1" defer></script>'));
+  } catch (e) { next(e); }
+});
+
+function memberPage(title, active, member, content, req) {
+  const nav = renderMemberNavigation(active);
+  const firstName = esc((member.full_name || 'Member').split(' ')[0]);
+  const uid = esc(member.monarch_uid || 'Pending');
+  const body = '<link rel="stylesheet" href="/member-dashboard.css?v=20261018-member-sidebar-contrast3"><link rel="stylesheet" href="/assets/css/deposit-polish.css?v=20261017-nav-rebuild1"><div class="member-experience"><aside class="member-rail" id="memberRail"><a class="member-brand" href="/dashboard"><span class="member-brand-mark" style="display:block;flex:0 0 48px;width:48px;height:48px;aspect-ratio:1/1;overflow:hidden;border-radius:50%;border:2px solid #dfbd62;background:#17171c"><img src="/member-avatar-current" alt="Your profile photo" style="display:block;width:100%;height:100%;aspect-ratio:1/1;object-fit:cover;object-position:center center;border-radius:50%"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><div class="member-rail-label">YOUR ACCOUNT</div><nav aria-label="Member navigation">' + nav + '</nav><div class="member-rail-account"><span class="member-rail-label">MEMBER ID</span><div class="member-rail-uid"><strong id="memberUid">' + uid + '</strong><button type="button" class="member-copy-uid" data-copy-uid aria-label="Copy member ID">Copy</button></div><small>Keep your account details private.</small></div><div class="member-rail-logout"><form method="post" action="/logout">' + csrfField(req) + '<button type="submit">↪ <span>Log out</span></button></form></div></aside><div class="member-workspace"><header class="member-mobile-head"><button type="button" class="member-menu-toggle" aria-label="Open navigation" aria-expanded="false" data-member-menu>☰</button><a class="member-brand" href="/dashboard"><span class="member-brand-mark"><img src="/member-avatar-current" alt="Your profile photo" style="width:100%;height:100%;aspect-ratio:1/1;object-fit:cover;object-position:center center;border-radius:50%"></span><span><strong>MONARCH</strong><small>CODEX</small></span></a><span class="member-live-dot" aria-label="Secure account"></span></header><div class="member-page-heading"><div><p class="member-overline">MONARCH CODEX / MEMBER AREA</p><h1>' + firstName + ', welcome back.</h1><p>Manage your account, verification and funds in one place.</p></div><div class="member-heading-actions"><a class="member-notification-bell" data-member-notification-bell href="/notifications" aria-label="Notifications" title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span data-member-notification-count hidden></span></a><div class="member-heading-status"><span></span> Account workspace</div></div></div><main class="member-main"><div class="member-content-heading"><div><span class="member-overline">ACCOUNT MANAGEMENT</span><h2>' + esc(title) + '</h2></div><span class="member-secure-label">⌑ Secure session</span></div>' + content + '</main><footer class="member-footer"><span>MONARCH CODEX</span><span>Move with clarity. Build with purpose.</span></footer></div></div><div class="member-mobile-scrim" data-member-close></div><div class="page-loading" id="pageLoading" aria-live="polite"><span class="page-spinner"></span><strong>Opening page…</strong></div><script>(function(){var rail=document.getElementById("memberRail"),toggle=document.querySelector("[data-member-menu]"),scrim=document.querySelector("[data-member-close]");function close(){rail.classList.remove("is-open");scrim.classList.remove("is-visible");if(toggle)toggle.setAttribute("aria-expanded","false")}if(toggle)toggle.addEventListener("click",function(){rail.classList.toggle("is-open");scrim.classList.toggle("is-visible");toggle.setAttribute("aria-expanded",rail.classList.contains("is-open")?"true":"false")});if(scrim)scrim.addEventListener("click",close);document.querySelectorAll(".member-experience nav a").forEach(function(a){a.addEventListener("click",function(){var loader=document.getElementById("pageLoading");if(loader)loader.classList.add("show")})});var copy=document.querySelector("[data-copy-uid]");if(copy)copy.addEventListener("click",async function(){try{await navigator.clipboard.writeText(document.getElementById("memberUid").textContent);copy.textContent="Copied";setTimeout(function(){copy.textContent="Copy"},1400)}catch(e){copy.textContent="Select ID"}})})();</script>' + '<script>(function(){var bell=document.querySelector("[data-member-notification-bell]"),badge=document.querySelector("[data-member-notification-count]");if(!bell||!badge)return;fetch("/api/notifications/unread-count",{credentials:"same-origin",cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("unavailable");return r.json()}).then(function(d){var n=Number(d.count)||0;if(n>0){badge.hidden=false;badge.textContent=n>99?"99+":String(n);bell.setAttribute("aria-label","Notifications, "+n+" unread")}}).catch(function(){});})();</script>';
+  return page('Member dashboard', body);
+}
+function wizardPage(title, content, req) {
+  if (title === 'KYC Verification') {
+    const body = '<link rel="stylesheet" href="/kyc-wizard.css?v=20261016-rebuild2"><div class="kyc-page"><header class="kyc-page-head"><a class="kyc-cancel" href="/dashboard">Cancel</a><div><p class="kyc-eyebrow">ACCOUNT VERIFICATION</p><h1>KYC Verification</h1></div><span class="kyc-head-spacer" aria-hidden="true"></span></header>' + content + '</div><script src="/kyc-wizard.js" defer></script>';
+    return page(title, body);
+  }
+  const body = '<style>.wizard-shell{max-width:680px;margin:24px auto;padding:clamp(18px,4vw,34px);min-height:70vh}.wizard-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:30px}.wizard-head h1{font-size:1.2rem;margin:0}.wizard-cancel{color:#d7d4cb;text-decoration:none;border:1px solid #403a27;border-radius:10px;padding:10px 14px}.wizard-progress{display:flex;align-items:flex-start;gap:0;margin:0 0 32px}.wizard-progress .wizard-node{display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;min-width:0;color:#8d897e;font-size:.78rem;text-align:center}.wizard-progress .wizard-dot{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;border:1px solid #514721;background:#111115;color:#aaa}.wizard-progress .wizard-node.active .wizard-dot,.wizard-progress .wizard-node.done .wizard-dot{background:#f3cf3c;border-color:#f3cf3c;color:#17140a}.wizard-progress .wizard-node.active,.wizard-progress .wizard-node.done{color:#f3cf3c}.wizard-track{height:2px;background:#403a27;flex:1;margin:15px -2px 0;position:relative}.wizard-track span{display:block;height:100%;width:0;background:#f3cf3c;transition:width .3s ease}.wizard-panel{padding:clamp(18px,4vw,30px);border:1px solid #403a27;border-radius:18px;background:#111115}.wizard-panel h2{margin-top:0}.wizard-actions{display:flex;justify-content:space-between;gap:12px;margin-top:28px}.wizard-actions button{min-width:120px}.wizard-actions .wizard-continue{margin-left:auto}.wizard-foot{color:#8d897e;font-size:.85rem;margin-top:16px}.wizard-panel .member-card{padding:0;border:0;background:transparent}.wizard-panel .member-steps{display:none}@media(max-width:520px){.wizard-shell{margin:8px auto;padding:14px}.wizard-progress .wizard-node{font-size:.68rem}.wizard-progress .wizard-dot{width:28px;height:28px}.wizard-track{margin-top:13px}}</style><div class="wizard-shell"><header class="wizard-head"><a class="wizard-cancel" href="/dashboard">Cancel</a><h1>' + esc(title) + '</h1><span style="width:60px"></span></header><main class="wizard-panel">' + content + '</main></div><script>(function(){var k=document.getElementById("kycWizard"),d=document.getElementById("depositWizard");var form=k||d;if(!form)return;var isKyc=!!k;var progress=document.createElement("div");progress.className="wizard-progress";var count=isKyc?4:3;var names=isKyc?["Details","Address","Identity","Review"]:["Amount","Payment","Review"];for(var i=0;i<count;i++){if(i){var track=document.createElement("div");track.className="wizard-track";track.innerHTML="<span></span>";progress.appendChild(track)}var node=document.createElement("div");node.className="wizard-node";node.innerHTML="<span class=wizard-dot>"+(i+1)+"</span><span>"+names[i]+"</span>";progress.appendChild(node)}form.parentNode.insertBefore(progress,form);var steps=[].slice.call(form.querySelectorAll(isKyc?".kyc-step":".deposit-step"));var next=document.getElementById(isKyc?"kycNext":"depositNext"),back=document.getElementById(isKyc?"kycBack":"depositBack");function sync(){var idx=steps.findIndex(function(x){return !x.hidden});if(idx<0)idx=0;var nodes=progress.querySelectorAll(".wizard-node"),tracks=progress.querySelectorAll(".wizard-track span");nodes.forEach(function(n,i){n.classList.toggle("active",i===idx);n.classList.toggle("done",i<idx)});tracks.forEach(function(t,i){t.style.width=idx>i?"100%":"0"});if(back)back.textContent="Back";if(next)next.classList.add("wizard-continue")}var observer=new MutationObserver(sync);steps.forEach(function(x){observer.observe(x,{attributes:true,attributeFilter:["hidden"]})});if(next)next.addEventListener("click",function(){setTimeout(sync,0)});if(back)back.addEventListener("click",function(){setTimeout(sync,0)});sync()})();</script>' + '<script src="/member-nav.js?v=20261017-nav-rebuild1" defer></script>';
+  return page(title, body);
+}
+async function getMemberForPage(req, res) {
+  const [rows] = await pool.execute('SELECT id, monarch_uid, full_name, email, username FROM members WHERE id = ? LIMIT 1', [req.session.memberId]);
+  if (rows.length) return rows[0];
+  req.session.destroy(() => res.redirect('/login'));
+  return null;
+}
+
+// Profile changes are authenticated, validated, and constrained by KYC status.
+function profileKey() {
+  const key = Buffer.from(String(process.env.KYC_ENCRYPTION_KEY || ''), 'base64');
+  if (key.length !== 32) { const e = new Error('Profile encryption is not configured.'); e.status = 503; throw e; }
+  return key;
+}
+function encryptProfileValue(value) {
+  const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv('aes-256-gcm', profileKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
+}
+function decryptProfileValue(value) {
+  if (!value) return '';
+  const data = Buffer.from(value, 'base64'), iv = data.subarray(0,12), tag = data.subarray(12,28), encrypted = data.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', profileKey(), iv); decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+}
+const profilePhotoUpload = multer({storage:multer.memoryStorage(),limits:{fileSize:3*1024*1024},fileFilter:(_req,file,cb)=>cb(null,['image/jpeg','image/png','image/webp'].includes(file.mimetype))}).single('profilePhoto');
+function investmentSuccessCelebration(returnUrl='/investments'){return '<div class="photo-success-overlay investment-success-overlay" role="status" aria-live="polite"><div class="photo-success-card"><div class="photo-success-burst">🎉 ✨ 👑 ✨ 🎉</div><div class="photo-success-check">✓</div><p class="photo-success-kicker">MONARCH CODEX · INVESTMENTS</p><h2>Investment Package Purchased!</h2><p>Your package purchase has been confirmed. The wallet deduction and investment record have been saved successfully.</p><a class="photo-success-close" href="'+returnUrl+'" style="display:flex;align-items:center;justify-content:center;text-decoration:none;box-sizing:border-box">Continue to Investments</a></div></div><style>.photo-success-overlay{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:20px;background:#030304d9;backdrop-filter:blur(9px);animation:psFade .25s ease-out}.photo-success-card{width:min(100%,420px);padding:30px 24px;text-align:center;color:#f8f1df;border:1px solid #8c7130;border-radius:28px;background:radial-gradient(ellipse at 50% 0,#ecc74d30,transparent 60%),linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 25px 90px #0009}.photo-success-burst{font-size:25px;letter-spacing:3px;animation:psSparkle .8s ease-in-out infinite alternate}.photo-success-check{display:grid;place-items:center;width:76px;height:76px;margin:20px auto 16px;border:2px solid #f0cf63;border-radius:50%;background:#e8c652;color:#17130a;font-size:42px;font-weight:950;box-shadow:0 0 0 9px #e8c65219;animation:psPop .55s cubic-bezier(.2,1.5,.5,1)}.photo-success-kicker{font-size:11px;letter-spacing:.2em;color:#dfbd62;font-weight:900}.photo-success-card h2{font-size:clamp(23px,6vw,30px);line-height:1.15;margin:9px 0 12px}.photo-success-card p:not(.photo-success-kicker){color:#b8b2a5;line-height:1.55}.photo-success-close{width:100%;min-height:50px;margin-top:14px;border:0;border-radius:14px;background:linear-gradient(110deg,#f4dc82,#d8ad3d);color:#17130a;font-weight:900;font-size:15px}@keyframes psFade{from{opacity:0}to{opacity:1}}@keyframes psPop{from{transform:scale(.3) rotate(-18deg);opacity:0}to{transform:scale(1);opacity:1}}@keyframes psSparkle{to{transform:translateY(-4px) scale(1.06);filter:brightness(1.4)}}@media(prefers-reduced-motion:reduce){.photo-success-overlay,.photo-success-check,.photo-success-burst{animation:none}}.investment-success-overlay .photo-success-card{border-color:#d9b84f}.investment-success-overlay .photo-success-close{display:flex;align-items:center;justify-content:center;cursor:pointer}</style><script>(function(){const o=document.querySelector(".photo-success-overlay");if(!o)return;const c=o.querySelector("[data-photo-success-continue]");if(c)c.addEventListener("click",function(){window.location.assign(window.location.pathname.startsWith("/admin/")?"/admin/profile":(window.location.pathname==="/investments"?"/investments":"/profile"))});for(let i=0;i<26;i++){const s=document.createElement("span");s.textContent=["✨","✦","🎉","✧","🎊"][i%5];s.style.cssText="position:absolute;left:"+(4+Math.random()*92)+"%;top:"+(5+Math.random()*85)+"%;font-size:"+(12+Math.random()*18)+"px;pointer-events:none;animation:psConfetti "+(1+Math.random()*1.8)+"s ease-out both";o.appendChild(s)}const st=document.createElement("style");st.textContent="@keyframes psConfetti{0%{transform:translateY(-10px) rotate(0);opacity:0}20%{opacity:1}100%{transform:translateY(70px) rotate(200deg);opacity:0}}";document.head.appendChild(st)})();</script>'}
+function photoSuccessCelebration(returnUrl='/profile'){return '<div class="photo-success-overlay" role="status" aria-live="polite"><div class="photo-success-card"><div class="photo-success-burst">🎉 ✨ 🎊 ✨ 🎉</div><div class="photo-success-check">✓</div><p class="photo-success-kicker">MONARCH CODEX</p><h2>Image Uploaded Successfully!</h2><p>Your new profile picture is saved and ready to use.</p><a class="photo-success-close" href="'+returnUrl+'" style="display:block;text-decoration:none;box-sizing:border-box">Continue</a></div></div><style>.photo-success-overlay{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:20px;background:#030304d9;backdrop-filter:blur(9px);animation:psFade .25s ease-out}.photo-success-card{width:min(100%,420px);padding:30px 24px;text-align:center;color:#f8f1df;border:1px solid #8c7130;border-radius:28px;background:radial-gradient(ellipse at 50% 0,#ecc74d30,transparent 60%),linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 25px 90px #0009}.photo-success-burst{font-size:25px;letter-spacing:3px;animation:psSparkle .8s ease-in-out infinite alternate}.photo-success-check{display:grid;place-items:center;width:76px;height:76px;margin:20px auto 16px;border:2px solid #f0cf63;border-radius:50%;background:#e8c652;color:#17130a;font-size:42px;font-weight:950;box-shadow:0 0 0 9px #e8c65219;animation:psPop .55s cubic-bezier(.2,1.5,.5,1)}.photo-success-kicker{font-size:11px;letter-spacing:.2em;color:#dfbd62;font-weight:900}.photo-success-card h2{font-size:clamp(23px,6vw,30px);line-height:1.15;margin:9px 0 12px}.photo-success-card p:not(.photo-success-kicker){color:#b8b2a5;line-height:1.55}.photo-success-close{width:100%;min-height:50px;margin-top:14px;border:0;border-radius:14px;background:linear-gradient(110deg,#f4dc82,#d8ad3d);color:#17130a;font-weight:900;font-size:15px}@keyframes psFade{from{opacity:0}to{opacity:1}}@keyframes psPop{from{transform:scale(.3) rotate(-18deg);opacity:0}to{transform:scale(1);opacity:1}}@keyframes psSparkle{to{transform:translateY(-4px) scale(1.06);filter:brightness(1.4)}}@media(prefers-reduced-motion:reduce){.photo-success-overlay,.photo-success-check,.photo-success-burst{animation:none}}</style><script>(function(){const o=document.querySelector(".photo-success-overlay");if(!o)return;const c=o.querySelector("[data-photo-success-continue]");if(c)c.addEventListener("click",function(){window.location.assign(window.location.pathname.startsWith("/admin/")?"/admin/profile":(window.location.pathname==="/investments"?"/investments":"/profile"))});for(let i=0;i<26;i++){const s=document.createElement("span");s.textContent=["✨","✦","🎉","✧","🎊"][i%5];s.style.cssText="position:absolute;left:"+(4+Math.random()*92)+"%;top:"+(5+Math.random()*85)+"%;font-size:"+(12+Math.random()*18)+"px;pointer-events:none;animation:psConfetti "+(1+Math.random()*1.8)+"s ease-out both";o.appendChild(s)}const st=document.createElement("style");st.textContent="@keyframes psConfetti{0%{transform:translateY(-10px) rotate(0);opacity:0}20%{opacity:1}100%{transform:translateY(70px) rotate(200deg);opacity:0}}";document.head.appendChild(st)})();</script>'}
+app.get('/profile', requireAuth, async (req,res,next)=>{
+  try {
+    const [rows] = await pool.execute('SELECT id,monarch_uid,full_name,email,username FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+    const m=rows[0]; if(!m){req.session.destroy(()=>res.redirect('/login'));return;}
+    let profile={phone:'',bankName:'',bankAccountName:'',bankAccountNumber:'',avatarKey:null,kycLocked:false};
+    try {
+      const [p]=await pool.execute('SELECT phone_number,bank_details_ciphertext,avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[m.id]);
+      if(p.length){profile.phone=p[0].phone_number||'';profile.avatarKey=p[0].avatar_key; if(p[0].bank_details_ciphertext){const b=JSON.parse(decryptProfileValue(p[0].bank_details_ciphertext));profile.bankName=b.bankName||'';profile.bankAccountName=b.bankAccountName||'';profile.bankAccountNumber=b.bankAccountNumber||'';}}
+    } catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    let savedBankRows=[];
+    try { [savedBankRows]=await pool.execute('SELECT id,details_ciphertext,created_at FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]); }
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const savedBanks=savedBankRows.map(row=>({id:row.id,...JSON.parse(decryptProfileValue(row.details_ciphertext))}));
+    try {const [k]=await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved') LIMIT 1",[m.id]);profile.kycLocked=k.length>0;} catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const avatar=profile.avatarKey?'/member-avatar/'+encodeURIComponent(profile.avatarKey):'/assets/images/monarch-codex-logo.svg';
+    const lock=profile.kycLocked;
+    const content='<style>'+
+      '.profile-experience{display:grid;gap:18px;min-width:0;color:#eee9dc}'+
+      '.profile-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:center;padding:clamp(20px,3.5vw,32px);border:1px solid rgba(223,189,98,.28);border-radius:22px;background:radial-gradient(ellipse at 95% 0%,rgba(223,189,98,.17),transparent 35%),linear-gradient(135deg,#1c1a15,#111113 62%,#19160f)}'+
+      '.profile-hero:after{content:"";position:absolute;z-index:-1;right:-72px;bottom:-115px;width:190px;height:190px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 20px rgba(223,189,98,.025),0 0 0 42px rgba(223,189,98,.02)}'+
+      '.profile-hero-main{display:flex;align-items:center;gap:18px;min-width:0}'+
+      '.profile-avatar{display:block;flex:0 0 auto;width:88px;height:88px;min-width:88px;aspect-ratio:1/1;object-fit:cover;object-position:center center;border-radius:50%;border:2px solid #dfbd62;background:#17171c;box-shadow:0 8px 24px rgba(0,0,0,.25)}'+
+      '.profile-eyebrow{margin:0 0 8px;color:#dfbd62;font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}'+
+      '.profile-hero h3{margin:0;color:#fff8e8;font-size:clamp(22px,3.3vw,32px);line-height:1.15;letter-spacing:-.04em;overflow-wrap:anywhere}'+
+      '.profile-username{margin:7px 0 12px;color:#aaa69a;font-size:13px}'+
+      '.profile-public{display:inline-flex;align-items:center;gap:7px;color:#f0d681;font-size:12px;font-weight:800;text-decoration:none}'+
+      '.profile-public:hover{text-decoration:underline}'+
+      '.profile-state{display:inline-flex;align-items:center;gap:7px;max-width:220px;padding:10px 12px;border:1px solid rgba(223,189,98,.24);border-radius:999px;background:rgba(223,189,98,.07);color:#e8d69e;font-size:10px;font-weight:800;line-height:1.4}'+
+      '.profile-state:before{content:"";width:6px;height:6px;flex:0 0 auto;border-radius:50%;background:#dfbd62}'+
+      '.profile-section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin:2px 0 0}'+
+      '.profile-section-heading h3{margin:0;color:#f8f1df;font-size:18px;letter-spacing:-.025em}'+
+      '.profile-section-heading p{margin:6px 0 0;color:#9e9a8e;font-size:12px;line-height:1.6}'+
+      '.profile-card{min-width:0;padding:clamp(17px,2.7vw,24px);border:1px solid #383328;border-radius:18px;background:linear-gradient(145deg,#18181b,#111113);margin:0}'+
+      '.profile-card-top{display:flex;align-items:flex-start;gap:12px;margin-bottom:19px}'+
+      '.profile-card-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 auto;border:1px solid rgba(223,189,98,.24);border-radius:12px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:16px}'+
+      '.profile-card h4{margin:0;color:#f5efdf;font-size:15px;letter-spacing:-.015em}'+
+      '.profile-card-intro{margin:5px 0 0;color:#a7a295;font-size:12px;line-height:1.65}'+
+      '.profile-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 16px}'+
+      '.profile-form-grid .full{grid-column:1/-1}'+
+      '.profile-experience label{display:block;margin:0 0 7px;color:#c9c2b1;font-size:11px;font-weight:750;letter-spacing:.025em}'+
+      '.profile-experience input[type=text],.profile-experience input[type=email],.profile-experience input[type=tel],.profile-experience input[type=file],.profile-experience input:not([type]){width:100%;min-width:0;box-sizing:border-box;padding:12px 13px;border:1px solid #403a2d;border-radius:11px;background:#0c0c0e;color:#f2ecdf;font:inherit;font-size:13px;outline:none}'+
+      '.profile-experience input:focus-visible{border-color:#dfbd62;box-shadow:0 0 0 3px rgba(223,189,98,.12)}'+
+      '.profile-experience input[readonly]{color:#aaa69a;background:#141416}'+
+      '.profile-hint{margin:14px 0;color:#9e9a8e;font-size:11px;line-height:1.7}'+
+      '.profile-hint strong{color:#d8c98f}'+
+      '.profile-save{display:inline-flex;align-items:center;justify-content:center;width:auto;min-height:42px;margin-top:5px;padding:11px 17px;border:1px solid #dfbd62;border-radius:11px;background:linear-gradient(135deg,#f1d98d,#d5ae4d);color:#17140b;font:inherit;font-size:12px;font-weight:900;cursor:pointer}'+
+      '.profile-save:hover{filter:brightness(1.06)}'+
+      '.profile-upload-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:14px}'+
+      '.profile-bank-list{display:grid;gap:10px}'+
+      '.saved-bank-row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0;padding:14px;border:1px solid #353126;border-radius:13px;background:#101012}'+
+      '.saved-bank-main{display:flex;align-items:center;gap:12px;min-width:0}'+
+      '.saved-bank-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 auto;border-radius:12px;background:#211e16;color:#e6ca7c;font-size:17px}'+
+      '.saved-bank-row strong{display:block;color:#f0eadb;font-size:12px;overflow-wrap:anywhere}'+
+      '.saved-bank-row .profile-hint{margin:5px 0 0;font-size:11px}'+
+      '.saved-bank-row form{margin:0;flex:0 0 auto}'+
+      '.profile-remove{padding:8px 11px;border:1px solid #514035;border-radius:9px;background:#201716;color:#e7b5a5;font:inherit;font-size:11px;font-weight:800;cursor:pointer}'+
+      '.profile-empty{padding:18px;border:1px dashed #403a2d;border-radius:13px;color:#9e9a8e;font-size:12px;line-height:1.7;text-align:center}'+
+      '.profile-private-note{display:flex;align-items:flex-start;gap:10px;padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(223,189,98,.035);color:#a7a295;font-size:11px;line-height:1.7}'+
+      '@media(max-width:620px){.profile-hero{grid-template-columns:1fr;gap:16px}.profile-hero-main{align-items:flex-start}.profile-state{justify-self:start}.profile-avatar{width:72px;height:72px;border-radius:50%}.profile-form-grid{grid-template-columns:1fr}.profile-form-grid .full{grid-column:auto}.profile-upload-row{grid-template-columns:1fr}.profile-section-heading{align-items:flex-start;flex-direction:column}}'+
+      '@media(max-width:380px){.profile-hero-main{gap:12px}.profile-avatar{width:60px;height:60px;border-radius:50%}.profile-save{width:100%}.saved-bank-row{align-items:flex-start}.saved-bank-main{gap:9px}}'+
+      '@media(prefers-reduced-motion:reduce){.profile-experience *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}'+
+      '</style>'+
+      '<div class="profile-experience">'+
+        '<section class="profile-hero"><div class="profile-hero-main"><img class="profile-avatar" src="'+avatar+'" alt="Profile picture" id="profileAvatar"><div><p class="profile-eyebrow">Member account</p><h3>'+esc(m.full_name)+'</h3><p class="profile-username">@'+esc(m.username)+'</p><a class="profile-public" href="/members/'+encodeURIComponent(m.username)+'">View public profile <span aria-hidden="true">↗</span></a></div></div><span class="profile-state">'+(lock?'Identity details locked for KYC':'Personal details editable')+'</span></section>'+
+        '<div class="profile-section-heading"><div><h3>Your account details</h3><p>Keep your contact information accurate and up to date.</p></div></div>'+
+        '<form method="post" action="/profile" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">✦</span><div><h4>Personal information</h4><p class="profile-card-intro">These details identify your member account.</p></div></div><div class="profile-form-grid"><div><label for="fullName">Full name</label><input id="fullName" name="fullName" value="'+esc(m.full_name)+'" maxlength="160" required '+(lock?'readonly':'')+'></div><div><label for="username">Username</label><input id="username" name="username" value="'+esc(m.username)+'" pattern="[A-Za-z0-9_]{3,30}" maxlength="30" required></div><div><label for="email">Email address</label><input id="email" type="email" name="email" value="'+esc(m.email)+'" maxlength="254" autocomplete="email" required></div><div><label for="phone">Phone number</label><input id="phone" type="tel" name="phone" value="'+esc(profile.phone)+'" maxlength="32" autocomplete="tel"></div></div><p class="profile-hint">'+(lock?'Your legal name is locked while KYC is pending or approved. If your application was rejected, correct your details and resubmit.':'Your name can be updated before KYC starts. Once verification is pending or approved, the legal name is locked to protect verification integrity.')+'</p><button class="btn profile-save" type="submit">Save personal details</button></form>'+
+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">◉</span><div><h4>Profile picture</h4><p class="profile-card-intro">Make your member profile easy to recognise.</p></div></div><a class="btn profile-save" href="/profile/photo">Update profile picture</a><p class="profile-hint">Choose a photo from your device or capture one with your camera.</p></section>'+
+        '<section class="profile-card"><div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">▤</span><div><h4>Saved bank accounts</h4><p class="profile-card-intro">Private account details are encrypted and shown only in masked form.</p></div></div><div class="profile-bank-list">'+(savedBanks.length?savedBanks.map(b=>'<div class="saved-bank-row"><div class="saved-bank-main"><span class="saved-bank-icon" aria-hidden="true">▤</span><div><strong>'+esc(b.bankName)+'</strong><p class="profile-hint">'+esc(b.bankAccountName)+' · ending '+esc(String(b.bankAccountNumber||'').slice(-4))+'</p></div></div><form method="post" action="/profile/bank/'+encodeURIComponent(b.id)+'/delete">'+csrfField(req)+'<button class="profile-remove" type="submit" aria-label="Remove bank account">Remove</button></form></div>').join(''):'<div class="profile-empty">No saved bank accounts yet.<br>Add an account below to keep your withdrawal details ready.</div>')+'</div></section>'+
+        '<form method="post" action="/profile/bank" class="profile-card">'+csrfField(req)+'<div class="profile-card-top"><span class="profile-card-icon" aria-hidden="true">＋</span><div><h4>Add a bank account</h4><p class="profile-card-intro">Enter the details exactly as registered with your bank.</p></div></div><div class="profile-form-grid"><div><label for="bankName">Bank name</label><input id="bankName" name="bankName" maxlength="120" required></div><div><label for="bankAccountName">Account name</label><input id="bankAccountName" name="bankAccountName" maxlength="160" required></div><div class="full"><label for="bankAccountNumber">Account number</label><input id="bankAccountNumber" name="bankAccountNumber" inputmode="numeric" maxlength="34" autocomplete="off" required></div></div><p class="profile-hint">Saving bank details does not initiate a payment. You can remove a saved account at any time.</p><button class="btn profile-save" type="submit">Save bank account</button></form>'+
+        '<div class="profile-private-note"><span aria-hidden="true">◆</span><span><strong>Privacy note:</strong> Your bank account is never displayed in full here. Only the final four digits are shown for recognition.</span></div>'+
+      '<div class="profile-card"><div class="profile-card-top"><span class="profile-card-icon">♙</span><div><h4>Homepage Monarchs</h4><p class="profile-card-intro">Choose your public nickname and request to be featured. Approved KYC and admin approval are required.</p></div></div><a class="btn profile-save" href="/profile/monarchs">Manage my Monarchs profile</a></div>' +
+      '</div>';    res.send(memberPage('Profile','/profile',m,content+(req.query.photo==='success'?photoSuccessCelebration('/profile'):''),req));
+  } catch(e){next(e);}
+});
+app.post('/profile', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{    const fullName=String(req.body.fullName||'').trim(),username=String(req.body.username||'').trim(),email=String(req.body.email||'').trim().toLowerCase(),phone=String(req.body.phone||'').trim();
+    if(!/^[A-Za-z0-9_]{3,30}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||phone.length>32||fullName.length===0||fullName.length>160) return res.status(400).send(page('Invalid profile','<h1>Check your profile details</h1><a class="btn" href="/profile">Back to profile</a>'));
+    let hasKyc=false;
+    try { const [[status]]=await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved')) AS has_kyc",[req.session.memberId]); hasKyc=Number(status.has_kyc)>0; }
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    if(hasKyc){const [[m]]=await pool.execute('SELECT full_name FROM members WHERE id=?',[req.session.memberId]);if(fullName!==m.full_name)return res.status(400).send(page('Name locked','<h1>Your name is locked</h1><p class="muted">Your KYC is pending or approved. Your legal name cannot be changed during this status.</p><a class="btn" href="/profile">Back to profile</a>'));}
+    const [[dupe]]=await pool.execute('SELECT SUM(username = ?) AS username_used, SUM(email = ?) AS email_used FROM members WHERE id <> ?',[username,email,req.session.memberId]);
+    if(Number(dupe.username_used)>0||Number(dupe.email_used)>0)return res.status(409).send(page('Profile conflict','<h1>Username or email is already in use</h1><a class="btn" href="/profile">Back to profile</a>'));
+    await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
+    await pool.execute('INSERT INTO member_profiles (member_id,phone_number) VALUES (?,?) ON DUPLICATE KEY UPDATE phone_number=VALUES(phone_number)',[req.session.memberId,phone||null]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Profile temporarily unavailable','<h1>Profile updates are temporarily unavailable</h1><p class="muted">Please try again later.</p>'));next(e);}
+});
+app.post('/profile/bank', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{
+    const bankName=String(req.body.bankName||'').trim(),bankAccountName=String(req.body.bankAccountName||'').trim(),bankAccountNumber=String(req.body.bankAccountNumber||'').trim();
+    if(!bankName||!bankAccountName||!/^\d{6,34}$/.test(bankAccountNumber)||bankName.length>120||bankAccountName.length>160||(/[<>]/.test(bankName+bankAccountName)))return res.status(400).send(page('Invalid bank details','<h1>Check your bank details</h1><p class="muted">Enter a bank name, account name, and account number containing 6–34 digits.</p><a class="btn" href="/profile">Back to profile</a>'));
+    const ciphertext=encryptProfileValue(JSON.stringify({bankName,bankAccountName,bankAccountNumber}));
+    await pool.execute('INSERT INTO member_bank_accounts (member_id,details_ciphertext) VALUES (?,?)',[req.session.memberId,ciphertext]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE'||e.status===503)return res.status(503).send(page('Profile temporarily unavailable','<h1>Bank account updates are temporarily unavailable</h1><p class="muted">Please try again later.</p><a class="btn" href="/profile">Back to profile</a>'));next(e);}
+});
+app.post('/profile/bank/:id/delete', requireAuth, csrfCheck, async(req,res,next)=>{
+  try{
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).send(page('Invalid bank account','<h1>Invalid bank account</h1><a class="btn" href="/profile">Back to profile</a>'));
+    await pool.execute('UPDATE member_bank_accounts SET deleted_at=CURRENT_TIMESTAMP WHERE id=? AND member_id=? AND deleted_at IS NULL',[id,req.session.memberId]);
+    res.redirect('/profile');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Bank accounts temporarily unavailable','<h1>Bank account updates are temporarily unavailable</h1><a class="btn" href="/profile">Back to profile</a>'));next(e);}
+});
+function profilePhotoChooserPage(req, action, backUrl, title, currentPhoto) {
+  const html = '<main class="photo-chooser"><a class="back" href="'+backUrl+'">← Back</a><p class="eyebrow">MONARCH CODEX / PROFILE</p><h1>'+title+'</h1><p class="sub">Choose an image or take a new photo. Preview it, then confirm to upload.</p><form id="photoForm" method="post" action="'+action+'" enctype="multipart/form-data">'+csrfField(req)+
+  '<div class="preview-wrap"><img id="photoPreview" src="'+currentPhoto+'" alt="Selected profile photo preview"><div id="photoSpinner" class="photo-spinner" aria-hidden="true"></div></div>'+
+  '<div class="photo-options"><label class="option"><span class="option-icon">▧</span><strong>Upload a picture</strong><small>Choose JPG, PNG or WebP</small><input id="galleryPhoto" type="file" name="profilePhoto" accept="image/jpeg,image/png,image/webp" hidden></label>'+
+  '<label class="option"><span class="option-icon">◎</span><strong>Capture a photo</strong><small>Open your camera</small><input id="cameraPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="user" hidden></label></div>'+
+  '<p id="photoHint" class="hint">Maximum file size: 3 MB.</p><button id="confirmPhoto" class="confirm" type="submit" disabled>Confirm and upload photo</button><p class="privacy">Your new photo replaces the previous one after it is saved successfully.</p></form></main>'+
+  '<style>*{box-sizing:border-box}.photo-chooser{max-width:620px;margin:0 auto;padding:24px 18px 48px;color:#f7f0df;font-family:inherit}.photo-chooser .back{display:inline-block;color:#e5c75f;text-decoration:none;margin:0 0 30px}.photo-chooser .eyebrow{letter-spacing:.18em;color:#dfbd62;font-weight:800;font-size:12px}.photo-chooser h1{font-size:clamp(28px,7vw,42px);margin:8px 0}.photo-chooser .sub,.photo-chooser .hint,.photo-chooser .privacy{color:#aaa59a;line-height:1.55}.preview-wrap{position:relative;width:190px;height:190px;margin:28px auto 24px;border-radius:50%;padding:5px;border:2px solid #dfbd62;background:#171615;box-shadow:0 0 0 8px #dfbd6217}.preview-wrap img{width:100%;height:100%;object-fit:cover;object-position:center;border-radius:50%}.photo-spinner{display:none;position:absolute;inset:0;border-radius:50%;border:5px solid #dfbd6230;border-top-color:#f5d45e;animation:photoSpin .8s linear infinite}.photo-chooser.is-uploading .photo-spinner{display:block}.photo-chooser.is-uploading .preview-wrap img{opacity:.35}.photo-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0}.option{display:flex;min-height:138px;flex-direction:column;align-items:flex-start;justify-content:center;gap:7px;padding:18px;border:1px solid #5e5129;border-radius:18px;background:linear-gradient(145deg,#211f18,#121214);cursor:pointer}.option:focus-within,.option:active{border-color:#f3d15b}.option-icon{font-size:26px;color:#e6c85e}.option small{color:#aaa59a}.confirm{width:100%;min-height:52px;border:0;border-radius:14px;background:#e9c957;color:#17130a;font-weight:900;font-size:15px}.confirm:disabled{opacity:.4}.privacy{font-size:12px;text-align:center;margin-top:15px}@keyframes photoSpin{to{transform:rotate(360deg)}}@media(max-width:390px){.preview-wrap{width:160px;height:160px}.option{padding:13px}}</style>'+
+  '<script>(function(){const root=document.querySelector(".photo-chooser"),form=document.getElementById("photoForm"),gallery=document.getElementById("galleryPhoto"),camera=document.getElementById("cameraPhoto"),preview=document.getElementById("photoPreview"),confirm=document.getElementById("confirmPhoto"),hint=document.getElementById("photoHint");let selected=null,objectUrl=null;function choose(input){const f=input.files&&input.files[0];if(!f)return;if(!["image/jpeg","image/png","image/webp"].includes(f.type)||f.size>3*1024*1024){input.value="";hint.textContent="Please choose a JPG, PNG or WebP image under 3 MB.";confirm.disabled=true;selected=null;return}selected=f;if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(f);preview.src=objectUrl;confirm.disabled=false;hint.textContent=f.name+" · "+(f.size/1024).toFixed(0)+" KB · Ready to upload"}gallery.addEventListener("change",()=>choose(gallery));camera.addEventListener("change",()=>choose(camera));form.addEventListener("submit",e=>{if(!selected){e.preventDefault();hint.textContent="Choose or capture a photo first.";return}if(selected===camera.files[0]){const transfer=new DataTransfer();transfer.items.add(selected);gallery.files=transfer.files}root.classList.add("is-uploading");confirm.disabled=true;confirm.textContent="Uploading your photo…";hint.textContent="Saving securely. Please keep this page open.";setTimeout(()=>HTMLFormElement.prototype.submit.call(form),1800)});})();</script>';
+  return page(title, html);
+}
+app.get('/profile/photo', requireAuth, async(req,res,next)=>{try{const [rows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);const key=rows[0]?.avatar_key;const photo=key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(key))?'/member-avatar/'+encodeURIComponent(key):'/assets/images/monarch-codex-logo.svg';res.send(profilePhotoChooserPage(req,'/profile/photo','/profile','Update profile picture',photo));}catch(e){next(e);}});
+app.get('/admin/profile/photo', requireAdmin, async(req,res,next)=>{try{const [rows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);const key=rows[0]?.avatar_key;const photo=key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(key))?'/member-avatar/'+encodeURIComponent(key):'/assets/images/monarch-codex-logo.svg';res.send(profilePhotoChooserPage(req,'/admin/profile/photo','/admin/profile','Update administrator photo',photo));}catch(e){next(e);}});
+app.post('/profile/photo', requireAuth, (req,res,next)=>profilePhotoUpload(req,res,async err=>{
+  if(err)return res.status(400).send(page('Photo upload failed','<h1>Choose a JPG, PNG or WebP image under 3 MB.</h1><a class="btn" href="/profile">Back to profile</a>'));
+  try{
+    csrfCheck(req,res,async csrfErr=>{
+      if(csrfErr)return;
+      if(!req.file)return res.status(400).send(page('Photo required','<h1>Choose a profile picture</h1><a class="btn" href="/profile">Back to profile</a>'));
+      const mime=req.file.mimetype,buf=req.file.buffer;
+      const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+      if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/profile">Back to profile</a>'));
+      const dir=process.env.PROFILE_UPLOAD_DIR;
+      if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Profile photo storage is not configured</h1><p class="muted">The site owner must configure private upload storage.</p>'));
+      fs.mkdirSync(dir,{recursive:true,mode:0o700});
+      const key=crypto.randomBytes(24).toString('hex')+({ 'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime]);
+      const newPath=path.join(dir,key);
+      fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+      let previousKey=null;
+      try {
+        const [oldRows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
+        previousKey=oldRows[0] && String(oldRows[0].avatar_key||'');
+      } catch(e) { if(e.code!=='ER_NO_SUCH_TABLE') { try{fs.unlinkSync(newPath);}catch(_){} throw e; } }
+      try {
+        await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);
+      } catch(e) { try{fs.unlinkSync(newPath);}catch(_){} throw e; }
+      // Remove the previous private image only after the database points to the new one.
+      if(previousKey && previousKey!==key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(previousKey)) {
+        try { fs.unlinkSync(path.join(dir,previousKey)); } catch(e) { if(e.code!=='ENOENT') console.error('[profile photo cleanup] Unable to remove previous image'); }
+      }
+      res.redirect('/profile?photo=success');
+    });
+  }catch(e){next(e);}
+}));
+app.post('/admin/profile/photo', requireAdmin, (req,res,next)=>profilePhotoUpload(req,res,async err=>{
+  if(err)return res.status(400).send(page('Photo upload failed','<h1>Choose a JPG, PNG or WebP image under 3 MB.</h1><a class="btn" href="/admin/profile/photo">Back</a>'));
+  try { csrfCheck(req,res,async csrfErr=>{
+    if(csrfErr)return;
+    if(!req.file)return res.status(400).send(page('Photo required','<h1>Choose a profile picture</h1><a class="btn" href="/admin/profile/photo">Back</a>'));
+    const mime=req.file.mimetype,buf=req.file.buffer;
+    const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+    if(!valid)return res.status(400).send(page('Invalid image','<h1>That file is not a valid supported image.</h1><a class="btn" href="/admin/profile/photo">Back</a>'));
+    const dir=process.env.PROFILE_UPLOAD_DIR;
+    if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).send(page('Uploads unavailable','<h1>Private profile photo storage is not configured.</h1>'));
+    fs.mkdirSync(dir,{recursive:true,mode:0o700});
+    const key=crypto.randomBytes(24).toString('hex')+({'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime]),newPath=path.join(dir,key);
+    fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+    let previousKey=null;
+    try{const [old]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);previousKey=old[0]&&String(old[0].avatar_key||'');}
+    catch(e){if(e.code!=='ER_NO_SUCH_TABLE'){try{fs.unlinkSync(newPath)}catch(_){}throw e;}}
+    try{await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);}
+    catch(e){try{fs.unlinkSync(newPath)}catch(_){}throw e;}
+    if(previousKey&&previousKey!==key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(previousKey)){try{fs.unlinkSync(path.join(dir,previousKey))}catch(e){if(e.code!=='ENOENT')console.error('[admin profile photo cleanup] Unable to remove previous image');}}
+    res.redirect('/admin/profile?photo=success');
+  }); } catch(e){next(e);}
+}));
+app.get('/member-avatar-current', requireAuth, async (req,res,next)=>{
+  try {
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, private');
+    const [rows] = await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
+    const key = rows[0] && String(rows[0].avatar_key || '');
+    if (!key || !/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
+    const [owned] = await pool.execute('SELECT member_id FROM member_profiles WHERE member_id=? AND avatar_key=? LIMIT 1',[req.session.memberId,key]);
+    const dir = process.env.PROFILE_UPLOAD_DIR;
+    if (!owned.length || !dir || !path.isAbsolute(dir) || dir===path.resolve(__dirname) || dir.startsWith(path.resolve(__dirname)+path.sep)) return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg'));
+    const file = path.join(dir,key);
+    return res.sendFile(file,{headers:{'Cache-Control':'no-store, no-cache, must-revalidate, private','X-Content-Type-Options':'nosniff'}},err=>{if(err && !res.headersSent) next(err);});
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.sendFile(path.join(__dirname,'assets','images','monarch-codex-logo.svg')); next(e); }
+});
+app.get('/member-avatar/:key', async(req,res,next)=>{
+  try{
+    const key=String(req.params.key||'');
+    if(!/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(key))return res.sendStatus(404);
+    const [rows]=await pool.execute('SELECT member_id FROM member_profiles WHERE avatar_key=? LIMIT 1',[key]);
+    if(!rows.length)return res.sendStatus(404);
+    const dir=process.env.PROFILE_UPLOAD_DIR;
+    if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.sendStatus(404);
+    res.set('Cache-Control','public, max-age=3600');
+    res.sendFile(path.join(dir,key),{headers:{'X-Content-Type-Options':'nosniff'}},err=>{if(err&&!res.headersSent)res.sendStatus(404);});
+  }catch(e){next(e);}
+});
+app.get('/members/:username', async(req,res,next)=>{
+  try{
+    const username=String(req.params.username||'');
+    const [rows]=await pool.execute('SELECT id,full_name,username FROM members WHERE username=? LIMIT 1',[username]);
+    if(!rows.length)return res.status(404).send(page('Profile not found','<h1>Member not found</h1><a class="btn" href="/">Return home</a>'));
+    let avatar='/assets/images/monarch-codex-logo.svg';
+    try{const [p]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[rows[0].id]);if(p[0]&&p[0].avatar_key)avatar='/member-avatar/'+encodeURIComponent(p[0].avatar_key);}catch(e){if(e.code!=='ER_NO_SUCH_TABLE')throw e;}
+    const body='<style>.public-profile{max-width:560px;margin:0 auto;text-align:center}.public-avatar{display:block;width:130px;height:130px;aspect-ratio:1/1;object-fit:cover;object-position:50% 50%;border-radius:50%;border:3px solid #dfbd62;margin:10px auto 20px}</style><div class="public-profile"><img class="public-avatar" src="'+avatar+'" alt="Profile picture"><h1>'+esc(rows[0].full_name)+'</h1><p class="muted">@'+esc(rows[0].username)+'</p><p class="muted">Monarch Codex member</p><a class="btn" href="/">Return to Monarch Codex</a></div>';
+    res.send(page('Member profile',body));
+  }catch(e){next(e);}
+});
+
+
+const kycUploadLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false });
+function getKycStorageConfig() {
+  const directory = process.env.KYC_STORAGE_DIR;
+  const keyText = process.env.KYC_ENCRYPTION_KEY;
+  if (!directory || !path.isAbsolute(directory) || directory === path.resolve(__dirname) || directory.startsWith(path.resolve(__dirname) + path.sep)) {
+    const err = new Error('Private KYC storage must be configured as an absolute directory outside the application folder.');
+    err.status = 503; throw err;
+  }
+  let key;
+  try { key = Buffer.from(keyText || '', 'base64'); } catch (_) { key = Buffer.alloc(0); }
+  if (key.length !== 32) { const err = new Error('KYC encryption key is not configured.'); err.status = 503; throw err; }
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  return { directory, key };
+}
+function encryptKycBuffer(buffer, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  return Buffer.concat([Buffer.from('MC1'), iv, cipher.getAuthTag(), encrypted]);
+}
+function decryptKycBuffer(payload, key) {
+  if (!Buffer.isBuffer(payload) || payload.length < 31 || payload.subarray(0,3).toString('ascii') !== 'MC1') throw new Error('Invalid encrypted KYC file.');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, payload.subarray(3,15));
+  decipher.setAuthTag(payload.subarray(15,31));
+  return Buffer.concat([decipher.update(payload.subarray(31)), decipher.final()]);
+}
+const kycUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 3, fileSize: 8 * 1024 * 1024, fields: 20, fieldSize: 4096 },
+  fileFilter: (_req, file, cb) => {
+    if (!['image/jpeg', 'image/png'].includes(file.mimetype)) return cb(new Error('Only JPG and PNG identity images are accepted.'));
+    cb(null, true);
+  }
+}).fields([{ name: 'documentFront', maxCount: 1 }, { name: 'documentBack', maxCount: 1 }, { name: 'selfie', maxCount: 1 }]);
+function validKycText(value, max) { return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max; }
+app.get('/kyc/draft', requireAuth, async (req,res,next) => {
+  try {
+    const config = getKycStorageConfig();
+    const [rows] = await pool.execute('SELECT encrypted_payload,current_step,updated_at FROM kyc_drafts WHERE member_id=? LIMIT 1',[req.session.memberId]);
+    res.set('Cache-Control','no-store');
+    if (!rows.length) return res.json({draft:null});
+    const raw = decryptKycBuffer(Buffer.from(rows[0].encrypted_payload,'base64'),config.key).toString('utf8');
+    return res.json({draft:JSON.parse(raw),currentStep:Number(rows[0].current_step)||0,updatedAt:rows[0].updated_at});
+  } catch(e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({error:'Draft saving is not configured yet.'});
+    if (e && e.status === 503) return res.status(503).json({error:'Secure draft storage is not configured yet.'});
+    return next(e);
+  }
+});
+app.post('/kyc/draft', requireAuth, async (req,res,next) => {
+  try {
+    csrfCheck(req,res,async csrfErr => {
+      if (csrfErr) return;
+      try {
+        const config = getKycStorageConfig();
+        const body = req.body || {}, source = body.fields && typeof body.fields === 'object' ? body.fields : {};
+        const allowed = ['legalFullName','dateOfBirth','phoneNumber','contactEmail','countryCode','stateRegion','localityLga','streetAddress','documentType','documentIssuerCountry','documentNumber'];
+        const draft = {};
+        for (const key of allowed) if (typeof source[key] === 'string') draft[key] = source[key].slice(0, key === 'streetAddress' ? 240 : key === 'documentNumber' ? 80 : 254);
+        const encrypted = encryptKycBuffer(Buffer.from(JSON.stringify(draft),'utf8'),config.key).toString('base64');
+        const step = Math.max(0,Math.min(3,Number.parseInt(body.currentStep,10)||0));
+        await pool.execute('INSERT INTO kyc_drafts (member_id,encrypted_payload,current_step) VALUES (?,?,?) ON DUPLICATE KEY UPDATE encrypted_payload=VALUES(encrypted_payload),current_step=VALUES(current_step),updated_at=CURRENT_TIMESTAMP',[req.session.memberId,encrypted,step]);
+        return res.json({ok:true,savedAt:new Date().toISOString()});
+      } catch(e) {
+        if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({error:'Draft saving is not configured yet.'});
+        if (e && e.status === 503) return res.status(503).json({error:'Secure draft storage is not configured yet.'});
+        return next(e);
+      }
+    });
+  } catch(e) { next(e); }
+});
+app.post('/kyc/submit', requireAuth, kycUploadLimiter, (req, res, next) => {
+  kycUpload(req, res, async err => {
+    if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Each image must be 8 MB or smaller.' : 'Upload rejected. Use JPG or PNG images.' });
+    try {
+      csrfCheck(req, res, async csrfErr => {
+        if (csrfErr) return;
+        let config;
+        try { config = getKycStorageConfig(); } catch (e) { return res.status(e.status || 503).json({ error: 'Secure KYC storage is not configured yet.' }); }
+        const b = req.body || {};
+        const [existingKycRows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
+        if (existingKycRows.length && ['pending','approved'].includes(existingKycRows[0].status)) {
+          const alreadyApproved = String(existingKycRows[0].status || '').toLowerCase() === 'approved';
+          return res.status(409).json({
+            error: alreadyApproved ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',
+            status: existingKycRows[0].status
+          });
+        }
+        const files = req.files || {};
+        const front = files.documentFront && files.documentFront[0];
+        const back = files.documentBack && files.documentBack[0];
+        const selfie = files.selfie && files.selfie[0];
+        const docNumber = String(b.documentNumber || '').trim();
+        if (!validKycText(b.legalFullName,160) || !/^\d{4}-\d{2}-\d{2}$/.test(b.dateOfBirth || '') ||
+            !validKycText(b.phoneNumber,32) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.contactEmail || '') ||
+            !['NG','GH','KE','ZA'].includes(b.countryCode) || !validKycText(b.stateRegion,120) ||
+            !validKycText(b.localityLga,120) || !validKycText(b.streetAddress,240) ||
+            !['national_id','passport','drivers_license','voters_card'].includes(b.documentType) ||
+            !['NG','GH','KE','ZA'].includes(b.documentIssuerCountry) || !validKycText(docNumber,80) ||
+            (b.documentType === 'national_id' && b.documentIssuerCountry === 'NG' && !/^\d{11}$/.test(docNumber)) ||
+            !front || (!back && b.documentType !== 'passport') || !selfie || b.confirmOwnership !== 'yes') {
+          return res.status(400).json({ error: 'Check all required fields, the NIN length, consent, and required document images. A passport back image is optional.' });
+        }
+        if (![front,back,selfie].filter(Boolean).every(f => ['image/jpeg','image/png'].includes(f.mimetype))) return res.status(400).json({ error: 'Only JPG and PNG images are accepted.' });
+        const stored = [];
+        try {
+          for (const [kind,file] of [['front',front],['back',back],['selfie',selfie]]) {
+            if (!file) { stored.push(null); continue; }
+            const id = crypto.randomBytes(24).toString('hex') + '.enc';
+            fs.writeFileSync(path.join(config.directory,id), encryptKycBuffer(file.buffer,config.key), { flag:'wx', mode:0o600 });
+            stored.push(id);
+          }
+          const numberCipher = encryptKycBuffer(Buffer.from(docNumber,'utf8'),config.key).toString('base64');
+          const conn = await pool.getConnection();
+          let submissionId;
+          let previousPrivateKeys = [];
+          try {
+            await conn.beginTransaction();
+            await conn.execute('SELECT id FROM members WHERE id=? FOR UPDATE',[req.session.memberId]);
+            const [latestRows] = await conn.execute('SELECT id,status,document_front_private_key,document_back_private_key,selfie_private_key FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1 FOR UPDATE',[req.session.memberId]);
+            const latest = latestRows[0] || null;
+            const latestStatus = String(latest && latest.status || '').toLowerCase();
+            if (latest && ['pending','approved'].includes(latestStatus)) {
+              await conn.rollback();
+              for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+              return res.status(409).json({error:latestStatus === 'approved' ? 'Your KYC is already approved. You do not need to submit it again.' : 'Your KYC is already under review. Please wait for the review result.',status:latestStatus});
+            }
+            const values = [b.legalFullName.trim(),b.dateOfBirth,b.countryCode,b.stateRegion.trim(),b.localityLga.trim(),b.streetAddress.trim(),b.phoneNumber.trim(),b.contactEmail.trim(),b.documentType,b.documentIssuerCountry,numberCipher,docNumber.slice(-4),stored[0],stored[1],stored[2]];
+            if (latest && ['rejected','needs_resubmission'].includes(latestStatus)) {
+              submissionId = latest.id;
+              previousPrivateKeys = [latest.document_front_private_key,latest.document_back_private_key,latest.selfie_private_key].filter(Boolean);
+              await conn.execute("UPDATE kyc_submissions SET legal_full_name=?,date_of_birth=?,country_code=?,state_region=?,locality_lga=?,street_address=?,phone_number=?,contact_email=?,document_type=?,document_issuer_country=?,document_number_ciphertext=?,document_number_last4=?,document_front_private_key=?,document_back_private_key=?,selfie_private_key=?,status='pending',reviewer_member_id=NULL,reviewer_note=NULL,reviewed_at=NULL,submitted_at=CURRENT_TIMESTAMP WHERE id=? AND member_id=?",[...values,submissionId,req.session.memberId]);
+              await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,'submitted','Member resubmitted corrected information; existing application record updated')",[submissionId,req.session.memberId]);
+            } else {
+              const [result] = await conn.execute("INSERT INTO kyc_submissions (member_id,legal_full_name,date_of_birth,country_code,state_region,locality_lga,street_address,phone_number,contact_email,document_type,document_issuer_country,document_number_ciphertext,document_number_last4,document_front_private_key,document_back_private_key,selfie_private_key,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')",[req.session.memberId,...values]);
+              submissionId = result.insertId;
+              await conn.execute("INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type) VALUES (?,?,'submitted')",[submissionId,req.session.memberId]);
+            }
+            await conn.commit();
+          } catch (dbErr) { await conn.rollback(); throw dbErr; } finally { conn.release(); }
+          for (const id of previousPrivateKeys) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+          try { await pool.execute('DELETE FROM kyc_drafts WHERE member_id=?',[req.session.memberId]); } catch (draftErr) { if (!draftErr || draftErr.code !== 'ER_NO_SUCH_TABLE') console.error('[kyc draft cleanup]',draftErr.code||'cleanup_failed'); }
+          return res.status(201).json({ ok:true, submissionId, status:'pending', message:'Your verification has been submitted for review.' });
+        } catch (e) {
+          for (const id of stored.filter(Boolean)) { try { fs.unlinkSync(path.join(config.directory,id)); } catch (_) {} }
+          if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'Secure verification is temporarily unavailable. Please try again later.' });
+          console.error('[kyc submission]', e && e.code ? e.code : 'submission_failed');
+          return res.status(500).json({ error:'Could not save verification securely. Please try again later.' });
+        }
+      });
+    } catch (e) { next(e); }
+  });
+});
+
+app.get('/kyc', requireAuth, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    let existingKycStatus = null;
+    let existingKycNote = '';
+    try {
+      const [existingKycRows] = await pool.execute('SELECT status, reviewer_note, submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[m.id]);
+      if (existingKycRows.length) {
+        existingKycStatus = String(existingKycRows[0].status || '').trim().toLowerCase();
+        existingKycNote = existingKycRows[0].reviewer_note || '';
+      }
+    } catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    let kycReady = false;
+    let kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted.';
+    try {
+      const storage = getKycStorageConfig();      fs.accessSync(storage.directory, fs.constants.W_OK);
+      await pool.execute('SELECT 1 FROM kyc_submissions LIMIT 0');
+      await pool.execute('SELECT 1 FROM kyc_review_events LIMIT 0');
+      kycReady = true;
+      kycReadinessMessage = 'Your identity documents are encrypted before private storage. The server will re-check readiness when you submit.';    } catch (readinessError) {
+      if (readinessError && readinessError.code === 'ER_NO_SUCH_TABLE') {
+        kycReadinessMessage = 'Secure verification is temporarily unavailable. Your information and documents will not be submitted. Please try again later.';
+      } else if (readinessError && ['ER_ACCESS_DENIED_ERROR','ECONNREFUSED','ETIMEDOUT','ENOTFOUND'].includes(readinessError.code)) {
+        kycReadinessMessage = 'Secure verification cannot connect to its database right now. Your information and documents will not be submitted.';
+      } else if (readinessError && readinessError.status === 503) {        kycReadinessMessage = 'Secure document storage is not configured yet. Your information and documents will not be submitted.';
+      } else {
+        console.error('[kyc readiness]', readinessError && readinessError.code ? readinessError.code : 'readiness_check_failed');
+        kycReadinessMessage = 'Secure verification could not confirm that storage and database services are ready. Your information and documents will not be submitted.';
+      }
+    }
+    res.set('Cache-Control','no-store');
+    if (existingKycStatus === 'approved') {
+      const approvedContent = '<main class="kyc-status-card kyc-status-approved" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">✓</div><p class="kyc-status-overline">IDENTITY CHECK COMPLETE</p><p class="kyc-status-chip"><span aria-hidden="true"></span> VERIFIED MEMBER</p><h2 id="kycStatusTitle">Your identity is verified.</h2><p class="kyc-status-lead">Your identity review is complete. Your verification remains on file, so you do not need to submit these documents again unless our review team requests an update.</p><div class="kyc-status-facts"><div><span>Verification status</span><strong>Approved · No action needed</strong></div><div><span>Account access</span><strong>Your member workspace is ready</strong></div></div><section class="kyc-member-next" aria-labelledby="kycMemberNextTitle"><p class="kyc-member-next-kicker">YOUR MEMBER SPACE</p><h3 id="kycMemberNextTitle">Where would you like to go?</h3><div class="kyc-member-links"><a href="/dashboard"><span class="kyc-member-link-icon" aria-hidden="true">⌂</span><span><strong>Dashboard</strong><small>Return to your account overview</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/profile"><span class="kyc-member-link-icon" aria-hidden="true">◎</span><span><strong>Profile &amp; payout details</strong><small>Review your personal and bank details</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a><a href="/transactions"><span class="kyc-member-link-icon" aria-hidden="true">↔</span><span><strong>Account activity</strong><small>Review your financial activity and records</small></span><span class="kyc-member-arrow" aria-hidden="true">↗</span></a></div></section><p class="kyc-status-foot">Your KYC approval is a verification result, not a promise of financial eligibility. Any financial request is subject to its own account requirements and review.</p></main>';
+      return res.send(wizardPage('KYC Verification',approvedContent,req));
+    }
+    if (existingKycStatus === 'pending') {
+      const pendingContent = '<main class="kyc-status-card kyc-status-pending" aria-labelledby="kycStatusTitle"><div class="kyc-status-icon" aria-hidden="true">◷</div><p class="kyc-status-overline">APPLICATION RECEIVED</p><p class="kyc-status-chip">UNDER REVIEW</p><h2 id="kycStatusTitle">Your verification is in review.</h2><p class="kyc-status-lead">Your documents have been submitted for review. There is nothing else you need to submit right now.</p><div class="kyc-review-timeline"><span class="kyc-review-check" aria-hidden="true">✓</span><div><strong>Submission received</strong><small>Your application is saved securely.</small></div><span class="kyc-review-current" aria-hidden="true"></span><div><strong>Review in progress</strong><small>We will update your account when a decision is made.</small></div></div><div class="kyc-status-actions"><a class="kyc-btn kyc-btn-primary" href="/dashboard">Return to dashboard</a></div><p class="kyc-status-foot">Please avoid submitting a duplicate application while this review is in progress.</p></main>';
+      return res.send(wizardPage('KYC Verification',pendingContent,req));
+    }
+    const statusNotice = existingKycStatus === 'rejected'
+      ? '<section class="kyc-review-notice is-rejected" role="status"><span class="kyc-notice-icon" aria-hidden="true">!</span><div><strong>Updates needed before approval</strong><p>' + esc(existingKycNote || 'Your previous submission was not approved. Review the note and update your details before resubmitting.') + '</p></div></section>'
+      : existingKycStatus === 'needs_resubmission'
+        ? '<section class="kyc-review-notice is-resubmit" role="status"><span class="kyc-notice-icon" aria-hidden="true">↻</span><div><strong>Please update your verification</strong><p>' + esc(existingKycNote || 'The review team has requested an updated submission. Review your details and documents before resubmitting.') + '</p></div></section>'
+        : '';
+    const content = `
+      ${statusNotice}
+      <div class="kyc-intro"><span class="kyc-intro-badge" aria-hidden="true">01 — 04</span><div><strong>Your identity. Protected.</strong><p>Complete four short steps using accurate details that match your identity document. You can review each step before submitting.</p></div></div>
+      <div class="kyc-security-note ${kycReady ? 'is-ready' : 'is-unavailable'}" role="status" aria-live="polite"><span class="kyc-lock" aria-hidden="true">⌑</span><span><strong>${kycReady ? 'Secure verification ready' : 'Secure verification unavailable'}</strong><small>${esc(kycReadinessMessage)}</small></span></div>
+      <div class="kyc-progress" role="list" aria-label="Verification progress">
+        <div class="kyc-progress-step is-active" data-progress-step="0" role="listitem"><span class="kyc-step-dot">1</span><span class="kyc-step-name">Personal</span></div><span class="kyc-progress-line"><i></i></span>
+        <div class="kyc-progress-step" data-progress-step="1" role="listitem"><span class="kyc-step-dot">2</span><span class="kyc-step-name">Address</span></div><span class="kyc-progress-line"><i></i></span>
+        <div class="kyc-progress-step" data-progress-step="2" role="listitem"><span class="kyc-step-dot">3</span><span class="kyc-step-name">Identity</span></div><span class="kyc-progress-line"><i></i></span>
+        <div class="kyc-progress-step" data-progress-step="3" role="listitem"><span class="kyc-step-dot">4</span><span class="kyc-step-name">Photos</span></div>
+      </div>
+      <form id="kycWizard" novalidate>
+        ${csrfField(req)}
+        <section class="kyc-stage is-current" data-stage="0">
+          <p class="kyc-stage-kicker">STEP 01 OF 04</p><h2>Let's start with you</h2><p class="kyc-stage-copy">Enter your personal details exactly as they appear on your identity document.</p>
+          <label for="kycName">Full legal name</label><input id="kycName" name="legalFullName" value="${esc(m.full_name)}" maxlength="160" autocomplete="name" required>
+          <div class="kyc-two-col"><div><label for="kycDob">Date of birth</label><input id="kycDob" name="dateOfBirth" type="date" required></div><div><label for="kycPhone">Phone number</label><input id="kycPhone" name="phoneNumber" type="tel" maxlength="32" autocomplete="tel" required></div></div>
+          <label for="kycEmail">Email address</label><input id="kycEmail" name="contactEmail" type="email" value="${esc(m.email)}" maxlength="254" autocomplete="email" required>
+        </section>
+        <section class="kyc-stage" data-stage="1" hidden>
+          <p class="kyc-stage-kicker">STEP 02 OF 04</p><h2>Where do you live?</h2><p class="kyc-stage-copy">Use your current residential address. We may use it to confirm your identity.</p>
+          <label for="kycCountry">Country of residence</label><select id="kycCountry" name="countryCode" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option><option value="OTHER">Other</option></select>
+          <label for="kycState">State / region</label><input id="kycState" name="stateRegion" maxlength="120" autocomplete="address-level1" required>
+          <div class="kyc-two-col"><div><label for="kycLga">City / LGA</label><input id="kycLga" name="localityLga" maxlength="120" autocomplete="address-level2" required></div><div><label for="kycAddress">Street address</label><input id="kycAddress" name="streetAddress" maxlength="240" autocomplete="street-address" required></div></div>
+        </section>
+        <section class="kyc-stage" data-stage="2" hidden>
+          <p class="kyc-stage-kicker">STEP 03 OF 04</p><h2>Verify your identity</h2><p class="kyc-stage-copy">Choose the document you will use and enter its details carefully.</p>
+          <label for="kycDocType">Identity document</label><select id="kycDocType" name="documentType" required><option value="">Select a document</option><option value="national_id">National identity card</option><option value="passport">International passport</option><option value="drivers_license">Driver's licence</option><option value="voters_card">Voter's card</option></select>
+          <label for="kycDocCountry">Issuing country</label><select id="kycDocCountry" name="documentIssuerCountry" required><option value="NG" selected>Nigeria</option><option value="GH">Ghana</option><option value="KE">Kenya</option><option value="ZA">South Africa</option></select>
+          <label for="kycDocNumber">Document number</label><input id="kycDocNumber" name="documentNumber" maxlength="80" autocomplete="off" aria-describedby="kycDocNumberError" required><p id="kycDocNumberError" class="kyc-field-error" role="alert" hidden></p>
+          <div class="kyc-hint">Your document details are encrypted before storage. Submit only genuine documents belonging to you.</div>
+        </section>
+        <section class="kyc-stage" data-stage="3" hidden>
+          <p class="kyc-stage-kicker">STEP 04 OF 04</p><h2>Documents & selfie</h2><p class="kyc-stage-copy">Please provide clear images of your document and a selfie. Do not continue if verification is unavailable.</p>
+          <div class="kyc-upload-grid">
+            <label class="kyc-upload-card" for="kycFront"><span class="kyc-upload-icon">＋</span><strong>Front of ID</strong><small>Upload an image from your device</small><input id="kycFront" name="documentFront" type="file" accept="image/jpeg,image/png" data-preview="kycFrontPreview"><img id="kycFrontPreview" alt="Front of ID preview" hidden></label>
+            <label class="kyc-upload-card" for="kycBackImage"><span class="kyc-upload-icon">＋</span><strong>Back of ID / document</strong><small>Required for cards and licences; optional for passports</small><input id="kycBackImage" name="documentBack" type="file" accept="image/jpeg,image/png" data-preview="kycBackPreview"><img id="kycBackPreview" alt="Back of ID preview" hidden></label>
+            <div class="kyc-upload-card kyc-selfie-card"><span class="kyc-upload-icon">◎</span><strong>Live selfie</strong><small>Use your front camera to take a selfie</small><video id="kycSelfieVideo" autoplay playsinline muted hidden></video><canvas id="kycSelfieCanvas" hidden></canvas><img id="kycSelfiePreview" alt="Captured selfie preview" hidden><div class="kyc-camera-actions"><button type="button" class="kyc-camera-btn" id="kycStartCamera">Open camera</button><button type="button" class="kyc-camera-btn" id="kycCaptureSelfie" hidden>Capture selfie</button><button type="button" class="kyc-camera-btn" id="kycRetakeSelfie" hidden>Retake</button></div><p class="kyc-camera-status" id="kycCameraStatus" aria-live="polite">Selfie is camera capture only; image file selection is disabled.</p></div>
+          </div>
+          <div class="kyc-consent"><label for="kycConfirm"><input type="checkbox" id="kycConfirm" required> I confirm that the information is accurate and the images belong to me.</label></div>
+          <div class="kyc-final-note" id="kycSubmitNotice" role="status">Your documents are encrypted for private storage. Submission is checked securely when you send your application.</div>
+        </section>
+        <div class="kyc-actions"><button type="button" id="kycBack" class="kyc-btn kyc-btn-secondary" hidden>Back</button><span class="kyc-steps-count" id="kycStepCount">Step 1 of 4</span><button type="button" id="kycNext" class="kyc-btn kyc-btn-primary">Continue <span aria-hidden="true">→</span></button></div>
+        <p class="kyc-form-message" id="kycMessage" aria-live="polite"></p>
+      </form>`;
+    res.send(wizardPage('KYC Verification', content, req));
+  } catch (e) { next(e); }
+});
+app.get('/api/deposit-quote', requireAuth, async (req,res,next) => {
+  try {
+    const currency=String(req.query.currency||''), amount=Number(req.query.amount), methodId=String(req.query.payment_method_id||'');
+    if (!['NGN','USD'].includes(currency) || !Number.isFinite(amount) || amount<=0 || amount>1000000000) return res.status(400).json({error:'invalid_quote'});
+    const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
+    const base=pricing && Number(pricing.base_usd_ngn_rate);
+    if (!base || !Number.isFinite(base) || base<=0) return res.status(503).json({error:'quote_unavailable'});
+    const rate=base*(1+Number(pricing.markup_percent||0)/100);
+    let feeUsd=null;
+    if(methodId){
+      if(!/^\d{1,20}$/.test(methodId))return res.status(400).json({error:'invalid_destination'});
+      const [[method]]=await pool.execute('SELECT method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
+      if(!method || !Number(method.is_active) || method.currency!==currency || (method.method_type==='wallet' && currency!=='USD'))return res.status(400).json({error:'destination_unavailable'});
+      feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd);
+    }
+    const amountUsd=currency==='USD'?amount:amount/rate, amountNgn=currency==='NGN'?amount:amount*rate;
+    const feeNgn=feeUsd===null?null:feeUsd*rate, totalUsd=feeUsd===null?null:amountUsd+feeUsd, totalNgn=feeUsd===null?null:amountNgn+feeNgn;
+    res.set('Cache-Control','no-store');
+    res.json({currency,amountUsd,amountNgn,feeUsd,feeNgn,totalUsd,totalNgn,hasMethod:feeUsd!==null});
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'quote_unavailable'}); next(e); }
+});
+app.get('/deposit', requireAuth, requireApprovedKyc, async (req,res,next) => {
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
+    const [methods] = await pool.query('SELECT id,method_type,currency,label,bank_name,account_name,account_number,bank_code,wallet_network,wallet_asset,wallet_address,instructions FROM deposit_payment_methods WHERE is_active=1 ORDER BY currency,method_type,label');
+    const [history] = await pool.query('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 30',[m.id]);
+    const baseRate=pricing && pricing.base_usd_ngn_rate!==null ? Number(pricing.base_usd_ngn_rate) : null;
+    const effectiveRate=baseRate!==null ? baseRate*(1+Number(pricing.markup_percent)/100) : null;
+    const methodsJson=JSON.stringify(methods.map(x=>({id:Number(x.id),method_type:x.method_type,currency:x.currency,label:x.label,bank_name:x.bank_name,account_name:x.account_name,account_number:x.account_number,bank_code:x.bank_code,wallet_network:x.wallet_network,wallet_asset:x.wallet_asset,wallet_address:x.wallet_address,instructions:x.instructions}))).replace(/</g,'\\u003c');
+    const pricingJson=JSON.stringify({configured:effectiveRate!==null,bankFeeUsd:Number(pricing && pricing.bank_fee_usd || 0),walletFeeUsd:Number(pricing && pricing.wallet_fee_usd || 0)}).replace(/</g,'\\u003c');
+    const requestedDepositId=String(req.query.request||'');
+    let submittedDeposit=null;
+    if(req.query.submitted==='1' && /^\d{1,20}$/.test(requestedDepositId)){
+      const [[submittedRow]]=await pool.execute('SELECT id,status,currency,amount,reviewer_note FROM deposit_requests WHERE id=? AND member_id=?',[requestedDepositId,m.id]);
+      submittedDeposit=submittedRow||null;
+    }
+    const historyRows=history.map(d=>'<tr><td>#'+Number(d.id)+'<br><small>'+esc(d.created_at)+'</small></td><td>'+esc(d.currency+' '+Number(d.amount).toLocaleString('en-US',{maximumFractionDigits:8}))+'<br><small>Fee '+esc(d.currency+' '+Number(d.fee_amount).toLocaleString('en-US',{maximumFractionDigits:8}))+'</small></td><td>'+esc(d.payment_label)+'<br><small>'+esc(d.payment_reference)+'</small></td><td><span class="ac-pill">'+esc(d.status.toUpperCase())+'</span>'+(d.reviewer_note?'<p class="muted small">'+esc(d.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    const notice='';
+    const notReady=effectiveRate===null?'<div class="deposit-inline-notice">Deposits are temporarily unavailable. Please try again later.</div>':(methods.length===0?'<div class="deposit-inline-notice">No payment destinations are available right now. Please check back later.</div>':'');
+    const workflow=req.query.submitted==='1'
+       ? (submittedDeposit && submittedDeposit.status==='approved' ? '<section class="deposit-success-panel is-approved"><span class="deposit-success-icon" aria-hidden="true">✓</span><p class="deposit-eyebrow">PAYMENT CONFIRMED</p><h2>Your deposit was successful</h2><p>'+esc(Number(submittedDeposit.amount).toLocaleString('en-US',{maximumFractionDigits:8})+' '+submittedDeposit.currency)+' has been credited to your wallet.</p><div class="deposit-success-actions"><a class="btn" href="/dashboard">Back to dashboard</a><a class="deposit-secondary-link" href="/notifications">View notification</a></div></section>' : submittedDeposit && submittedDeposit.status==='rejected' ? '<section class="deposit-success-panel is-rejected"><span class="deposit-success-icon" aria-hidden="true">!</span><p class="deposit-eyebrow">PAYMENT NEEDS ATTENTION</p><h2>Your deposit was not approved</h2><p>'+esc(submittedDeposit.reviewer_note||'Please review your notification for next steps.')+'</p><div class="deposit-success-actions"><a class="btn" href="/deposit">Submit another deposit</a><a class="deposit-secondary-link" href="/notifications">View notification</a></div></section>' : '<section class="deposit-success-panel"><span class="deposit-success-icon" aria-hidden="true">✓</span><p class="deposit-eyebrow">REQUEST RECEIVED</p><h2>Your deposit is under review</h2><p>We have received your payment details and receipt. We will notify you when the review is complete. Your wallet will only be credited after approval.</p><div class="deposit-success-actions"><a class="btn" href="/dashboard">Back to dashboard</a><a class="deposit-secondary-link" href="/notifications">View notifications</a></div></section>')
+      : '<form id="depositForm" method="post" action="/deposit" enctype="multipart/form-data" class="deposit-workflow">'+csrfField(req)+
+        '<ol class="deposit-progress" aria-label="Deposit progress"><li class="is-active" data-step-indicator="0"><span>01</span><div><b>Amount</b><small>Set your deposit</small></div></li><li data-step-indicator="1"><span>02</span><div><b>Payment</b><small>Choose how to pay</small></div></li><li data-step-indicator="2"><span>03</span><div><b>Receipt</b><small>Upload proof securely</small></div></li></ol>'+
+        '<div class="deposit-step" data-deposit-step="0"><div class="deposit-step-heading"><span class="deposit-step-kicker">STEP 1 OF 3</span><h3>How much would you like to fund?</h3><p>Enter the amount you want credited to your wallet. You can review the fee and full payment total before sending.</p></div><div class="deposit-input-grid"><div class="deposit-field"><label for="depositCurrency">Wallet currency</label><select id="depositCurrency" name="currency" required><option value="NGN">Naira (NGN)</option><option value="USD">US Dollars (USD)</option></select><small class="deposit-field-hint">Crypto wallet deposits are processed in USD.</small></div><div class="deposit-field"><label for="depositAmount">Amount to fund</label><input id="depositAmount" name="amount" type="number" min="1" max="1000000000" step="0.01" inputmode="decimal" required placeholder="e.g. 50000"><small class="deposit-field-hint">Enter the amount in the currency selected.</small></div></div><div class="deposit-step-actions"><a class="deposit-cancel-link" href="/dashboard">Cancel</a><button class="btn deposit-next" type="button" id="depositNextAmount">Continue to payment <span aria-hidden="true">→</span></button></div></div>'+
+        '<div class="deposit-step" data-deposit-step="1" hidden><div class="deposit-step-heading"><span class="deposit-step-kicker">STEP 2 OF 3</span><h3>Choose how you want to pay</h3><p>Confirm the destination and amount carefully. Use the copy buttons to avoid transfer mistakes.</p></div><div class="deposit-summary-strip"><span>Amount to fund</span><strong id="depositStepAmount">—</strong><button type="button" class="deposit-text-button" id="depositEditAmount">Edit amount</button></div><div class="deposit-method-switch" role="group" aria-label="Choose payment method"><button type="button" class="deposit-method-tab is-active" data-payment-mode="bank" aria-pressed="true"><span aria-hidden="true">▤</span><strong>Bank transfer</strong><small>Pay from your bank</small></button><button type="button" class="deposit-method-tab" data-payment-mode="wallet" aria-pressed="false"><span aria-hidden="true">◇</span><strong>Wallet address</strong><small>Crypto transfer</small></button></div><div id="depositMethodNotice" class="deposit-inline-notice" hidden></div><div class="deposit-destination-picker"><label for="depositMethod">Select payment destination</label><select id="depositMethod" name="payment_method_id" required><option value="">Choose an active destination</option></select></div><div id="depositPaymentDetails" class="deposit-payment-details" hidden></div>'+
+        '<section class="section-card deposit-calculator" aria-live="polite"><div class="deposit-calculator-heading"><div><span class="deposit-eyebrow">PAYMENT SUMMARY</span><h3>Amount, fee &amp; total</h3></div><span class="deposit-live-pill"><i></i> Live estimate</span></div><p class="deposit-rate-line"></p><div class="deposit-calculator-grid"><div class="deposit-calc-item"><span>Amount to fund</span><strong id="calcAmount">—</strong><small id="calcAmountOther">USD / NGN equivalent: —</small></div><div class="deposit-calc-item"><span>Transaction fee</span><strong id="calcFee">—</strong><small id="calcFeeOther">USD / NGN equivalent: —</small></div><div class="deposit-calc-item deposit-calc-total"><span>Total amount to pay</span><strong id="calcTotal">—</strong><small id="calcTotalOther">USD / NGN equivalent: —</small></div></div><p class="muted small deposit-calculator-note">The summary always includes the USD amount and its Naira equivalent. Pay the total shown for your selected destination. Crypto transfers must use the exact asset and network displayed.</p></section><div class="deposit-step-actions"><button class="deposit-back" type="button" id="depositBackAmount">← Back</button><button class="btn deposit-next" type="button" id="depositNextPayment">I have completed payment <span aria-hidden="true">→</span></button></div></div>'+
+        '<div class="deposit-step" data-deposit-step="2" hidden><div class="deposit-step-heading"><span class="deposit-step-kicker">STEP 3 OF 3</span><h3>Upload your payment receipt</h3><p>After sending the exact total shown in the previous step, provide your transfer reference and proof so the team can verify it.</p></div><div class="deposit-final-summary"><div><span>Payment destination</span><strong id="depositFinalMethod">—</strong></div><div><span>Total to pay</span><strong id="depositFinalTotal">—</strong></div></div><label for="paymentReference">Transfer reference / transaction ID</label><input id="paymentReference" name="payment_reference" maxlength="190" autocomplete="off" required placeholder="Bank reference or blockchain transaction ID"><label for="paymentProof">Payment receipt / proof (JPG, PNG, WEBP or PDF · max 5 MB)</label><input id="paymentProof" name="payment_proof" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required><p class="muted small">Your receipt is stored privately for the admin review. Accepted formats: JPG, PNG, WEBP or PDF, up to 5 MB.</p><label for="memberNote">Additional note (optional)</label><textarea id="memberNote" name="member_note" maxlength="1000" rows="3" placeholder="Optional details to help verify your payment"></textarea><label class="deposit-confirm-check"><input type="checkbox" id="depositPaymentAttestation" required><span>I confirm that I have sent the payment and the details above are accurate.</span></label><div class="deposit-step-actions"><button class="deposit-back" type="button" id="depositBackPayment">← Back to payment</button><button class="btn deposit-next" type="submit" id="depositConfirmSubmit">Confirm deposit</button></div><p class="muted small deposit-final-note">Your deposit remains pending until an administrator verifies the payment. Never upload a receipt for a payment you have not made.</p></div></form>';
+    const statusPollScript=submittedDeposit && submittedDeposit.status==='pending' ? '<script>(function(){var id='+Number(submittedDeposit.id)+',timer=setInterval(function(){fetch("/api/deposit-status/"+id,{credentials:"same-origin",cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("status unavailable");return r.json()}).then(function(d){if(d.status==="approved"||d.status==="rejected"){clearInterval(timer);window.location.assign("/deposit?submitted=1&request="+id)}}).catch(function(){})},15000)})();</script>' : '';
+    const content='<div class="member-card deposit-page-card"><div class="deposit-page-intro"><span class="deposit-eyebrow">FUND YOUR ACCOUNT</span><h2>Make a deposit</h2><p class="muted">Complete the three secure steps to fund your Monarch Codex wallet.</p></div>'+notice+notReady+workflow+statusPollScript+'</div>'+
+      '<div class="member-card deposit-history-card"><div class="deposit-history-heading"><div><span class="deposit-eyebrow">YOUR ACTIVITY</span><h2>Deposit history</h2></div><span class="deposit-history-count">'+history.length+' recent '+(history.length===1?'request':'requests')+'</span></div><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Request</th><th>Amount / fee</th><th>Payment details</th><th>Status</th></tr></thead><tbody>'+(historyRows||'<tr><td colspan="4">No deposit requests yet.</td></tr>')+'</tbody></table></div></div>'+
+      '<script>window.monarchDepositMethods='+methodsJson+';window.monarchDepositPricing='+pricingJson+';</script><script src="/assets/js/deposit-wizard.js?v=20261016-layout2" defer></script>';
+    res.send(memberPage('Deposit','/deposit',m,content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Deposit','/deposit',await getMemberForPage(req,res),'<div class="member-card"><h2>Deposits temporarily unavailable</h2><p>Please try again later.</p></div>',req)); next(e); }
+});
+app.post('/deposit', requireAuth, requireApprovedKyc, parseDepositProof, csrfCheck, async (req,res,next) => {
+  const currency=String(req.body.currency||''), methodId=String(req.body.payment_method_id||''), reference=String(req.body.payment_reference||'').trim().slice(0,190), note=String(req.body.member_note||'').trim().slice(0,1000);
+  const amount=Number(req.body.amount);
+  if (!['NGN','USD'].includes(currency) || !/^\d{1,20}$/.test(methodId) || !Number.isFinite(amount) || amount<=0 || amount>1000000000 || !reference || !req.file) return res.status(400).send(formError('Check your deposit details','Enter a valid currency and amount, choose an active payment destination, and provide your transfer reference and receipt.','/deposit'));
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [[pricing]]=await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
+    if(!pricing || pricing.base_usd_ngn_rate===null || Number(pricing.base_usd_ngn_rate)<=0) return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit'));
+    const [[method]]=await pool.execute('SELECT id,method_type,currency,is_active FROM deposit_payment_methods WHERE id=?',[methodId]);
+    if(!method || !Number(method.is_active) || method.currency!==currency || (method.method_type==='wallet' && currency!=='USD')) return res.status(400).send(formError('Payment destination unavailable','Choose an active payment destination for the selected currency.','/deposit'));
+    const base=Number(pricing.base_usd_ngn_rate), rate=base*(1+Number(pricing.markup_percent)/100), feeUsd=method.method_type==='wallet'?Number(pricing.wallet_fee_usd):Number(pricing.bank_fee_usd), fee=currency==='NGN'?feeUsd*rate:feeUsd, total=amount+fee;
+    const [insertResult]=await pool.execute('INSERT INTO deposit_requests (member_id,currency,amount,fee_usd,fee_amount,base_usd_ngn_rate,effective_usd_ngn_rate,total_due,payment_method_id,payment_reference,proof_storage_key,proof_mime_type,proof_original_name,member_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[m.id,currency,amount,feeUsd,fee,base,rate,total,methodId,reference,req.file.filename,req.file.mimetype,path.basename(req.file.originalname).slice(0,255),note||null]);
+    res.redirect('/deposit?submitted=1&request='+encodeURIComponent(insertResult.insertId));
+  } catch(e) { if(req.file) fs.unlink(req.file.path,()=>{}); if(e.code==='ER_DUP_ENTRY') return res.status(409).send(formError('Reference already submitted','This payment reference has already been submitted for your account. Check your deposit history or contact support.','/deposit')); if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(formError('Deposits temporarily unavailable','Please try again later.','/deposit')); next(e); }
+});
+app.get('/withdraw', requireAuth, requireApprovedKyc, async (req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res); if(!m)return;
+    const [bankRows]=await pool.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE member_id=? AND deleted_at IS NULL ORDER BY id DESC',[m.id]);
+    const banks=bankRows.map(r=>({id:r.id,...JSON.parse(decryptProfileValue(r.details_ciphertext))}));
+    const [[latestKyc]]=await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",[m.id]);
+    const kycStatus=latestKyc?String(latestKyc.status||'').trim().toLowerCase():'not_submitted', kycApproved=kycStatus==='approved';
+    const [walletRows]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[m.id]);
+    const [reservedRows]=await pool.execute("SELECT currency,COALESCE(SUM(amount),0) AS reserved FROM withdrawal_requests WHERE member_id=? AND status IN ('pending','approved') GROUP BY currency",[m.id]);
+    const wallet={NGN:0,USD:0},reserved={NGN:0,USD:0};
+    walletRows.forEach(r=>{if(Object.prototype.hasOwnProperty.call(wallet,r.currency))wallet[r.currency]=Number(r.balance)||0;});
+    reservedRows.forEach(r=>{if(Object.prototype.hasOwnProperty.call(reserved,r.currency))reserved[r.currency]=Number(r.reserved)||0;});
+    const available={NGN:Math.max(0,wallet.NGN-reserved.NGN),USD:Math.max(0,wallet.USD-reserved.USD)};
+    const hasFunds=available.NGN>0||available.USD>0, canRequest=kycApproved&&banks.length>0&&hasFunds;
+    const heroStatus=!kycApproved?(kycStatus==='pending'?'KYC under review':'KYC approval required'):!banks.length?'Add a payout account':!hasFunds?'No available wallet balance':'Ready to request';
+    const bankOptions=banks.map(b=>'<option value="'+esc(b.id)+'">'+esc((b.bankName||'Saved bank')+' · '+(b.bankAccountName||'Account holder')+' · •••• '+String(b.bankAccountNumber||'').slice(-4))+'</option>').join('');
+    const currencyOptions=(available.NGN>0?'<option value="NGN">Nigerian naira (NGN)</option>':'')+(available.USD>0?'<option value="USD"'+(available.NGN>0?'':' selected')+'>US dollars (USD)</option>':'');
+    const requestPanel=canRequest
+      ? '<aside class="withdraw-panel"><p class="withdraw-kicker">WITHDRAWAL REQUEST</p><h3>Your verification is approved</h3><p class="withdraw-sub">Choose a saved payout account and request an amount within your available wallet balance. An administrator must independently confirm maturity and eligibility before approval. No transfer happens automatically.</p><form method="post" action="/withdraw" class="withdraw-form">'+csrfField(req)+'<label for="withdrawBank">Payout account</label><select id="withdrawBank" name="bank_account_id" required>'+bankOptions+'</select><label for="withdrawCurrency">Wallet currency</label><select id="withdrawCurrency" name="currency" data-max-ngn="'+available.NGN.toFixed(8)+'" data-max-usd="'+available.USD.toFixed(8)+'" required>'+currencyOptions+'</select><div class="withdraw-available"><span>Available NGN</span><strong>₦'+available.NGN.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong><span>Available USD</span><strong>$'+available.USD.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong></div><label for="withdrawAmount">Amount to request</label><input id="withdrawAmount" name="amount" type="number" min="0.01" max="'+(available.NGN>0?available.NGN:available.USD).toFixed(8)+'" step="0.01" inputmode="decimal" required><label for="withdrawNote">Note for the review team (optional)</label><textarea id="withdrawNote" name="member_note" rows="2" maxlength="500" placeholder="Add context for your request"></textarea><button class="btn withdraw-submit" type="submit">Submit withdrawal request →</button></form><p class="withdraw-sub">Requests remain pending until reviewed. A request is not a payment confirmation.</p><script>(function(){var c=document.getElementById("withdrawCurrency"),a=document.getElementById("withdrawAmount");if(!c||!a)return;function sync(){var max=Number(c.value==="NGN"?c.dataset.maxNgn:c.dataset.maxUsd)||0;a.max=String(max);if(Number(a.value)>max)a.value=max>0?String(max):""}c.addEventListener("change",sync);sync()})();</script></aside>'
+      : '<aside class="withdraw-panel"><p class="withdraw-kicker">WITHDRAWAL READINESS</p><h3>'+(!kycApproved?'Identity approval required':!banks.length?'Add a payout destination':'No available wallet balance')+'</h3><p class="withdraw-sub">'+(!kycApproved?(kycStatus==='pending'?'Your KYC submission is awaiting administrator review. Withdrawal requests unlock after approval.':'Complete KYC and wait for an administrator to approve it before requesting a withdrawal.') : !banks.length?'Save a bank account in your profile before requesting a withdrawal.':'Your available balance is zero or currently reserved by pending or approved requests.')+'</p><ul class="withdraw-checks"><li><strong>'+(kycApproved?'✓':'01')+' · Identity verification</strong><span>'+(kycApproved?'Approved':'Must be approved by the review team')+'</span></li><li><strong>'+(banks.length?'✓':'02')+' · Payout account</strong><span>'+(banks.length?'Saved account available':'Add a bank account to your profile')+'</span></li><li><strong>'+(hasFunds?'✓':'03')+' · Available wallet balance</strong><span>'+(hasFunds?'Funds available for a request':'A positive unreserved balance is required')+'</span></li></ul><a class="withdraw-link" href="'+(!kycApproved?'/kyc':!banks.length?'/profile':'/transactions')+'">'+(!kycApproved?'Review verification status':!banks.length?'Manage bank account':'View wallet activity')+' ↗</a></aside>';
+    const [history]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 10',[m.id]);
+    const historyRows=history.map(w=>'<tr><td>#'+Number(w.id)+'<br><small>'+esc(w.created_at)+'</small></td><td>'+esc(w.currency+' '+Number(w.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</td><td><span class="withdraw-status-label status-'+esc(w.status)+'">'+esc(w.status.toUpperCase())+'</span>'+(w.reviewer_note?'<p class="withdraw-sub">'+esc(w.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    let requestNotice='';
+    const requestedId=String(req.query.request||'');
+    if(/^\d{1,20}$/.test(requestedId)){
+      const [[requested]]=await pool.execute('SELECT id,status FROM withdrawal_requests WHERE id=? AND member_id=?',[requestedId,m.id]);
+      if(requested)requestNotice='<div class="withdraw-notice" role="status"><strong>Request #'+Number(requested.id)+' received.</strong> Current status: '+esc(requested.status.toUpperCase())+'. This is a review request, not a payment confirmation.</div>';
+    }
+    const bankCards=banks.length?banks.map((b,i)=>'<div class="withdraw-bank-row"><span class="withdraw-bank-icon">'+esc(String(b.bankName||'B').trim().slice(0,1).toUpperCase())+'</span><span class="withdraw-bank-copy"><strong>'+esc(b.bankName||'Saved bank')+'</strong><small>'+esc(b.bankAccountName||'Account holder')+'</small></span><span class="withdraw-mask">•••• '+esc(String(b.bankAccountNumber||'').slice(-4))+'</span>'+(i===0?'<span class="withdraw-recent">RECENT</span>':'')+'</div>').join(''):'<div class="withdraw-empty"><strong>No payout account yet</strong><p>Add a bank account to your profile so your payout details are ready.</p><a class="withdraw-link" href="/profile">Add bank account ↗</a></div>';
+    const body = `<style>
+.withdraw-page{--wd-gold:#dfbd62;--wd-gold-bright:#f7e4a0;--wd-border:rgba(223,189,98,.2);--wd-muted:#aaa79e;display:grid;gap:18px;width:100%;max-width:1120px;margin:0 auto;color:#f5f1e8;min-width:0}
+.withdraw-page *{box-sizing:border-box}
+.withdraw-page .withdraw-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:clamp(22px,4vw,38px);border:1px solid var(--wd-border);border-radius:24px;background:radial-gradient(ellipse at 90% 0%,rgba(216,180,90,.16),transparent 42%),linear-gradient(135deg,#191916,#10100f 70%,#1b1810);min-width:0}
+.withdraw-page .withdraw-hero-copy{min-width:0;max-width:680px}
+.withdraw-page .withdraw-eyebrow,.withdraw-page .withdraw-kicker{display:block;color:var(--wd-gold);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase;margin:0 0 10px}
+.withdraw-page .withdraw-hero h2{font-size:clamp(27px,4vw,39px);line-height:1.12;letter-spacing:-.04em;margin:0 0 10px;color:#fff}
+.withdraw-page .withdraw-hero p,.withdraw-page .withdraw-sub{color:#bdb8aa;font-size:13px;line-height:1.7;margin:8px 0}
+.withdraw-page .withdraw-hero-side{display:grid;justify-items:end;gap:12px;flex:0 0 auto}
+.withdraw-page .withdraw-status-label{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid var(--wd-border);border-radius:999px;background:rgba(216,180,90,.1);color:#f0d994;font-size:10px;font-weight:850;letter-spacing:.035em;white-space:normal}
+.withdraw-page .withdraw-status-label:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:0 0 6px}
+.withdraw-page .withdraw-hero-nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.withdraw-page .withdraw-hero-nav a,.withdraw-page .withdraw-link{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:9px 12px;border:1px solid var(--wd-border);border-radius:10px;color:var(--wd-gold-bright);text-decoration:none;font-size:11px;font-weight:800;transition:background .18s,border-color .18s}
+.withdraw-page .withdraw-hero-nav a:hover,.withdraw-page .withdraw-link:hover{background:rgba(216,180,90,.09);border-color:rgba(223,189,98,.48)}
+.withdraw-page .withdraw-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.withdraw-page .withdraw-metric{display:grid;gap:8px;min-width:0;padding:16px;border:1px solid rgba(255,255,255,.075);border-radius:16px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012))}
+.withdraw-page .withdraw-metric-top{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#a9a397;font-size:11px}
+.withdraw-page .withdraw-metric-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:rgba(216,180,90,.1);color:var(--wd-gold-bright);font-size:15px}
+.withdraw-page .withdraw-metric strong{font-size:clamp(15px,2vw,19px);color:#f5edcf;overflow-wrap:anywhere}
+.withdraw-page .withdraw-metric small{font-size:11px;color:#a9a397;line-height:1.5}
+.withdraw-page .withdraw-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
+.withdraw-page .withdraw-panel{min-width:0;padding:clamp(17px,2.5vw,25px);border:1px solid var(--wd-border);border-radius:19px;background:linear-gradient(155deg,rgba(255,255,255,.035),rgba(255,255,255,.012));overflow:hidden}
+.withdraw-page .withdraw-panel h3{margin:6px 0;color:#fff;font-size:19px;letter-spacing:-.02em}.withdraw-page .withdraw-bank-list{display:grid;gap:10px;margin-top:16px}
+.withdraw-page .withdraw-bank-row{display:flex;align-items:center;gap:10px;min-width:0;padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:13px;background:rgba(0,0,0,.15)}
+.withdraw-page .withdraw-bank-icon{display:grid;place-items:center;flex:0 0 38px;height:38px;border:1px solid var(--wd-border);border-radius:11px;background:rgba(216,180,90,.12);color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-bank-copy{display:grid;gap:4px;flex:1;min-width:0}
+.withdraw-page .withdraw-bank-copy strong,.withdraw-page .withdraw-bank-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.withdraw-page .withdraw-bank-copy strong{font-size:12px;color:#f4f0e7}.withdraw-page .withdraw-bank-copy small,.withdraw-page .withdraw-mask{font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-mask{white-space:nowrap}
+.withdraw-page .withdraw-recent{font-size:9px;color:var(--wd-gold);font-weight:850}
+.withdraw-page .withdraw-empty{padding:24px 16px;text-align:center;border:1px dashed var(--wd-border);border-radius:14px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-empty strong{color:#f4edda}
+.withdraw-page .withdraw-empty p{color:var(--wd-muted);font-size:12px;line-height:1.6}
+.withdraw-page .withdraw-form{display:grid;gap:10px;margin-top:16px}.withdraw-page .withdraw-form label{display:block;margin-top:5px;font-size:12px;font-weight:750;color:#e9e2d0}
+.withdraw-page .withdraw-form input,.withdraw-page .withdraw-form select,.withdraw-page .withdraw-form textarea{display:block;width:100%;min-width:0;min-height:44px;padding:12px;border:1px solid #514b3a;border-radius:10px;background:#0d0d10;color:#f8f5ec;font:inherit;font-size:13px;line-height:1.45}
+.withdraw-page .withdraw-form textarea{resize:vertical;min-height:72px}
+.withdraw-page .withdraw-form input:focus,.withdraw-page .withdraw-form select:focus,.withdraw-page .withdraw-form textarea:focus{outline:2px solid var(--wd-gold);outline-offset:2px}
+.withdraw-page .withdraw-available{display:grid;grid-template-columns:1fr auto;gap:7px 10px;padding:13px;border:1px solid rgba(216,180,90,.16);border-radius:12px;background:rgba(0,0,0,.13);font-size:11px;color:#bdb8aa}
+.withdraw-page .withdraw-available strong{text-align:right;color:#f4e3a4;font-variant-numeric:tabular-nums}
+.withdraw-page .withdraw-submit{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;cursor:pointer;border:1px solid #f1d575!important;border-radius:11px!important;background:linear-gradient(120deg,#d3ad4a,#f5df8c)!important;color:#18150c!important;font-size:12px;font-weight:900;box-shadow:0 9px 24px rgba(213,173,56,.1)}
+.withdraw-page .withdraw-submit:hover{filter:brightness(1.05)}
+.withdraw-page .withdraw-checks{display:grid;gap:10px;padding:0;margin:18px 0;list-style:none}
+.withdraw-page .withdraw-checks li{display:grid;gap:5px;min-width:0;padding:13px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-checks strong{font-size:12px;color:#eee8d8}
+.withdraw-page .withdraw-checks span{font-size:11px;color:#bdb8aa;line-height:1.5}
+.withdraw-page .withdraw-notice{padding:14px 16px;border:1px solid var(--wd-border);border-radius:12px;background:rgba(216,180,90,.07);color:#e9ce86;font-size:13px;line-height:1.6}
+.withdraw-page .withdraw-status-label.status-paid{background:rgba(55,145,89,.14);color:#94e3b0}
+.withdraw-page .withdraw-status-label.status-rejected{background:rgba(190,75,75,.13);color:#f0aaaa}
+.withdraw-page .withdraw-history{grid-column:1/-1}
+.withdraw-page .withdraw-table-wrap{width:100%;overflow-x:auto;border:1px solid rgba(255,255,255,.06);border-radius:12px}
+.withdraw-page .withdraw-table{width:100%;border-collapse:collapse;min-width:420px}
+.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:13px 12px;text-align:left;vertical-align:top;border-bottom:1px solid rgba(255,255,255,.07);font-size:12px;overflow-wrap:anywhere}
+.withdraw-page .withdraw-table th{color:#aaa18a;font-size:10px;text-transform:uppercase;letter-spacing:.1em;background:rgba(0,0,0,.12)}
+.withdraw-page .withdraw-table tr:last-child td{border-bottom:0}
+.withdraw-page .withdraw-table small{color:#aaa18a}
+.withdraw-page .withdraw-history-empty{padding:24px;text-align:center;color:#aaa79e;font-size:12px}
+.withdraw-page .withdraw-page-foot{margin:0;padding:0 2px;color:#98958c;font-size:11px;line-height:1.7}
+@media(max-width:820px){.withdraw-page .withdraw-hero{align-items:flex-start;flex-direction:column}.withdraw-page .withdraw-hero-side{justify-items:start;width:100%}.withdraw-page .withdraw-hero-nav{justify-content:flex-start}.withdraw-page .withdraw-layout{grid-template-columns:1fr}.withdraw-page .withdraw-history{grid-column:auto}}
+@media(max-width:560px){.withdraw-page{gap:13px}.withdraw-page .withdraw-hero{padding:21px 17px;border-radius:18px}.withdraw-page .withdraw-overview{grid-template-columns:1fr;gap:9px}.withdraw-page .withdraw-metric{grid-template-columns:36px minmax(0,1fr);align-items:center;column-gap:10px;padding:12px}.withdraw-page .withdraw-metric-icon{grid-row:span 2}.withdraw-page .withdraw-metric-top{align-self:end}.withdraw-page .withdraw-metric strong{font-size:16px}.withdraw-page .withdraw-panel{padding:16px 13px;border-radius:16px}.withdraw-page .withdraw-bank-row{gap:8px;padding:10px}.withdraw-page .withdraw-recent{display:none}.withdraw-page .withdraw-table th,.withdraw-page .withdraw-table td{padding:11px 9px}.withdraw-page .withdraw-hero-nav a{flex:1 1 auto}}
+@media(prefers-reduced-motion:reduce){.withdraw-page *{scroll-behavior:auto!important;transition:none!important}}
+
+</style>
+<div class="withdraw-page">
+  ${requestNotice}
+  <section class="withdraw-hero">
+    <div class="withdraw-hero-copy">
+      <span class="withdraw-eyebrow">MEMBER FINANCE · PAYOUT CENTRE</span>
+      <h2>Withdrawals, with clarity.</h2>
+      <p>Review your withdrawal readiness, saved payout details and request history in one place. Every request is reviewed before a transfer is marked complete.</p>
+    </div>
+    <div class="withdraw-hero-side">
+      <span class="withdraw-status-label">${esc(heroStatus)}</span>
+      <nav class="withdraw-hero-nav" aria-label="Account shortcuts">
+        <a href="/dashboard">Dashboard ↗</a>
+        <a href="/profile">Profile ↗</a>
+        <a href="/transactions">Activity ↗</a>
+      </nav>
+    </div>
+  </section>
+  <section class="withdraw-overview" aria-label="Withdrawal readiness summary">
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">✓</span>
+      <span class="withdraw-metric-top">Identity verification</span>
+      <strong>${kycApproved ? 'Approved' : kycStatus === 'pending' ? 'In review' : 'Action needed'}</strong>
+      <small>${kycApproved ? 'KYC is complete' : kycStatus === 'pending' ? 'Waiting for review' : 'Review your verification status'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◎</span>
+      <span class="withdraw-metric-top">Payout destination</span>
+      <strong>${banks.length ? banks.length + ' saved account' + (banks.length === 1 ? '' : 's') : 'Not added'}</strong>
+      <small>${banks.length ? 'Bank details are saved securely' : 'Add an account in your profile'}</small>
+    </div>
+    <div class="withdraw-metric">
+      <span class="withdraw-metric-icon" aria-hidden="true">◈</span>
+      <span class="withdraw-metric-top">Available funds</span>
+      <strong>${available.NGN > 0 ? '₦' + available.NGN.toLocaleString('en-NG',{maximumFractionDigits:2}) : available.USD > 0 ? '$' + available.USD.toLocaleString('en-US',{maximumFractionDigits:2}) : 'No available funds'}</strong>
+      <small>Unreserved wallet balance</small>
+    </div>
+  </section>
+  <div class="withdraw-layout">
+    <section class="withdraw-panel">
+      <p class="withdraw-kicker">PAYOUT DESTINATION</p>
+      <h3>Your bank accounts</h3>
+      <p class="withdraw-sub">Account numbers remain masked for privacy.</p>
+      <div class="withdraw-bank-list">${bankCards}</div>
+      ${banks.length ? '<a class="withdraw-link" href="/profile">Manage payout details ↗</a>' : ''}
+    </section>
+    ${requestPanel}
+    <section class="withdraw-panel withdraw-history">
+      <p class="withdraw-kicker">YOUR ACTIVITY</p>
+      <h3>Withdrawal requests</h3>
+      <p class="withdraw-sub">Track each request through review and verified payment.</p>
+      <div class="withdraw-table-wrap">
+        <table class="withdraw-table">
+          <thead><tr><th>Request</th><th>Amount</th><th>Status / update</th></tr></thead>
+          <tbody>${historyRows || '<tr><td colspan="3" class="withdraw-history-empty">No withdrawal requests yet. Your submitted requests will appear here.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <p class="withdraw-page-foot">Security note: a request is not a payout. Administrators must confirm eligibility and maturity, then verify the real transfer before marking it paid. No payment is sent automatically.</p>
+</div>`;
+    res.set('Cache-Control','no-store');
+    res.send(memberPage('Withdraw','/withdraw',m,body,req));
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Withdraw','/withdraw',await getMemberForPage(req,res),'<div class="member-card"><h2>Withdrawal setup needs one final step</h2><p>Apply <code>migrations/009_withdrawal_requests.sql</code> after the KYC, bank-account and deposit-ledger migrations. No request has been created.</p><a class="btn" href="/profile">Manage bank accounts</a></div>',req));
+    next(e);
+  }
+});
+app.post('/withdraw', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const currency=String(req.body.currency||''), bankId=String(req.body.bank_account_id||''), amountText=String(req.body.amount||'').trim(), memberNote=String(req.body.member_note||'').trim().slice(0,500);
+  if(!['NGN','USD'].includes(currency)||!/^\d{1,20}$/.test(bankId)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText))return res.status(400).send(formError('Check withdrawal details','Choose a saved payout account, a supported currency and a valid amount.','/withdraw'));
+  const amount=Number(amountText);
+  if(!Number.isFinite(amount)||amount<=0||amount>1000000000000)return res.status(400).send(formError('Invalid amount','Enter a positive amount within your available balance.','/withdraw'));
+  try{
+    const [[kyc]]=await pool.execute("SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",[req.session.memberId]);
+    if(!kyc||String(kyc.status||'').trim().toLowerCase()!=='approved')return res.status(403).send(formError('KYC approval required','Withdrawal requests unlock only after your identity verification is approved by an administrator.','/kyc'));
+    const conn=await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[bank]]=await conn.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE id=? AND member_id=? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',[bankId,req.session.memberId]);
+      if(!bank){await conn.rollback();return res.status(400).send(formError('Payout account unavailable','Choose one of your active saved bank accounts.','/profile'));}
+      const [[walletRow]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[req.session.memberId,currency]);
+      const [[reservedRow]]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM withdrawal_requests WHERE member_id=? AND currency=? AND status IN ('pending','approved')",[req.session.memberId,currency]);
+      const available=Math.max(0,(walletRow?Number(walletRow.balance):0)-(reservedRow?Number(reservedRow.total):0));
+      if(amount>available+1e-8){await conn.rollback();return res.status(400).send(formError('Amount exceeds available balance','Your request must not exceed the unreserved wallet balance shown on the withdrawal page.','/withdraw'));}
+      const [result]=await conn.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')",[req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,memberNote||null]);
+      await conn.commit();
+      return res.redirect('/withdraw?request='+encodeURIComponent(result.insertId));
+    }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(formError('Withdrawal setup incomplete','The withdrawal database migration has not been applied yet. No request was created.','/withdraw'));
+    next(e);
+  }
+});
+app.get('/transactions', requireAuth, async (req,res,next) => {
+  try {
+    const m=await getMemberForPage(req,res); if(!m)return;
+    let transactions=[]; try { const [txRows]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,admin_note,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]); transactions=txRows; } catch(e) { if(e.code!=='ER_BAD_FIELD_ERROR') throw e; const [txRows]=await pool.execute('SELECT id,transaction_type,currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]); transactions=txRows; }
+    const [requests]=await pool.execute('SELECT d.id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,p.label AS payment_label FROM deposit_requests d JOIN deposit_payment_methods p ON p.id=d.payment_method_id WHERE d.member_id=? ORDER BY d.created_at DESC LIMIT 100',[m.id]);
+    const [withdrawals]=await pool.execute('SELECT id,currency,amount,status,created_at,reviewer_note FROM withdrawal_requests WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[m.id]);
+    const money=(currency,amount)=>esc(String(currency)+' '+Number(amount||0).toLocaleString('en-US',{maximumFractionDigits:8}));
+    const completedCount=transactions.length;
+    const requestCount=requests.length;
+    const withdrawalCount=withdrawals.length;
+    const pendingCount=requests.filter(d=>['pending','submitted','under_review','processing'].includes(String(d.status||'').toLowerCase())).length + withdrawals.filter(w=>['pending','submitted','under_review','processing','approved'].includes(String(w.status||'').toLowerCase())).length;
+    const statusClass=status=>String(status||'pending').toLowerCase().replace(/[^a-z0-9_-]/g,'-');
+    const txRows=transactions.map(t=>'<tr><td data-label="Date"><span class="tx-date">'+esc(t.created_at)+'</span></td><td data-label="Type"><span class="tx-type"><span class="tx-type-icon" aria-hidden="true">↗</span>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(t.currency,t.amount)+'</strong></td><td data-label="Reference"><span class="tx-reference">'+esc(t.reference)+(t.admin_note?'<br>'+esc(t.admin_note):'')+'</span></td><td data-label="Status"><span class="tx-status tx-status-completed"><span></span>Completed</span></td></tr>').join('');
+    const reqRows=requests.map(d=>'<tr><td data-label="Date"><span class="tx-date">'+esc(d.created_at)+'</span></td><td data-label="Payment"><div class="tx-payment-name">'+esc(d.payment_label)+'</div><span class="tx-reference">'+esc(d.payment_reference)+'</span></td><td data-label="Amount"><strong class="tx-amount">'+money(d.currency,d.amount)+'</strong><span class="tx-fee">Fee '+money(d.currency,d.fee_amount)+' · Total '+money(d.currency,d.total_due)+'</span></td><td data-label="Status"><span class="tx-status tx-status-'+statusClass(d.status)+'"><span></span>'+esc(String(d.status||'pending').replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase()))+'</span>'+(d.reviewer_note?'<p class="tx-review-note">'+esc(d.reviewer_note)+'</p>':'')+'</td></tr>').join('');
+    const body='<style>'+
+      '.tx-experience{display:grid;gap:18px;min-width:0;color:#eee9dc}'+
+      '.tx-hero{position:relative;isolation:isolate;overflow:hidden;display:flex;justify-content:space-between;align-items:center;gap:18px;padding:clamp(20px,3.5vw,30px);border:1px solid rgba(223,189,98,.25);border-radius:21px;background:radial-gradient(ellipse at 92% 0%,rgba(223,189,98,.16),transparent 36%),linear-gradient(135deg,#1b1a16,#111113 66%,#19160e)}'+
+      '.tx-hero:after{content:"";position:absolute;z-index:-1;right:-60px;bottom:-110px;width:180px;height:180px;border:1px solid rgba(223,189,98,.13);border-radius:50%;box-shadow:0 0 0 22px rgba(223,189,98,.025),0 0 0 44px rgba(223,189,98,.02)}'+
+      '.tx-eyebrow{margin:0 0 9px;color:#dfbd62;font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}'+
+      '.tx-hero h3{margin:0;color:#fff8e8;font-size:clamp(23px,3.4vw,33px);letter-spacing:-.04em;line-height:1.12}'+
+      '.tx-hero p{max-width:560px;margin:10px 0 0;color:#b3aea2;font-size:12px;line-height:1.7}'+
+      '.tx-hero-mark{display:grid;place-items:center;flex:0 0 auto;width:68px;height:68px;border:1px solid rgba(223,189,98,.28);border-radius:20px;background:rgba(223,189,98,.07);color:#f0d681;font-size:29px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}'+
+      '.tx-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}'+
+      '.tx-summary{min-width:0;padding:17px;border:1px solid #383328;border-radius:16px;background:linear-gradient(145deg,#18181b,#111113)}'+
+      '.tx-summary-label{display:flex;align-items:center;gap:8px;color:#aaa69a;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}'+
+      '.tx-summary-icon{display:grid;place-items:center;width:27px;height:27px;border-radius:9px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:14px}'+
+      '.tx-summary-value{display:block;margin:13px 0 5px;color:#f3e4ad;font-size:clamp(24px,3vw,32px);font-weight:850;letter-spacing:-.04em;line-height:1.1}'+
+      '.tx-summary-note{margin:0;color:#969186;font-size:10px;line-height:1.6}'+
+      '.tx-panel{min-width:0;overflow:hidden;border:1px solid #373227;border-radius:18px;background:linear-gradient(145deg,#171719,#111113)}'+
+      '.tx-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:21px 22px 17px;border-bottom:1px solid #302d25}'+
+      '.tx-panel-head h4{margin:0;color:#f6efdf;font-size:16px;letter-spacing:-.02em}'+
+      '.tx-panel-head p{margin:6px 0 0;color:#a09b8f;font-size:11px;line-height:1.65}'+
+      '.tx-count{flex:0 0 auto;padding:7px 10px;border:1px solid rgba(223,189,98,.19);border-radius:999px;background:rgba(223,189,98,.06);color:#e5ce85;font-size:10px;font-weight:850}'+
+      '.tx-table-wrap{width:100%;overflow-x:auto}'+
+      '.tx-table{width:100%;border-collapse:collapse;min-width:600px}'+
+      '.tx-table th{padding:12px 15px;background:#141416;color:#928d82;font-size:9px;font-weight:850;letter-spacing:.11em;text-align:left;text-transform:uppercase;white-space:nowrap}'+
+      '.tx-table td{padding:15px;border-bottom:1px solid #2d2a24;color:#ded8c9;font-size:11px;vertical-align:middle}'+
+      '.tx-table tbody tr:last-child td{border-bottom:0}'+
+      '.tx-table tbody tr:hover{background:rgba(223,189,98,.025)}'+
+      '.tx-date{color:#b8b2a5;white-space:nowrap;font-size:10px}'+
+      '.tx-type{display:inline-flex;align-items:center;gap:8px;font-weight:750;white-space:nowrap}'+
+      '.tx-type-icon{display:grid;place-items:center;width:27px;height:27px;border:1px solid #383328;border-radius:9px;color:#e3c875;background:#1d1a13;font-size:14px}'+
+      '.tx-amount{display:block;color:#f2e5b6;font-size:12px;white-space:nowrap}'+
+      '.tx-reference{display:inline-block;max-width:190px;margin-top:4px;color:#8f8a7f;font-size:10px;overflow-wrap:anywhere}'+
+      '.tx-payment-name{color:#e9e2d3;font-size:11px;font-weight:750}'+
+      '.tx-fee{display:block;margin-top:6px;color:#999387;font-size:10px;line-height:1.7}'+
+      '.tx-status{display:inline-flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid #45402f;border-radius:999px;background:#1a1914;color:#e1d4a0;font-size:9px;font-weight:850;white-space:nowrap}'+
+      '.tx-status>span{width:5px;height:5px;border-radius:50%;background:#d7b958}'+
+      '.tx-status-completed,.tx-status-approved,.tx-status-credited{border-color:#2d4938;background:#121e17;color:#9bd0a8}'+
+      '.tx-status-completed>span,.tx-status-approved>span,.tx-status-credited>span{background:#65b87b}'+
+      '.tx-status-rejected,.tx-status-failed,.tx-status-cancelled{border-color:#523532;background:#211514;color:#e7a59a}'+
+      '.tx-status-rejected>span,.tx-status-failed>span,.tx-status-cancelled>span{background:#d87869}'+
+      '.tx-status-pending,.tx-status-submitted,.tx-status-under_review,.tx-status-processing{border-color:#4a4029;background:#201b11;color:#e5cb7e}'+
+      '.tx-review-note{max-width:240px;margin:8px 0 0;color:#b4a99a;font-size:10px;line-height:1.6;overflow-wrap:anywhere}'+
+      '.tx-empty{display:grid;place-items:center;gap:8px;padding:30px 18px;text-align:center}'+
+      '.tx-empty-icon{display:grid;place-items:center;width:42px;height:42px;border:1px solid #383328;border-radius:14px;background:#1c1a14;color:#e5c66f;font-size:20px}'+
+      '.tx-empty strong{color:#e8e1d2;font-size:12px}'+
+      '.tx-empty p{max-width:350px;margin:0;color:#9c978b;font-size:11px;line-height:1.7}'+
+      '.tx-note{padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(223,189,98,.035);color:#9f9a8e;font-size:11px;line-height:1.7}'+
+      '@media(max-width:680px){.tx-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.tx-summary{padding:12px}.tx-summary-label{align-items:flex-start;flex-direction:column;gap:6px;font-size:9px}.tx-summary-value{font-size:23px}.tx-hero-mark{width:52px;height:52px;border-radius:15px;font-size:23px}.tx-panel-head{padding:17px 16px 14px}.tx-table-wrap{overflow:visible}.tx-table{display:block;min-width:0}.tx-table thead{display:none}.tx-table tbody{display:grid;gap:10px;padding:10px}.tx-table tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px;padding:10px 12px;border:1px solid #332f26;border-radius:13px;background:#121214}.tx-table td{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0;padding:9px 0;border:0;overflow-wrap:anywhere}.tx-table td:before{content:attr(data-label);color:#888377;font-size:9px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.tx-table td[data-label=Date],.tx-table td[data-label=Type],.tx-table td[data-label=Payment]{grid-column:1/-1}.tx-table td[data-label=Type],.tx-table td[data-label=Payment]{padding-top:4px;padding-bottom:10px;border-bottom:1px solid #2d2a24;margin-bottom:2px}.tx-table td[data-label=Reference]{grid-column:1/-1}.tx-table td[data-label=Status]{align-self:start}.tx-reference{max-width:100%}.tx-fee{overflow-wrap:anywhere}.tx-panel-head p{max-width:260px}}'+
+      '@media(max-width:390px){.tx-hero{align-items:flex-start}.tx-hero-mark{display:none}.tx-summary-grid{grid-template-columns:1fr}.tx-summary{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:11px}.tx-summary-icon{grid-row:span 2}.tx-summary-label{flex-direction:row;align-items:center}.tx-summary-value{margin:5px 0 2px;font-size:24px}.tx-summary-note{grid-column:2}.tx-table tr{grid-template-columns:minmax(0,1fr)}}'+
+      '@media(prefers-reduced-motion:reduce){.tx-experience *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}'+
+      '</style>'+
+      '<div class="tx-experience">'+
+        '<section class="tx-hero"><div><p class="tx-eyebrow">Account activity</p><h3>Transaction history</h3><p>A clear record of completed wallet credits and deposit requests, with their latest review status and payment details.</p></div><span class="tx-hero-mark" aria-hidden="true">↗</span></section>'+
+        '<div class="tx-summary-grid"><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">✓</span>Completed credits</div><strong class="tx-summary-value">'+completedCount+'</strong><p class="tx-summary-note">Deposits credited to your wallet</p></article><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">▤</span>Deposit requests</div><strong class="tx-summary-value">'+requestCount+'</strong><p class="tx-summary-note">Requests recorded on your account</p></article><article class="tx-summary"><div class="tx-summary-label"><span class="tx-summary-icon" aria-hidden="true">◷</span>Awaiting review</div><strong class="tx-summary-value">'+pendingCount+'</strong><p class="tx-summary-note">Requests not yet decided</p></article></div>'+
+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Completed transactions</h4><p>Only ledger entries that were credited to your wallet are listed here.</p></div><span class="tx-count">'+completedCount+' records</span></div>'+(txRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead><tbody>'+txRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">↗</span><strong>No completed transactions yet</strong><p>When a deposit is approved and credited to your wallet, its record will appear here.</p></div>')+'</section>'+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Deposit requests</h4><p>Track submitted deposits, fees, payment references and any review notes.</p></div><span class="tx-count">'+requestCount+' requests</span></div>'+(reqRows?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Payment destination / reference</th><th>Amount / fee</th><th>Status</th></tr></thead><tbody>'+reqRows+'</tbody></table></div>':'<div class="tx-empty"><span class="tx-empty-icon" aria-hidden="true">▤</span><strong>No deposit requests yet</strong><p>Deposit requests you submit will be listed here with their review status.</p></div>')+'</section>'+
+        '<section class="tx-panel"><div class="tx-panel-head"><div><h4>Withdrawal requests</h4><p>Track payout requests and their review status.</p></div><span class="tx-count">'+withdrawalCount+' requests</span></div>'+(withdrawals.length?'<div class="tx-table-wrap"><table class="tx-table"><thead><tr><th>Date</th><th>Request</th><th>Amount</th><th>Status</th></tr></thead><tbody>'+withdrawals.map(w=>'<tr><td data-label="Date"><span class="tx-date">'+esc(w.created_at)+'</span></td><td data-label="Request"><div class="tx-payment-name">Withdrawal request #'+Number(w.id)+'</div><span class="tx-reference">Payout request</span></td><td data-label="Amount"><strong class="tx-amount">'+money(w.currency,w.amount)+'</strong></td><td data-label="Status"><span class="tx-status tx-status-'+statusClass(w.status)+'"><span></span>'+esc(String(w.status||'pending').replace(/[_-]+/g,' '))+'</span>'+(w.reviewer_note?'<p class="tx-review-note">'+esc(w.reviewer_note)+'</p>':'')+'</td></tr>').join('')+'</tbody></table></div>':'<div class="tx-empty"><strong>No withdrawal requests yet</strong><p>Withdrawal requests you submit will be listed here with their current status.</p></div>')+'</section>'+
+        '<div class="tx-note">Deposit requests remain separate until credited to the wallet ledger. Withdrawal requests are listed separately until processed. Values shown here come from your account records.</div>'+
+      '</div>';
+    res.send(memberPage('Transaction history','/transactions',m,body,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
+});
+app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,next)=>{
+  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const content = `<style>
+    .coop-member{display:grid;gap:20px;min-width:0;color:#f5f0e3}
+    .coop-member-hero{padding:clamp(24px,4vw,42px);border:1px solid rgba(223,189,98,.3);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(223,189,98,.2),transparent 38%),linear-gradient(135deg,#1d1a13,#101114 72%)}
+    .coop-member-kicker{color:#e6c66e;font-size:10px;font-weight:800;letter-spacing:.18em;text-transform:uppercase}
+    .coop-member h3{font-size:clamp(25px,4vw,38px);line-height:1.15;margin:12px 0;color:#fff6df;letter-spacing:-.035em}
+    .coop-member p{color:#bdb8aa;font-size:13px;line-height:1.85}
+    .coop-member-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .coop-member-card,.coop-member-section{padding:22px;border:1px solid rgba(223,189,98,.2);border-radius:16px;background:linear-gradient(145deg,#181814,#111216)}
+    .coop-member-card small{font-size:10px;letter-spacing:.13em;color:#e6c66e;font-weight:800}
+    .coop-member-card h4,.coop-member-section h4{margin:10px 0;font-size:18px;color:#fff4d5}
+    .coop-member-price{font-size:30px!important;font-weight:800;color:#ffe6a3!important;margin:4px 0}
+    .coop-member-card ul{padding-left:18px;color:#bdb8aa;font-size:12px;line-height:1.9}
+    .coop-member-bonuses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .coop-member-bonus{padding:17px;border-radius:12px;background:#1a1914;border:1px solid rgba(223,189,98,.14)}
+    .coop-member-bonus strong{display:block;color:#ffe6a3;font-size:25px;margin-bottom:5px}
+    .coop-member-bonus span{font-size:12px;color:#d6cebd}
+    .coop-member-cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px}
+    .coop-member-cta a{display:inline-flex;align-items:center;justify-content:center;padding:13px 18px;border-radius:10px;font-size:12px;font-weight:800}
+    .coop-member-cta .primary{background:linear-gradient(120deg,#c49a47,#ffe6a3);color:#17130b}
+    .coop-member-cta .secondary{border:1px solid rgba(223,189,98,.35);color:#ffe6a3}
+    @media(max-width:760px){.coop-member-grid,.coop-member-bonuses{grid-template-columns:1fr}.coop-member-card,.coop-member-section{padding:19px}.coop-member-cta{flex-direction:column;align-items:stretch}.coop-member-cta a{width:100%}}
+    </style>
+    <div class="coop-member">
+      <section class="coop-member-hero"><div class="coop-member-kicker">Partner opportunity · separate platform</div><h3>The Online Cooperative</h3><p>Explore the package levels, referral network and member benefits offered by The Online Cooperative, a separate opportunity with its own registration website.</p><div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Visit cooperative registration ↗</a><a class="secondary" href="#coop-packages">Explore packages ↓</a></div></section>
+      <section id="coop-packages"><div class="coop-member-kicker">01 / Packages</div><h3>Explore the three levels</h3><p>Explore the package levels, member benefits and earning structure available through The Online Cooperative.</p><div class="coop-member-grid">
+      <article class="coop-member-card"><small>STARTER</small><h4>Starter Package</h4><p class="coop-member-price">$10</p><p>Described target: $150 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and dashboard access</li><li>Upgrade prompt at stated target</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      <article class="coop-member-card"><small>PROFESSIONAL</small><h4>Professional Package</h4><p class="coop-member-price">$100</p><p>Described target: $1,500 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and priority support</li><li>Higher earning potential, as described</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      <article class="coop-member-card"><small>ELITE</small><h4>Elite Package</h4><p class="coop-member-price">$1,000</p><p>Described target: $15,000 (15× contribution)</p><ul><li>Maximum 10 direct referrals</li><li>Automatic placement and VIP support</li><li>Advertised unlimited earning potential</li><li>Described 10% monthly earning feature, even without referrals</li></ul></article>
+      </div></section>
+      <section class="coop-member-section"><h4>02 / How the system is described</h4><p><strong>1. Contribute:</strong> choose a stated $10, $100 or $1,000 package. <strong>2. Placement:</strong> referred members are described as automatically placed, with up to 10 direct members per person. <strong>3. Earn:</strong> the description lists referral and network bonuses. <strong>4. Reach the target:</strong> an upgrade prompt is described when the target is reached. <strong>5. Upgrade:</strong> review the next tier and its conditions. <strong>6. Elite:</strong> the final level is described as offering VIP benefits.</p></section>
+      <section class="coop-member-section"><h4>03 / Earning structure described</h4><div class="coop-member-bonuses"><div class="coop-member-bonus"><strong>10%</strong><span>Direct referral bonus on eligible contributions, as described</span></div><div class="coop-member-bonus"><strong>$1.00</strong><span>System placement bonus for qualifying placements, up to 10</span></div><div class="coop-member-bonus"><strong>$0.50</strong><span>Network depth bonus for qualifying wider-network members</span></div></div><p>Members can also benefit from the 10% monthly earning feature described by The Online Cooperative, even without direct referrals.</p></section>
+      <section class="coop-member-section"><h4>04 / Features highlighted</h4><p>Members can track activity through the dashboard, build a direct network of up to 10 referrals, benefit from automatic placement, and work toward package milestones.</p></section>
+      <div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Continue to Online Cooperative ↗</a><a class="secondary" href="/dashboard">Return to member overview</a></div>
+    </div>`;
+    res.send(memberPage('The Online Cooperative','/online-cooperative',m,content,req));
+  } catch(e) { next(e); }
+});
+
+app.get('/investments', requireAuth, requireApprovedKyc, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res); if (!m) return;
+    const [packages] = await pool.execute("SELECT id,name,description,currency,price,duration_days,terms FROM investment_packages WHERE status='active' ORDER BY price,id");
+    const [walletRows] = await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[m.id]);
+    const balances = {NGN:0,USD:0};
+    for (const w of walletRows) if (balances[w.currency] !== undefined) balances[w.currency] = Number(w.balance || 0);
+    const [[fx]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+    const conversionRate = fx && Number(fx.base_usd_ngn_rate)>0 ? Number(fx.base_usd_ngn_rate)*(1+Number(fx.markup_percent||0)/100) : null;
+    if(conversionRate){
+      // The dashboard presents one wallet in either currency. Mirror that behaviour here for package affordability.
+      balances.USD = balances.USD + balances.NGN/conversionRate;
+      balances.NGN = balances.NGN + (Number(walletRows.find(w=>w.currency==='USD')?.balance||0)*conversionRate);
+    }
+    const [investments] = await pool.execute('SELECT id,package_name_snapshot,currency,principal_amount,fee_amount,total_charged,duration_days,status,purchase_reference,created_at,matures_at FROM member_investments WHERE member_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[m.id]);
+    const [ledger] = await pool.execute("SELECT currency,amount,reference,created_at FROM financial_transactions WHERE member_id=? AND transaction_type='investment_purchase' ORDER BY created_at DESC LIMIT 50",[m.id]);
+    const fmt=(c,n)=>(c==='NGN'?'₦':'$')+Number(n||0).toLocaleString(c==='NGN'?'en-NG':'en-US',{minimumFractionDigits:2,maximumFractionDigits:8});
+    const active=investments.filter(x=>x.status==='active');
+    const notice=req.query.purchase==='success'?investmentSuccessCelebration('/investments'):req.query.purchase==='already'?'<div class="inv-alert" role="status">This purchase was already processed. Your wallet was not charged again.</div>':req.query.error==='insufficient'?'<div class="inv-alert" role="alert">Your available balance is not enough for the package price plus the 1% fee. No funds were deducted.</div>':'';
+    const cards=packages.map(p=>{
+      const price=Number(p.price),fee=Math.round(price*1e6)/1e8,total=Math.round((price+fee)*1e8)/1e8;
+      const enough=Number(balances[p.currency]||0)+1e-8>=total;
+      return '<article class="inv-card"><div class="inv-pills"><span>'+esc(p.currency)+'</span><span>1% purchase fee</span></div><h3>'+esc(p.name)+'</h3><p>'+esc(p.description||'Review the package terms before purchasing.')+'</p><strong class="inv-price">'+fmt(p.currency,price)+'</strong><div class="inv-rate-note"><span>Stated monthly profit rate</span><strong>10% · '+fmt(p.currency,price*0.10)+' per full month</strong><small>Illustrative amount based on the stated rate; actual earnings must be recorded through the authorised earnings process.</small></div><div class="inv-breakdown"><div><span>Package price</span><b>'+fmt(p.currency,price)+'</b></div><div><span>1% fee</span><b>'+fmt(p.currency,fee)+'</b></div><div class="inv-total"><span>Total wallet deduction</span><b>'+fmt(p.currency,total)+'</b></div><div><span>Available balance</span><b>'+fmt(p.currency,balances[p.currency])+'</b></div></div><p class="inv-duration">'+(p.duration_days?esc(p.duration_days)+' day term':'Term as described in package terms')+'</p>'+(p.terms?'<details><summary>Read package terms</summary><p class="inv-terms">'+esc(p.terms)+'</p></details>':'')+(enough?'':'<p class="inv-insufficient" id="inv-insufficient-'+esc(p.id)+'" role="status">Insufficient '+esc(p.currency)+' balance. You need '+fmt(p.currency,total)+' including the 1% fee; your available converted balance is '+fmt(p.currency,balances[p.currency])+'.</p>')+'<form method="post" action="/investments/'+encodeURIComponent(p.id)+'/purchase">'+csrfField(req)+'<input type="hidden" name="idempotency_key" value="'+esc(crypto.randomUUID())+'"><button class="inv-buy" type="submit" '+(enough?'':'disabled aria-describedby="inv-insufficient-'+esc(p.id)+'"')+'>'+(enough?'Buy package now':'Insufficient '+esc(p.currency)+' balance')+' →</button></form></article>';
+    }).join('');
+    const invRows=investments.map(x=>'<tr><td><b>'+esc(x.package_name_snapshot)+'</b><br><small>'+esc(x.purchase_reference)+'</small></td><td>'+fmt(x.currency,x.principal_amount)+'</td><td>'+fmt(x.currency,x.fee_amount)+'</td><td>'+fmt(x.currency,x.total_charged)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.matures_at||'—')+'</td></tr>').join('');
+    const ledgerRows=ledger.map(x=>'<tr><td>'+esc(x.created_at)+'</td><td>'+esc(x.reference)+'</td><td>'+esc(x.currency)+'</td><td class="inv-debit">−'+fmt(x.currency,Math.abs(Number(x.amount||0)))+'</td></tr>').join('');
+    const content=`<style>
+      .inv-page{display:grid;gap:20px;color:var(--mc-text,#f5f2ea);min-width:0}.inv-hero{padding:clamp(22px,4vw,36px);border:1px solid #655326;border-radius:22px;background:radial-gradient(ellipse at 90% 5%,#4a3b1738,transparent 38%),linear-gradient(135deg,#211d10,#121216 68%);color:#f8f5eb}.inv-kicker{color:#e5c66f;font-size:.72rem;letter-spacing:.15em;font-weight:900}.inv-hero h2{font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.15;margin:12px 0;color:#fff;font-weight:850}.inv-hero p{max-width:70ch;line-height:1.7;color:#e5e0d2;font-weight:650}.inv-alert{padding:13px 15px;border:1px solid #806b2b;border-radius:12px;background:#28210f;color:#ffe9a1;font-weight:750}.inv-alert.success{border-color:#287b58;background:#10271e;color:#b6f1d3}.inv-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.inv-stat,.inv-card,.inv-table-wrap,.inv-empty{min-width:0;border:1px solid var(--mc-line,#393326);border-radius:16px;background:var(--mc-surface,#151518);padding:18px}.inv-stat span{display:block;color:var(--mc-muted,#aaa7af);font-size:.8rem}.inv-stat strong{display:block;margin-top:8px;font-size:1.2rem;overflow-wrap:anywhere}.inv-section h2{margin:8px 0;font-size:1.35rem}.inv-section>p{color:var(--mc-muted,#aaa7af);line-height:1.6}.inv-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.inv-card{padding:22px;display:flex;flex-direction:column;gap:12px}.inv-pills{display:flex;gap:8px;flex-wrap:wrap}.inv-pills span{padding:6px 9px;border:1px solid #655326;border-radius:99px;background:#30250d;color:#e5c66f;font-size:.72rem;font-weight:850}.inv-card h3{margin:0;font-size:1.25rem}.inv-card>p{margin:0;color:var(--mc-muted,#aaa7af);line-height:1.6}.inv-price{font-size:clamp(1.6rem,3vw,2.1rem);color:#f2d77b;overflow-wrap:anywhere}.inv-rate-note{display:grid;gap:5px;padding:12px 13px;border:1px solid #655326;border-radius:12px;background:linear-gradient(120deg,#2b230f,#171714)}.inv-rate-note span,.inv-rate-note small{color:var(--mc-muted,#aaa7af);font-size:.78rem;line-height:1.5}.inv-rate-note strong{color:#f2d77b;font-size:.98rem}.inv-breakdown{display:grid;gap:9px;padding:13px;border-radius:12px;background:#0002}.inv-breakdown>div{display:flex;justify-content:space-between;gap:12px;font-size:.85rem}.inv-breakdown span{color:var(--mc-muted,#aaa7af)}.inv-breakdown b{text-align:right}.inv-breakdown .inv-total{border-top:1px solid #655326;padding-top:10px}.inv-duration{font-size:.82rem;font-weight:750}.inv-terms{white-space:pre-wrap;line-height:1.6}.inv-buy{width:100%;padding:13px 15px;border:0;border-radius:12px;background:linear-gradient(110deg,#f3d76b,#d6ad38);color:#16140d;font:inherit;font-weight:900;cursor:pointer}.inv-buy:disabled{cursor:not-allowed;background:#3a3935;color:#e0ded8;opacity:1}.inv-insufficient{margin:0;padding:11px 12px;border:1px solid #a34d43;border-radius:10px;background:#321b1a;color:#ffd0c9;font-size:.84rem;font-weight:750;line-height:1.55;overflow-wrap:anywhere}.inv-table-wrap{overflow-x:auto;padding:0}.inv-table{width:100%;min-width:690px;border-collapse:collapse;font-size:.85rem}.inv-table th,.inv-table td{text-align:left;padding:13px 15px;border-bottom:1px solid var(--mc-line,#393326);white-space:nowrap}.inv-table th{font-size:.72rem;text-transform:uppercase;color:var(--mc-muted,#aaa7af)}.inv-table small{color:var(--mc-muted,#aaa7af)}.inv-debit{color:#ffb4a8;font-weight:850}.inv-empty{color:var(--mc-muted,#aaa7af);line-height:1.7;border-style:dashed}.inv-terms{white-space:pre-wrap}html[data-theme="light"] .inv-page{color:#17191f!important}html[data-theme="light"] .inv-hero{background:linear-gradient(135deg,#fff9e8,#fff)!important;border-color:#e1d3a6}html[data-theme="light"] .inv-hero h2{color:#111318!important}html[data-theme="light"] .inv-hero p{color:#252832!important;font-weight:750}html[data-theme="light"] .inv-stat,html[data-theme="light"] .inv-card,html[data-theme="light"] .inv-table-wrap,html[data-theme="light"] .inv-empty{background:#fff!important;color:#17191f!important;border-color:#d9dce2!important}html[data-theme="light"] .inv-card h3,html[data-theme="light"] .inv-breakdown b,html[data-theme="light"] .inv-stat strong{color:#111318!important}html[data-theme="light"] .inv-card>p,html[data-theme="light"] .inv-breakdown span,html[data-theme="light"] .inv-duration{color:#343944!important;font-weight:700}html[data-theme="light"] .inv-table th,html[data-theme="light"] .inv-table td{border-color:#e0e2e6!important;color:#17191f!important}@media(max-width:760px){.inv-cards,.inv-stats{grid-template-columns:minmax(0,1fr)}.inv-card{padding:17px}}.inv-page,.inv-page *{box-sizing:border-box}.inv-page{width:100%;max-width:100%;min-width:0;overflow-wrap:anywhere}.inv-hero,.inv-section,.inv-card,.inv-stat,.inv-empty{min-width:0;max-width:100%}.inv-hero h2,.inv-hero p,.inv-section h2,.inv-section>p,.inv-card h3,.inv-card>p,.inv-terms,.inv-alert,.inv-insufficient{max-width:100%;overflow-wrap:anywhere;word-break:normal}.inv-cards{grid-template-columns:repeat(2,minmax(0,1fr));min-width:0}.inv-breakdown>div{min-width:0;flex-wrap:wrap}.inv-breakdown span,.inv-breakdown b{min-width:0;max-width:100%;overflow-wrap:anywhere}.inv-table-wrap{width:100%;max-width:100%;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}@media(max-width:560px){.inv-page{gap:16px}.inv-hero{padding:20px 16px}.inv-hero h2{font-size:clamp(1.45rem,7vw,2rem);line-height:1.2}.inv-hero p{font-size:.94rem;line-height:1.65}.inv-cards,.inv-stats{grid-template-columns:minmax(0,1fr)}.inv-card{padding:16px;gap:11px}.inv-breakdown{padding:11px}.inv-breakdown>div{gap:6px}.inv-breakdown b{text-align:left}.inv-table{min-width:650px}}
+    .inv-hero{position:relative;isolation:isolate;overflow:hidden;box-shadow:0 18px 50px #0003}.inv-hero:after{content:"M";position:absolute;z-index:-1;right:clamp(10px,4vw,42px);top:50%;transform:translateY(-50%);font-size:clamp(120px,24vw,230px);line-height:1;font-weight:950;letter-spacing:-.12em;color:#f2d77b0b;pointer-events:none}.inv-kicker{display:inline-flex;align-items:center;gap:8px}.inv-kicker:before{content:"";width:7px;height:7px;border-radius:50%;background:#f2d77b;box-shadow:0 0 14px #f2d77b}.inv-hero h2{max-width:680px;letter-spacing:-.045em}.inv-hero p{max-width:620px}.inv-hero-chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:20px}.inv-hero-chips span{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border:1px solid #e5c66f35;border-radius:999px;background:#ffffff08;color:#f5e8bc;font-size:.75rem;font-weight:800}.inv-stat{position:relative;overflow:hidden;transition:transform .18s ease,border-color .18s ease,background .18s ease}.inv-stat:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:linear-gradient(#ffe8a0,#b58a28)}.inv-stat:hover{transform:translateY(-2px);border-color:#b99a4d}.inv-stat span{font-weight:750;letter-spacing:.015em}.inv-stat strong{font-size:clamp(1.1rem,2vw,1.4rem);letter-spacing:-.025em}.inv-section{min-width:0}.inv-section h2{display:flex;align-items:center;gap:10px;letter-spacing:-.025em}.inv-section h2:before{content:"";display:inline-block;width:5px;height:22px;border-radius:8px;background:linear-gradient(#ffe8a0,#b58a28);flex:0 0 auto}.inv-section>p{margin-top:0}.inv-card{position:relative;overflow:hidden;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease;background:radial-gradient(ellipse at 100% 0%,#d4ad3710,transparent 40%),var(--mc-surface,#151518)}.inv-card:before{content:"";position:absolute;left:0;top:0;right:0;height:2px;background:linear-gradient(90deg,#7b6024,#ffe6a3,#7b6024);opacity:.7}.inv-card:hover{transform:translateY(-3px);border-color:#9b7c35;box-shadow:0 18px 35px #0002}.inv-pills span:first-child{background:linear-gradient(120deg,#35280e,#201b10)}.inv-rate-note{box-shadow:inset 0 1px #ffffff05}.inv-buy{box-shadow:0 6px 18px #c49a3026;transition:transform .16s ease,filter .16s ease,box-shadow .16s ease}.inv-buy:not(:disabled):hover{transform:translateY(-1px);filter:brightness(1.07);box-shadow:0 9px 24px #c49a3040}.inv-buy:focus-visible{outline:3px solid #fff0a8;outline-offset:3px}.inv-table-wrap{box-shadow:0 10px 30px #0002}.inv-table th{background:#ffffff04}.inv-table tbody tr:hover{background:#d7b54d09}.inv-empty{padding:26px;background:linear-gradient(135deg,#1b1914,#141416)}.inv-alert{box-shadow:0 8px 22px #0002}.inv-alert.success{display:flex;align-items:center;gap:10px}.inv-alert.success:before{content:"✓";display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#1e5b40;color:#d1ffe7;flex:0 0 auto}html[data-theme="light"] .inv-hero-chips span{color:#5d4716;border-color:#c8aa5d;background:#fff9e8}html[data-theme="light"] .inv-card{background:radial-gradient(ellipse at 100% 0%,#d4ad3710,transparent 40%),#fff!important}html[data-theme="light"] .inv-card:before{opacity:1}html[data-theme="light"] .inv-stat:before{background:linear-gradient(#c7a34b,#94701f)}@media(prefers-reduced-motion:reduce){.inv-stat,.inv-card,.inv-buy{transition:none!important}.inv-stat:hover,.inv-card:hover,.inv-buy:not(:disabled):hover{transform:none!important}}@media(max-width:560px){.inv-hero:after{right:-8px;top:15%;transform:none;font-size:112px}.inv-hero-chips{gap:7px}.inv-hero-chips span{font-size:.7rem;padding:7px 9px}.inv-section h2:before{height:19px}.inv-card:hover,.inv-stat:hover{transform:none}}</style><div class="inv-page">${notice}<section class="inv-hero"><span class="inv-kicker">MONARCH CODEX · WEALTH PATHWAYS</span><h2>Make your next move count.</h2><p>Explore the packages currently available to you, review the full cost and terms, and purchase directly from your wallet. The 1% purchase fee is shown before confirmation. Investment returns are not guaranteed.</p><div class="inv-hero-chips"><span>✦ Transparent pricing</span><span>◈ Secure wallet checkout</span><span>✓ Clear purchase records</span></div></section>
+    <div class="inv-stats"><div class="inv-stat"><span>Active investments</span><strong>${active.length}</strong></div><div class="inv-stat"><span>NGN wallet</span><strong>${fmt('NGN',balances.NGN)}</strong></div><div class="inv-stat"><span>USD wallet</span><strong>${fmt('USD',balances.USD)}</strong></div></div>
+    <section class="inv-section"><h2>Available packages</h2><p>Price, fee and total wallet deduction are shown before purchase. Packages only appear after the team publishes them.</p><div class="inv-cards">${cards||'<div class="inv-empty">No investment packages are published yet. The team must configure and activate packages before members can purchase them.</div>'}</div></section>
+    <section class="inv-section"><h2>My investments</h2><p>Confirmed package purchases, recorded fees and maturity dates.</p>${investments.length?'<div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>Package / reference</th><th>Principal</th><th>Fee</th><th>Total charged</th><th>Status</th><th>Maturity</th></tr></thead><tbody>'+invRows+'</tbody></table></div>':'<div class="inv-empty">You have not purchased an investment package yet.</div>'}</section>
+    <section class="inv-section"><h2>Purchase ledger</h2><p>Each purchase creates one wallet debit for the package price plus the fee.</p>${ledger.length?'<div class="inv-table-wrap"><table class="inv-table"><thead><tr><th>Date</th><th>Reference</th><th>Currency</th><th>Wallet debit</th></tr></thead><tbody>'+ledgerRows+'</tbody></table></div>':'<div class="inv-empty">No investment purchases have been recorded.</div>'}</section>
+    <p>Purchasing does not guarantee profit. Maturity and later withdrawal remain subject to the published package terms and platform review.</p></div>`;
+    res.send(memberPage('Investments','/investments',m,content,req));
+  } catch(e) {
+    if (e && e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));
+    next(e);
+  }
+});
+
+app.post('/investments/:packageId/purchase', requireAuth, requireApprovedKyc, csrfCheck, async (req,res,next) => {
+  const packageId=String(req.params.packageId||''), key=String(req.body.idempotency_key||'').trim();
+  if (!/^\d{1,20}$/.test(packageId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) return res.status(400).send(formError('Purchase could not be processed','Refresh the investment page and try again.','/investments'));
+  const conn=await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[prior]]=await conn.execute('SELECT id FROM member_investments WHERE member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE',[req.session.memberId,key]);
+    if(prior){await conn.commit();return res.redirect('/investments?purchase=already');}
+    const [[pkg]]=await conn.execute("SELECT id,name,currency,price,duration_days,terms FROM investment_packages WHERE id=? AND status='active' LIMIT 1 FOR UPDATE",[packageId]);
+    if(!pkg){await conn.rollback();return res.status(404).send(formError('Package unavailable','This package is no longer active. Refresh to see available offers.','/investments'));}
+    const [[amounts]]=await conn.execute('SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.01,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.01,8),8) AS total',[pkg.price,pkg.price,pkg.price,pkg.price]);
+    const principal=String(amounts.principal),fee=String(amounts.fee),total=String(amounts.total);
+    let walletCurrency=pkg.currency, wallet=null, debitAmount=Number(total), conversionRate=1;
+    const [[nativeWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[req.session.memberId,pkg.currency]);
+    if(nativeWallet && Number(nativeWallet.balance)+1e-8>=Number(total)) wallet=nativeWallet;
+    else {
+      const [[pricing]]=await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+      conversionRate=Number(pricing&&pricing.base_usd_ngn_rate)*(1+Number(pricing&&pricing.markup_percent||0)/100);
+      if(!Number.isFinite(conversionRate)||conversionRate<=0){await conn.rollback();return res.status(503).send(formError('Currency conversion unavailable','The configured exchange rate is unavailable. No funds were deducted.','/investments'));}
+      if(pkg.currency==='USD'){
+        walletCurrency='NGN'; debitAmount=Math.round(Number(total)*conversionRate*100)/100;
+        const [[otherWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'NGN\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
+        if(otherWallet && Number(otherWallet.balance)+1e-8>=debitAmount) wallet=otherWallet;
+      } else if(pkg.currency==='NGN') {
+        walletCurrency='USD'; debitAmount=Math.round((Number(total)/conversionRate)*100)/100;
+        const [[otherWallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=\'USD\' LIMIT 1 FOR UPDATE',[req.session.memberId]);
+        if(otherWallet && Number(otherWallet.balance)+1e-8>=debitAmount) wallet=otherWallet;
+      }
+    }
+    if(!wallet){await conn.rollback();return res.redirect('/investments?error=insufficient');}
+    const [debit]=await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',[debitAmount,wallet.id,debitAmount]);
+    if(debit.affectedRows!==1){await conn.rollback();return res.redirect('/investments?error=insufficient');}
+    const reference='INV-'+crypto.randomUUID().replace(/-/g,'').toUpperCase();
+    const [created]=await conn.execute("INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",[req.session.memberId,pkg.id,pkg.name,pkg.currency,principal,fee,total,pkg.duration_days,pkg.terms||'',reference,key,pkg.duration_days,pkg.duration_days]);
+    const walletDebitReference=walletCurrency===pkg.currency?reference:reference+'-FX';
+    await conn.execute("INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",[req.session.memberId,created.insertId,walletCurrency,(-debitAmount).toFixed(8),walletDebitReference,walletCurrency===pkg.currency?null:(pkg.currency==='USD'?'USD package converted to NGN at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' USD':'NGN package converted to USD at '+conversionRate.toFixed(6)+' NGN per USD; package total '+total+' NGN')]);
+    await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[req.session.memberId,'investment_purchase','Investment package purchased','Your '+pkg.name+' package purchase was recorded. Package price: '+principal+' '+pkg.currency+'; 1% fee: '+fee+' '+pkg.currency+'; total wallet deduction: '+total+' '+pkg.currency+'.','/investments','investment-purchase:'+created.insertId]);
+    await conn.commit();
+    return res.redirect('/investments?purchase=success');
+  } catch(e) {
+    try{await conn.rollback();}catch(_){}
+    if(e&&e.code==='ER_DUP_ENTRY'){try{const [[prior]]=await pool.execute('SELECT id FROM member_investments WHERE member_id=? AND idempotency_key=? LIMIT 1',[req.session.memberId,key]);if(prior)return res.redirect('/investments?purchase=already');}catch(_){}}
+    if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));
+    next(e);
+  } finally {conn.release();}
+});
+
+app.get('/referrals', requireAuth, requireApprovedKyc, async (req,res,next)=>{  try {
+    const m = await getMemberForPage(req,res);
+    if (!m) return;
+    const [counts] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by = ?', [m.id]);
+    const base = String(process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/[/]+$/, '');
+    const link = base + '/register?ref=' + encodeURIComponent(m.monarch_uid);
+    const total = Number(counts[0].total || 0);
+    const content = `<style>.referral-experience{display:grid;gap:18px;min-width:0}
+.referral-hero{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) 112px;align-items:center;gap:22px;padding:clamp(22px,4vw,36px);border:1px solid rgba(223,189,98,.25);border-radius:22px;background:radial-gradient(ellipse at 88% 12%,rgba(223,189,98,.19),transparent 36%),linear-gradient(135deg,#1b1a16 0%,#111113 58%,#19160e 100%)}
+.referral-hero:after{content:"";position:absolute;z-index:-1;width:210px;height:210px;right:-82px;bottom:-125px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 22px rgba(223,189,98,.025),0 0 0 44px rgba(223,189,98,.02)}
+.referral-kicker{display:flex;align-items:center;gap:8px;margin:0 0 12px;color:#e5c66f;font-size:10px;font-weight:850;letter-spacing:.17em;text-transform:uppercase}
+.referral-kicker:before{content:"";width:20px;height:1px;background:#dfbd62}
+.referral-hero h3{max-width:620px;margin:0;color:#fff8e8;font-size:clamp(25px,3.6vw,37px);line-height:1.12;letter-spacing:-.045em}
+.referral-hero p{max-width:590px;margin:12px 0 0;color:#bdb8aa;font-size:13px;line-height:1.75}
+.referral-hero-art{display:grid;place-items:center;width:100px;height:100px;justify-self:center;border:1px solid rgba(223,189,98,.32);border-radius:28px;background:linear-gradient(145deg,rgba(223,189,98,.16),rgba(223,189,98,.025));box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 18px 35px rgba(0,0,0,.18);transform:rotate(3deg)}
+.referral-hero-art svg{width:48px;height:48px;fill:none;stroke:#f1d98d;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.referral-stat-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.referral-stat-card{position:relative;min-width:0;overflow:hidden;padding:21px;border:1px solid #383328;border-radius:17px;background:linear-gradient(145deg,#18181b,#111113)}
+.referral-stat-card:after{content:"";position:absolute;width:90px;height:90px;right:-42px;top:-44px;border:1px solid rgba(223,189,98,.14);border-radius:50%;box-shadow:0 0 0 12px rgba(223,189,98,.025)}
+.referral-stat-label{display:flex;align-items:center;gap:8px;color:#aaa79e;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.referral-stat-label svg{width:16px;height:16px;stroke:#dfbd62;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.referral-stat-number{display:block;margin:14px 0 6px;color:#f6e7b3;font-size:clamp(28px,4vw,38px);font-weight:850;letter-spacing:-.045em;line-height:1.1;overflow-wrap:anywhere}
+.referral-stat-note{margin:0;color:#99958b;font-size:11px;line-height:1.6}
+.referral-share-card{min-width:0;padding:clamp(18px,3vw,26px);border:1px solid rgba(223,189,98,.23);border-radius:19px;background:linear-gradient(150deg,rgba(28,27,23,.98),rgba(16,16,18,.98))}
+.referral-card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:20px}
+.referral-card-heading h3{margin:0;color:#f8f2e3;font-size:18px;letter-spacing:-.025em}
+.referral-card-heading p{margin:6px 0 0;color:#a8a397;font-size:12px;line-height:1.65}
+.referral-secure-pill{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;padding:7px 9px;border:1px solid rgba(223,189,98,.19);border-radius:999px;background:rgba(223,189,98,.07);color:#e4ca7c;font-size:9px;font-weight:800;letter-spacing:.06em}
+.referral-secure-pill:before{content:"";width:5px;height:5px;border-radius:50%;background:#dfbd62}
+.referral-field{display:grid;gap:8px;margin-top:17px;min-width:0}
+.referral-field:first-of-type{margin-top:0}
+.referral-field label{color:#c7c1b3;font-size:10px;font-weight:850;letter-spacing:.11em;text-transform:uppercase}
+.referral-field-row{display:flex;align-items:stretch;gap:9px;min-width:0}
+.referral-value{display:flex;align-items:center;min-width:0;flex:1;padding:12px 14px;border:1px solid #3d382a;border-radius:12px;background:#0c0c0e;color:#f2e6be;font-size:14px;font-weight:800;letter-spacing:.035em;overflow-wrap:anywhere}
+.referral-value input{width:100%;min-width:0;padding:0;border:0;outline:none;background:transparent;color:#f2e6be;font:inherit;font-size:12px;letter-spacing:0}
+.referral-copy-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;min-width:112px;padding:11px 14px;border:1px solid #dfbd62;border-radius:12px;background:linear-gradient(135deg,#f1d98d,#d5ae4d);color:#17140b;font:inherit;font-size:11px;font-weight:900;cursor:pointer;transition:transform .18s,filter .18s}
+.referral-copy-btn:hover{transform:translateY(-1px);filter:brightness(1.06)}
+.referral-copy-btn:focus-visible{outline:2px solid #f5e6b5;outline-offset:3px}
+.referral-copy-btn svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.referral-field-help{margin:0;color:#8f8b82;font-size:11px;line-height:1.65}
+.referral-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.referral-step{min-width:0;padding:17px;border:1px solid #302d25;border-radius:15px;background:rgba(19,19,21,.76)}
+.referral-step-num{display:grid;place-items:center;width:30px;height:30px;margin-bottom:12px;border:1px solid rgba(223,189,98,.28);border-radius:10px;background:rgba(223,189,98,.08);color:#e5c66f;font-size:11px;font-weight:900}
+.referral-step h4{margin:0 0 6px;color:#e9e2d2;font-size:12px}
+.referral-step p{margin:0;color:#99958b;font-size:11px;line-height:1.65}
+.referral-footnote{display:flex;align-items:flex-start;gap:10px;padding:13px 15px;border:1px solid #302d25;border-radius:13px;background:rgba(255,255,255,.018);color:#99958b;font-size:11px;line-height:1.7}
+.referral-footnote svg{flex:0 0 17px;width:17px;height:17px;margin-top:1px;fill:none;stroke:#dfbd62;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:650px){.referral-hero{grid-template-columns:minmax(0,1fr) 68px;gap:12px;padding:22px 18px}.referral-hero-art{width:64px;height:64px;border-radius:19px}.referral-hero-art svg{width:34px;height:34px}.referral-stat-grid{gap:10px}.referral-stat-card{padding:16px}.referral-card-heading{display:grid}.referral-secure-pill{justify-self:start}.referral-steps{grid-template-columns:1fr}.referral-step{display:grid;grid-template-columns:32px minmax(0,1fr);column-gap:11px;padding:14px}.referral-step-num{grid-row:span 2;margin:0}.referral-step h4{align-self:end}.referral-step p{align-self:start}}
+@media(max-width:420px){.referral-hero{grid-template-columns:1fr}.referral-hero-art{display:none}.referral-stat-grid{grid-template-columns:1fr}.referral-field-row{flex-direction:column}.referral-copy-btn{width:100%;min-height:44px}.referral-value{min-height:45px}.referral-share-card{padding:17px 14px}}
+@media(prefers-reduced-motion:reduce){.referral-copy-btn{transition:none}.referral-copy-btn:hover{transform:none}}
+</style>
+<div class="referral-experience">
+  <section class="referral-hero">
+    <div><p class="referral-kicker">Grow your circle</p><h3>Good things are better when shared.</h3><p>Invite people into Monarch Codex with your personal referral link. Your account keeps track of members who register with your code.</p></div>
+    <div class="referral-hero-art" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="18" cy="15" r="6"/><path d="M6 36v-3a9 9 0 0 1 9-9h6a9 9 0 0 1 9 9v3"/><circle cx="34" cy="17" r="4"/><path d="M33 25h2a7 7 0 0 1 7 7v4M29 9l3-3 3 3M32 6v7"/></svg></div>
+  </section>
+  <section class="referral-stat-grid" aria-label="Referral summary">
+    <article class="referral-stat-card"><span class="referral-stat-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg> Registered referrals</span><strong class="referral-stat-number">${total.toLocaleString('en-US')}</strong><p class="referral-stat-note">Members linked to your referral code.</p></article>
+    <article class="referral-stat-card"><span class="referral-stat-label"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4M7 13h10M16 9h1"/></svg> Your member code</span><strong class="referral-stat-number" style="font-size:clamp(20px,3vw,28px)">${esc(m.monarch_uid)}</strong><p class="referral-stat-note">Your unique identity across Monarch Codex.</p></article>
+  </section>
+  <section class="referral-share-card">
+    <div class="referral-card-heading"><div><h3>Your personal invite link</h3><p>Copy your link or code and share it with someone you trust.</p></div><span class="referral-secure-pill">Personal invite</span></div>
+    <div class="referral-field"><label for="pageReferralLink">Referral link</label><div class="referral-field-row"><div class="referral-value"><input id="pageReferralLink" value="${esc(link)}" readonly aria-label="Your personal referral link"></div><button class="referral-copy-btn" type="button" data-copy-target="pageReferralLink"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy invite link</button></div><p class="referral-field-help">The link opens registration with your referral code attached.</p></div>
+    <div class="referral-field"><label for="pageUid">Member referral code</label><div class="referral-field-row"><div class="referral-value" id="pageUid">${esc(m.monarch_uid)}</div><button class="referral-copy-btn" type="button" data-copy-target="pageUid"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy code</button></div><p class="referral-field-help">Friends can enter this code during registration if they don't use your link.</p></div>
+  </section>
+  <section class="referral-steps" aria-label="How referrals work"><article class="referral-step"><span class="referral-step-num">01</span><h4>Share your link</h4><p>Send your personal invite link or referral code to a friend.</p></article><article class="referral-step"><span class="referral-step-num">02</span><h4>They register</h4><p>Your code is attached when they successfully create their account.</p></article><article class="referral-step"><span class="referral-step-num">03</span><h4>Track your circle</h4><p>See the number of registered members linked to your account above.</p></article></section>
+  <p class="referral-footnote"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Referral attribution is recorded when a new account successfully registers using your code. This page reports registered referrals; it does not promise rewards or commissions.</span></p>
+</div>`;
+    res.send(memberPage('Referrals','/referrals',m,content,req));
+  } catch(e) { next(e); }
+});
+app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
+  if (err) return next(err);
+  res.clearCookie('monarch.sid', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  res.redirect('/');
+}));
+app.get('/forgot-password', (req, res) => res.send(page('Reset password', '<h1>Reset your password</h1><p class="muted">Enter your account email. If it exists, we will send reset instructions.</p><form method="post" action="/forgot-password">' + csrfField(req) + '<label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required maxlength="254"><button class="btn" type="submit">Send reset link</button></form><div class="links"><a href="/login">Back to login</a></div>')));
+app.post('/forgot-password', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const [rows] = await pool.execute('SELECT id, email FROM members WHERE email = ? LIMIT 1', [email]);
+    if (rows.length && process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
+      const token = crypto.randomBytes(32).toString('hex'), tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      await pool.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].id]);
+      await pool.execute('INSERT INTO password_resets (member_id, token_hash, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))', [rows[0].id, tokenHash]);
+      const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: String(process.env.SMTP_SECURE || 'false') === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } });
+      const link = (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, '') + '/reset-password?token=' + token;
+      await transporter.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to: rows[0].email, subject: 'Reset your Monarch Codex password', text: 'Use this one-time link within 30 minutes to reset your password: ' + link + '\nIf you did not request this, ignore this email.' });
+    }
+    res.send(page('Check your email', '<h1>Check your email</h1><p class="muted">If an account exists for that address and email delivery is configured, reset instructions will arrive shortly.</p><a class="btn" href="/login">Return to login</a>'));
+  } catch (e) { next(e); }
+});
+app.get('/reset-password', async (req, res, next) => {
+  try {
+    const token = String(req.query.token || '');
+    if (!/^[a-f0-9]{64}$/.test(token)) return res.status(400).send(formError('Invalid reset link', 'Request a new password reset link.', '/forgot-password'));
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await pool.execute('SELECT id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
+    if (!rows.length) return res.status(400).send(formError('Expired reset link', 'Request a new password reset link.', '/forgot-password'));
+    req.session.resetTokenHash = tokenHash;
+    res.send(page('Choose a new password', '<h1>Choose a new password</h1><form method="post" action="/reset-password">' + csrfField(req) + '<label for="password">New password</label><div class="password-wrap"><input id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="password-toggle" type="button" data-toggle-password="password" onclick="togglePassword(&quot;password&quot;,this)" aria-label="Show password" title="Show password"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><button class="btn" type="submit">Update password</button></form>'));
+  } catch (e) { next(e); }
+});
+app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
+  try {
+    const password = String(req.body.password || ''), tokenHash = req.session.resetTokenHash;
+    if (password.length < 12 || password.length > 128) return res.status(400).send(formError('Check your password', 'Use a password between 12 and 128 characters.', '/forgot-password'));
+    if (!tokenHash) return res.status(400).send(formError('Reset session expired', 'Request a new password reset link.', '/forgot-password'));
+    const [rows] = await pool.execute('SELECT id, member_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1', [tokenHash]);
+    if (!rows.length) return res.status(400).send(formError('Expired reset link', 'Request a new password reset link.', '/forgot-password'));
+    const hash = await bcrypt.hash(password, 12), conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute('UPDATE members SET password_hash = ? WHERE id = ?', [hash, rows[0].member_id]);
+      await conn.execute('UPDATE password_resets SET used_at = NOW() WHERE member_id = ? AND used_at IS NULL', [rows[0].member_id]);
+      await conn.commit();
+    } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
+    req.session.destroy(() => res.redirect('/login'));
+  } catch (e) { next(e); }
+});
+// Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
+app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
+app.use(createMonarchsDirectoryRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
+
+// Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
+app.get('/', async (_req, res, next) => {
+  try {
+    let html = await fs.promises.readFile(path.join(__dirname, 'index.html'), 'utf8');
+    const monarchsSection = `
+<section id="monarchs" class="monarchs-directory" aria-labelledby="monarchs-title">
+  <div class="monarchs-directory-inner">
+    <p class="monarchs-kicker">THE PEOPLE BEHIND THE KINGDOM</p>
+    <h2 id="monarchs-title">MONARCHS</h2>
+    <p class="monarchs-intro">Meet the members building with Monarch Codex.</p>
+    <div class="monarchs-grid" id="monarchsGrid"><p class="monarchs-empty">Our featured Monarchs will appear here soon.</p></div>
+  </div>
+</section>
+<style>
+.monarchs-directory{padding:clamp(52px,8vw,100px) 20px;background:radial-gradient(ellipse at 50% 0,rgba(221,184,75,.12),transparent 55%),#0a0a0c;color:#f8f3e6}
+.monarchs-directory-inner{max-width:1180px;margin:auto;text-align:center}
+.monarchs-kicker{font-size:11px;letter-spacing:.2em;font-weight:800;color:#dfbd62}
+.monarchs-directory h2{font-size:clamp(34px,6vw,62px);line-height:1;margin:12px 0;color:#f6d56b;letter-spacing:.06em}
+.monarchs-intro{color:#aaa69b;margin:0 auto 22px;max-width:540px}
+.monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,168px));justify-content:center;gap:16px;max-width:900px;margin:28px auto 0}
+.monarch-card{padding:16px 12px 14px;border:1px solid rgba(223,189,98,.2);border-radius:16px;background:linear-gradient(145deg,#191817,#101012);min-width:0;max-width:168px;width:100%;margin:auto;box-sizing:border-box}
+.monarch-card-photo{display:block;flex:0 0 auto;width:76px;height:76px;aspect-ratio:1/1;margin:0 auto 12px;border-radius:50%;object-fit:cover;object-position:50% 50%;border:2px solid #dfbd62;box-shadow:0 0 0 4px rgba(223,189,98,.07);background:#191919}
+.monarch-card-name{font-size:15px;line-height:1.35;font-weight:800;margin:0 0 9px;overflow-wrap:anywhere;color:#f8f3e6}
+.monarch-card-id{display:inline-block;max-width:100%;padding:4px 7px;border:1px solid rgba(223,189,98,.22);border-radius:7px;color:#cbb46a;font-size:10px;line-height:1.35;font-weight:750;overflow-wrap:anywhere}
+.monarch-card-title{display:block;margin-top:9px;color:#aaa69b;font-size:10px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+.monarchs-empty{grid-column:1/-1;color:#aaa69b;padding:25px}
+@media(max-width:380px){.monarchs-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.monarch-card{padding:13px 8px}.monarch-card-photo{width:68px;height:68px}.monarch-card-name{font-size:14px}}
+</style>
+<script>
+(async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Approved profile picture';img.loading='lazy';const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.nickname||'Monarch';const uid=document.createElement('span');uid.className='monarch-card-id';uid.textContent=p.monarchId||'Monarch';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,uid,title);grid.append(card)}}catch(_){}})();
+</script>`;
+    if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', monarchsSection + '<footer class="footer">');
+    else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
+    else if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
+    else html += monarchsSection;
+    res.type('html').send(html);
+  } catch (e) { next(e); }
+});
+app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.js', '/wallet-balances.js', '/member-nav.js'], (req, res) => {
+  res.sendFile(path.join(__dirname, path.basename(req.path)));
+});
+app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
+app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
+app.use((err, _req, res, _next) => {
+  console.error('[app error]', err && err.message ? err.message : 'Unknown error');
+  if (res.headersSent) return;
+  res.status(500).send(page('Something went wrong', '<h1>Something went wrong</h1><p class="muted">Please try again shortly.</p><a class="btn" href="/">Return home</a>'));
+});
+app.listen(port, () => console.log('Monarch Codex server listening on port', port));+v.USD.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+      if(present.NGN) actual.push('₦'+v.NGN.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2}));
+      return actual.length ? actual.join(' · ')+' · FX conversion unavailable' : 'No recorded balance';
+    };
     const investmentDisplay=investmentDataReady?moneyPair(investmentTotals):'Not available';
     const earningsDisplay=earningsDataReady?moneyPair(earningsTotals):'Not available';
     const recentActivityHtml=recentTransactions.length?'<div class="dashboard-recent-list">'+recentTransactions.map(t=>'<a class="dashboard-recent-item" href="/transactions"><span class="dashboard-recent-icon">'+(Number(t.amount)<0?'↗':'✓')+'</span><span class="dashboard-recent-main"><strong>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</strong><small>'+esc(t.reference||'Recorded transaction')+' · '+esc(t.created_at)+'</small></span><strong class="dashboard-recent-amount '+(Number(t.amount)<0?'is-debit':'is-credit')+'">'+(Number(t.amount)<0?'−':'＋')+esc(String(t.currency||''))+' '+esc(Math.abs(Number(t.amount)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</strong></a>').join('')+'</div>':'<div class="section-card"><strong>'+(ledgerReady?'Your activity starts here':'Activity history is being prepared')+'</strong><p class="muted small">'+(ledgerReady?'Completed deposits and investment purchases will appear here as soon as they are recorded. You can view submitted deposit and withdrawal requests in transaction history.':'The financial activity table is not installed yet. Contact support or your administrator to complete the database setup.')+'</p></div>';
