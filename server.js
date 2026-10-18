@@ -1317,10 +1317,15 @@ app.post('/notifications/:id/read', requireAuth, express.urlencoded({extended:fa
 
 app.get('/api/kyc/access-status', requireAuth, async (req,res,next) => {
   try {
-    const [rows] = await pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',[req.session.memberId]);
-    const status = rows.length ? String(rows[0].status || '').trim().toLowerCase() : 'not_submitted';
+    // Approval is persistent: once any KYC application is approved, do not
+    // show KYC locks again because of a stale/duplicate older submission row.
+    const [[approval]] = await pool.execute(
+      "SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=? AND LOWER(TRIM(status))='approved') AS approved",
+      [req.session.memberId]
+    );
+    const approved = Number(approval && approval.approved) === 1;
     res.set('Cache-Control','no-store, private');
-    return res.json({approved:status === 'approved',status});
+    return res.json({approved,status:approved ? 'approved' : 'not_approved'});
   } catch (error) {
     if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(200).json({approved:false,status:'not_submitted'});
     return next(error);
