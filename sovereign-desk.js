@@ -22,7 +22,9 @@ function createSovereignDeskRouter(deps) {
       ['sovereign_access_requests', '004_admin_sovereign_desk.sql'],
       ['member_notifications', '005_member_dashboard_and_sovereign_desk.sql'],
       ['sovereign_announcements', '010_sovereign_desk_announcements.sql'],
-      ['sovereign_chat_messages', '012_sovereign_desk_validation_and_chat.sql']
+      ['sovereign_chat_messages', '012_sovereign_desk_validation_and_chat.sql'],
+      ['sovereign_signal_access', '013_sovereign_signal_access.sql'],
+      ['sovereign_signal_event_slots', '013_sovereign_signal_access.sql']
     ];
     let present = new Set(), roleType = '', checkFailed = false;
     try {
@@ -52,6 +54,7 @@ function createSovereignDeskRouter(deps) {
       ['/sovereign-admin/watchlist', 'Weekly trade watchlist', '▦'],
       ['/sovereign-admin/mentorship', 'Guidance & content', '✦'],
       ['/sovereign-admin/access', 'Desk access', '♙'],
+      ['/sovereign-admin/signal-access', 'Signals subscriptions', '◆'],
       ['/sovereign-admin/chat', 'Member chat', '◉'],
       ['/sovereign-admin/announcements', 'Announcements', '▤'],
       ['/sovereign-admin/activity', 'Workspace activity', '◷'],
@@ -104,7 +107,7 @@ function createSovereignDeskRouter(deps) {
         '<div class="ac-stats">' +
         [['Published signals',signals.published || 0,'of '+Number(signals.total || 0)+' saved'],['Published mentorship',guidance.published || 0,'of '+Number(guidance.total || 0)+' saved'],['Active access grants',access.active || 0,'approved and not expired'],['Pending access requests',requests.pending || 0,'awaiting review']].map(x=>'<article class="ac-stat"><span>'+x[0]+'</span><strong>'+Number(x[1])+'</strong><small>'+x[2]+'</small></article>').join('') +
         '</div><div class="ac-section-head"><div><h2>Workspace operations</h2><p>Manage each workflow from its dedicated screen.</p></div></div><div class="ac-tiles">' +
-        [['/sovereign-admin/signals','Signals','Draft, publish, close and archive analysis.'],['/sovereign-admin/watchlist','Weekly trade watchlist','Log this week’s trades for members to view.'],['/sovereign-admin/mentorship','Mentorship','Publish learning and mentorship resources.'],['/sovereign-admin/access','Members & access','Review requests, grant access and revoke expired or inappropriate access.'],['/sovereign-admin/chat','Member chat','Reply to members in private conversations with sent and seen receipts.'],['/sovereign-admin/announcements','Announcements','Publish updates and notify desk members.'],['/sovereign-admin/activity','Workspace activity','Recent signals, content and access decisions.']].map(x=>'<a class="ac-tile" href="'+x[0]+'"><span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></span></a>').join('') +
+        [['/sovereign-admin/signals','Signals','Draft, publish, close and archive analysis.'],['/sovereign-admin/watchlist','Weekly trade watchlist','Log this week’s trades for members to view.'],['/sovereign-admin/mentorship','Mentorship','Publish learning and mentorship resources.'],['/sovereign-admin/access','Members & access','Review requests, grant access and revoke expired or inappropriate access.'],['/sovereign-admin/signal-access','Signals subscriptions','Review $10 / 14-day access requests and manage signal access.'],['/sovereign-admin/chat','Member chat','Reply to members in private conversations with sent and seen receipts.'],['/sovereign-admin/announcements','Announcements','Publish updates and notify desk members.'],['/sovereign-admin/activity','Workspace activity','Recent signals, content and access decisions.']].map(x=>'<a class="ac-tile" href="'+x[0]+'"><span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></span></a>').join('') +
         '</div><section class="ac-panel"><h2>Announcement status</h2><p>'+Number(announcements.published || 0)+' published announcements out of '+Number(announcements.total || 0)+' saved. Announcements are delivered to signed-in members who have active Sovereign Desk access.</p></section>';
       deskAdminPage(req,res,'The Sovereign Desk · Overview','/sovereign-admin',content);
     } catch (e) { dbUnavailable(res,next,e,'Sovereign Desk setup required'); }
@@ -354,7 +357,7 @@ function createSovereignDeskRouter(deps) {
     }catch(e){dbUnavailable(res,next,e,'Sovereign Desk chat setup required');}
   });
 
-  const memberNav = (active) => '<nav class="sd-member-nav" aria-label="Sovereign Desk navigation">'+[['/sovereign-desk','Overview'],['/sovereign-desk/signals','Signals'],['/sovereign-desk/watchlist','Trade watchlist'],['/sovereign-desk/mentorship','Mentorship'],['/sovereign-desk/access','Access'],['/sovereign-desk/announcements','Announcements'],['/sovereign-desk/chat','Desk chat']].map(([u,t])=>'<a href="'+u+'"'+(active===u?' aria-current="page"':'')+'>'+t+'</a>').join('')+'</nav>';
+  const memberNav = (active) => '<nav class="sd-member-nav" aria-label="Sovereign Desk navigation">'+[['/sovereign-desk','Overview'],['/sovereign-desk/signals','Signals'],['/sovereign-desk/signal-access','Signals access'],['/sovereign-desk/watchlist','Trade watchlist'],['/sovereign-desk/mentorship','Mentorship'],['/sovereign-desk/access','Access'],['/sovereign-desk/announcements','Announcements'],['/sovereign-desk/chat','Desk chat']].map(([u,t])=>'<a href="'+u+'"'+(active===u?' aria-current="page"':'')+'>'+t+'</a>').join('')+'</nav>';
   const memberStyles = '<style>.sd-member{display:grid;gap:17px;color:#eee9dc}.sd-member-hero{padding:clamp(20px,4vw,34px);border:1px solid #5b4a23;border-radius:20px;background:radial-gradient(ellipse at 90% 0,#d7b95722,transparent 42%),linear-gradient(135deg,#1c1a15,#111113)}.sd-member-hero .kicker{color:#dfbd62;font-size:10px;font-weight:900;letter-spacing:.16em}.sd-member-hero h2{margin:8px 0;color:#fff6df;font-size:clamp(24px,4vw,34px);letter-spacing:-.04em}.sd-member-hero p,.sd-member p{color:#aaa69b;line-height:1.75;font-size:13px}.sd-member-nav{display:flex;gap:8px;flex-wrap:wrap}.sd-member-nav a{padding:10px 13px;border:1px solid #383328;border-radius:11px;color:#cfc7b2;text-decoration:none;font-size:12px;font-weight:800}.sd-member-nav a[aria-current=page],.sd-member-nav a:hover{border-color:#8b7337;background:#241f12;color:#f1d77e}.sd-member-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.sd-member-card{min-width:0;padding:18px;border:1px solid #383328;border-radius:15px;background:linear-gradient(145deg,#19191a,#111113)}.sd-member-card h3{margin:0 0 8px;color:#f4e8bd;font-size:16px}.sd-member-card p{margin:6px 0}.sd-member-list{display:grid;gap:12px}.sd-member-item{padding:17px;border:1px solid #343025;border-radius:14px;background:#121214}.sd-member-item h3{margin:0 0 8px;color:#f0d681}.sd-member-item p{white-space:pre-wrap;overflow-wrap:anywhere}.sd-member-tag{display:inline-block;padding:6px 9px;border:1px solid #574a27;border-radius:99px;color:#e5cb7e;font-size:10px;font-weight:850}.sd-member form label{display:block;margin:12px 0 6px;color:#d9d0bb;font-size:12px;font-weight:750}.sd-member form input,.sd-member form textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #403a2d;border-radius:10px;background:#0d0d0f;color:#fff;font:inherit}.sd-member form textarea{min-height:95px}.sd-member .btn{width:auto;margin-top:12px}@media(max-width:560px){.sd-member-grid{grid-template-columns:1fr}.sd-member-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.sd-member-nav a{text-align:center}.sd-member-nav a:first-child{grid-column:1/-1}}@media(prefers-reduced-motion:reduce){.sd-member *{transition:none!important}}</style>';
   const renderMember = (req,res,m,title,active,body) => {
     res.set('Cache-Control','no-store');
@@ -364,8 +367,12 @@ function createSovereignDeskRouter(deps) {
     const [[row]] = await pool.execute("SELECT status,expires_at FROM sovereign_desk_access WHERE member_id=? LIMIT 1",[memberId]);
     return Boolean(row && row.status==='approved' && (!row.expires_at || new Date(row.expires_at).getTime()>Date.now()));
   }
+  async function signalAccess(memberId) {
+    const [[row]] = await pool.execute("SELECT status,starts_at,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1",[memberId]);
+    return Boolean(row && row.status==='approved' && (!row.starts_at || new Date(row.starts_at).getTime()<=Date.now()) && row.expires_at && new Date(row.expires_at).getTime()>Date.now());
+  }
   function noAccessContent(m) {
-    return '<section class="sd-member-hero"><span class="kicker">THE SOVEREIGN DESK</span><h2>Your private trading workspace.</h2><p>Signals, mentorship and announcements are available to members with an active access grant.</p></section><section class="sd-member-card"><h3>Access is not active yet</h3><p>Submit an access request for the team to review. An administrator must approve it before private content becomes visible.</p><a class="btn" href="/sovereign-desk/access">Request access</a></section>';
+    return '<section class="sd-member-hero"><span class="kicker">THE SOVEREIGN DESK</span><h2>Your private trading workspace.</h2><p>Signals, mentorship and announcements are available to members with the relevant active access grant.</p></section><section class="sd-member-card"><h3>Desk service access is not active yet</h3><p>Request general Sovereign Desk service access separately. Signals have their own 14-day access plan, including the first-20 event offer.</p><a class="btn" href="/sovereign-desk/access">Request Desk access</a> <a class="btn" href="/sovereign-desk/signal-access">Get signals access</a></section>';
   }
   router.get('/sovereign-desk',requireAuth,requireApprovedKyc,async(req,res,next)=>{
     try{
@@ -379,8 +386,54 @@ function createSovereignDeskRouter(deps) {
       renderMember(req,res,m,'The Sovereign Desk','/sovereign-desk',body);
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('The Sovereign Desk is being configured. Please try again later.');next(e);}
   });
+
+  router.get('/sovereign-desk/signal-access',requireAuth,requireApprovedKyc,async(req,res,next)=>{
+    try {
+      const m=await getMemberForPage(req,res);if(!m)return;
+      const [[slot]]=await pool.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
+      const [[access]]=await pool.execute('SELECT access_type,status,payment_reference,requested_at,starts_at,expires_at,review_reason FROM sovereign_signal_access WHERE member_id=? LIMIT 1',[m.id]);
+      const claimed=Number(slot&&slot.claimed_count||0),remaining=Math.max(0,20-claimed);
+      const active=await signalAccess(m.id);
+      let action='';
+      if(active) action='<article class="sd-member-card"><h3>Signals access is active</h3><p>Plan: '+statusLabel(access.access_type)+'</p><p>Access expires: '+dateLabel(access.expires_at)+'</p><a class="btn" href="/sovereign-desk/signals">Open signals ↗</a></article>';
+      else if(access&&access.status==='pending') action='<article class="sd-member-card"><h3>Request under review</h3><p>Your '+statusLabel(access.access_type)+' request is waiting for the team to review it. Paid access is not activated until payment is verified.</p><p>Submitted: '+dateLabel(access.requested_at)+'</p>'+(access.payment_reference?'<p>Payment reference: '+esc(access.payment_reference)+'</p>':'')+'</article>';
+      else {
+        const freeOfferAvailable=!access&&remaining>0;
+        const form=postForm(req,'/sovereign-desk/signal-access/request',freeOfferAvailable
+          ? '<p>There are '+remaining+' of the first 20 free places remaining. Submit once to claim 14 days of free signals access. The claim is reserved automatically when submitted.</p><input type="hidden" name="request_plan" value="event_free">'
+          : '<p>Signals access costs $10 for 14 days. Pay using the official instructions provided by the Monarch Codex team, then enter the payment reference below. An administrator will verify it before access is activated.</p><label>Payment reference</label><input name="payment_reference" maxlength="160" required placeholder="Enter your payment reference">',
+          freeOfferAvailable?'Claim free 14-day access':'Request paid access — $10');
+        action='<article class="sd-member-card"><h3>'+(freeOfferAvailable?'First 20 members offer':'Signals access — $10 / 14 days')+'</h3><p>'+(freeOfferAvailable?'First come, first served. One free event claim per member.':'Paid access starts only after the team verifies your payment. Do not submit passwords or one-time login codes.')+'</p>'+form+(access&&access.review_reason?'<p>Previous review note: '+esc(access.review_reason)+'</p>':'')+'</article>';
+      }
+      const body='<section class="sd-member-hero"><span class="kicker">SIGNALS ACCESS EVENT · SATURDAY 24 OCTOBER 2026</span><h2>Get 14 days of Sovereign Desk signals.</h2><p>The first 20 unique members to request access receive the first 14 days free. After those places are claimed, signals access is $10 for 14 days. Trading involves risk; no result is guaranteed.</p></section><div class="sd-trade-stats"><div class="sd-trade-stat"><small>Free places claimed</small><strong>'+claimed+'/20</strong></div><div class="sd-trade-stat"><small>Places remaining</small><strong>'+remaining+'</strong></div><div class="sd-trade-stat"><small>Standard plan</small><strong>$10 / 14 days</strong></div></div>'+action;
+      renderMember(req,res,m,'Signals access','/sovereign-desk/signal-access',tradeJournalStyles+body);
+    } catch(e) { dbUnavailable(res,next,e,'Signals access setup required'); }
+  });
+  router.post('/sovereign-desk/signal-access/request',requireAuth,requireApprovedKyc,urlencoded,csrfCheck,async(req,res,next)=>{
+    const paymentReference=clean(req.body.payment_reference,160),conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[existing]]=await conn.execute('SELECT id,status,access_type,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1 FOR UPDATE',[req.session.memberId]);
+      if(existing&&existing.status==='approved'&&existing.expires_at&&new Date(existing.expires_at).getTime()>Date.now()){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?active=1');}
+      if(existing&&existing.status==='pending'){await conn.rollback();return res.redirect('/sovereign-desk/signal-access?pending=1');}
+      const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
+      const claimed=Number(slot&&slot.claimed_count||0);
+      if(!existing&&claimed<20){
+        await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=claimed_count+1 WHERE id=1');
+        await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,starts_at,expires_at,review_reason) VALUES (?,'event_free','approved',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY),'First 20 event offer')",[req.session.memberId]);
+        await conn.commit();
+        await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[req.session.memberId,'sovereign_signal_access','Your 14-day signals offer is active','You claimed one of the first 20 event places. Your Sovereign Desk signals access is active for 14 days.','/sovereign-desk/signals','sovereign-signal-event-free:'+req.session.memberId]).catch(()=>{});
+        return res.redirect('/sovereign-desk/signal-access?claimed=1');
+      }
+      if(!paymentReference){await conn.rollback();return res.status(400).send('The first 20 free places have been claimed. Enter your payment reference to request the $10 / 14-day plan.');}
+      if(existing) await conn.execute("UPDATE sovereign_signal_access SET access_type='paid',status='pending',payment_reference=?,requested_at=CURRENT_TIMESTAMP,reviewed_by=NULL,reviewed_at=NULL,review_reason=NULL,starts_at=NULL,expires_at=NULL WHERE member_id=?",[paymentReference,req.session.memberId]);
+      else await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,payment_reference) VALUES (?,'paid','pending',?)",[req.session.memberId,paymentReference]);
+      await conn.commit();res.redirect('/sovereign-desk/signal-access?requested=1');
+    } catch(e) { try{await conn.rollback();}catch(_){} dbUnavailable(res,next,e,'Signals access setup required'); } finally { conn.release(); }
+  });
+
   router.get('/sovereign-desk/signals',requireAuth,requireApprovedKyc,async(req,res,next)=>{
-    try{const m=await getMemberForPage(req,res);if(!m)return;if(!await memberAccess(m.id))return renderMember(req,res,m,'Desk signals','/sovereign-desk/signals',noAccessContent(m));
+    try{const m=await getMemberForPage(req,res);if(!m)return;if(!await signalAccess(m.id))return renderMember(req,res,m,'Desk signals','/sovereign-desk/signals',noAccessContent(m)+'<section class="sd-member-card"><h3>Signals access required</h3><p>Signals are available for 14 days with an active access grant. The first 20 unique requests receive 14 days free; the standard plan is $10 for 14 days.</p><a class="btn" href="/sovereign-desk/signal-access">Request signals access</a></section>');
       const [rows]=await pool.execute("SELECT title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND validation_status='valid' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100");
       const content='<section class="sd-member-hero"><span class="kicker">MARKET ANALYSIS</span><h2>Signals & market notes</h2><p>Published analysis from The Sovereign Desk. Use your own risk controls and independent judgment.</p></section><div class="sd-member-list">'+(rows.map(s=>'<article class="sd-member-item"><span class="sd-member-tag">'+esc(s.direction.toUpperCase())+' · '+esc(s.asset_pair)+'</span><h3>'+esc(s.title)+'</h3><p>'+esc(s.explanation)+'</p><div class="sd-member-grid"><div><small>Entry zone</small><p>'+esc(s.entry_zone||'Not specified')+'</p></div><div><small>Timeframe</small><p>'+esc(s.timeframe||'Not specified')+'</p></div><div><small>Stop loss</small><p>'+esc(s.stop_loss||'Not specified')+'</p></div><div><small>Targets</small><p>'+(s.take_profit_1?esc(s.take_profit_1):'—')+(s.take_profit_2?' / '+esc(s.take_profit_2):'')+'</p></div></div><small>Published '+dateLabel(s.published_at)+' · Expires '+dateLabel(s.expires_at)+'</small></article>').join('')||'<article class="sd-member-card"><h3>No published signals yet</h3><p>New signals will appear here after the desk team publishes them.</p></article>')+'</div>';
       renderMember(req,res,m,'Signals','/sovereign-desk/signals',content);
