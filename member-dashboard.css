@@ -1,6 +1,6 @@
 /* Monarch Codex member experience — responsive exchange-inspired dashboard */
 .dashboard-layout{display:grid;grid-template-columns:244px minmax(0,1fr);gap:20px;max-width:1400px;margin:18px auto 36px;padding:0 18px;align-items:start}
-.dashboard-sidebar{position:sticky;top:18px;min-width:0;padding:17px 13px;border:1px solid #383328;border-radius:20px;background:linear-gradient(160deg,#17171b,#101013);min-height:calc(100vh - 36px);display:flex;flex-direction:column}
+.dashboard-sidebar{position:sticky;top:18px;min-width:0;padding:17px 13px;border:1px solid #383328;border-radius:20px;background:linear-gradient(160deg,#17171b,#101013);min-height:0;max-height:calc(100dvh - 36px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#6b592b #111113;display:flex;flex-direction:column}
 .sidebar-brand-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 7px 20px}
 .side-title{font-size:.73rem;letter-spacing:.14em;color:#d7b92f;font-weight:850}
 .dashboard-sidebar nav{display:grid;gap:6px}
