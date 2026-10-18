@@ -9,6 +9,10 @@ export async function onRequest(context) {
   headers.delete("host");
   headers.set("x-forwarded-host", incomingUrl.host);
   headers.set("x-forwarded-proto", "https");
+  // Preserve the real visitor IP for the Hostinger app's per-user rate limits.
+  // Cloudflare overwrites CF-Connecting-IP on incoming requests at the edge.
+  const visitorIp = incoming.headers.get("cf-connecting-ip");
+  if (visitorIp) headers.set("x-forwarded-for", visitorIp);
 
   // The browser talks to this Pages address, but the application and session
   // store remain on the existing Hostinger origin.
