@@ -31,6 +31,10 @@
     .button-login{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.65);border-radius:999px;color:#ffe16b;background:rgba(15,16,23,.72);font-weight:800;text-decoration:none}.button-login:hover{background:#f3cf3c;color:#111}
     .app-install-button{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.45);border-radius:999px;color:#f7e7ad;background:linear-gradient(135deg,rgba(255,211,61,.13),rgba(255,211,61,.04));font:inherit;font-weight:800;cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease}.app-install-button:hover{transform:translateY(-2px);border-color:#ffda52;background:rgba(255,211,61,.16)}.nav-app-install{display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,211,61,.5);border-radius:999px;padding:8px 13px;color:#ffe16b;font-size:.78rem;font-weight:800;white-space:nowrap;cursor:pointer;background:rgba(255,211,61,.07)}.app-install-panel{position:fixed;z-index:30000;inset:0;display:none;place-items:center;padding:20px;background:rgba(0,0,0,.78);backdrop-filter:blur(8px)}.app-install-panel.is-open{display:grid}.app-install-card{width:min(100%,430px);padding:28px;border:1px solid rgba(255,211,61,.38);border-radius:24px;background:linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 28px 90px #000}.app-install-card h2{font-family:"Playfair Display",Georgia,serif;font-size:2rem;line-height:1.15;margin:10px 0;color:#ffe16b}.app-install-card p,.app-install-card li{color:#d0cec6}.app-install-close{display:flex;margin-left:auto;width:38px;height:38px;align-items:center;justify-content:center;border:1px solid rgba(255,211,61,.25);border-radius:50%;background:transparent;color:#ffe16b;font-size:1.4rem;cursor:pointer}.app-install-card ol{padding-left:22px}.app-install-card li{padding:4px 0}.app-install-card .button{width:100%;justify-content:center;margin-top:10px}@media(max-width:760px){.nav-app-install{align-self:flex-start}.app-install-card{padding:22px}}
     @media(max-width:700px){.partner-grid,.event-grid{grid-template-columns:1fr}.partner-card,.event-card{padding:22px}.faq-item summary{padding:18px}.faq-answer{padding:0 18px 18px}}
+    .platform-downloads{position:relative;isolation:isolate;overflow:hidden;margin:0 auto;padding:clamp(34px,6vw,68px) max(22px,calc((100vw - 1120px)/2));background:radial-gradient(ellipse at 50% 0,rgba(243,207,60,.09),transparent 55%),#0c0c0f;border-top:1px solid rgba(243,207,60,.16);border-bottom:1px solid rgba(243,207,60,.16)}
+    .platform-downloads-inner{max-width:1120px;margin:0 auto}.platform-downloads .section-heading{margin-bottom:28px}.platform-downloads .section-heading h2{font-size:clamp(1.8rem,4vw,3rem)}.platform-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.platform-card{min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:22px 14px;border:1px solid rgba(243,207,60,.2);border-radius:20px;background:linear-gradient(155deg,rgba(32,31,27,.9),rgba(16,16,19,.98));transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}.platform-card:hover{transform:translateY(-3px);border-color:rgba(243,207,60,.55);box-shadow:0 14px 34px rgba(0,0,0,.22)}.platform-icon{width:48px;height:48px;display:grid;place-items:center;color:#f3cf3c}.platform-icon svg{width:42px;height:42px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.platform-card h3{margin:0;font-size:1.05rem;font-weight:850}.platform-card p{margin:0;min-height:42px;color:var(--muted);font-size:.84rem;line-height:1.5}.platform-card button{margin-top:auto;width:100%;min-height:42px;border:1px solid rgba(243,207,60,.42);border-radius:999px;background:rgba(243,207,60,.08);color:#ffe16b;font:inherit;font-size:.82rem;font-weight:800;cursor:pointer}.platform-card button:hover{background:#f3cf3c;color:#111}.platform-note{max-width:760px;margin:20px auto 0;text-align:center;color:var(--muted);font-size:.8rem;line-height:1.6}.platform-note a{color:#ffe16b}
+    @media(max-width:760px){.platform-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.platform-card{padding:18px 12px}.platform-card p{min-height:56px}}
+    @media(max-width:360px){.platform-grid{grid-template-columns:1fr}.platform-card p{min-height:0}}
   </style>
 
   <script>if(new URLSearchParams(location.search).get('app')==='1'){document.documentElement.dataset.appMode='true';}</script>
@@ -139,7 +143,7 @@
           <p>The Sovereign Desk provides signals, mentorship, announcements, private Desk chat and Telegram access for eligible active members. Full service costs $10 for 14 days. Signed-in members can view the weekly trade watchlist from their dashboard.</p>
           <p>Trading concepts can be explained in simple language, but no signal can promise a profitable outcome. Markets are uncertain, and you may lose some or all of the money you put at risk.</p>
           
-          <div class="partner-actions"><a class="outline-link" href="mailto:contactmonarchcodex@gmail.com?subject=Sovereign%20Desk%20enquiry">Ask official support ↗</a></div>
+          <div class="partner-actions"><a class="outline-link" href="mailto:support@monarchcodex.online?subject=Sovereign%20Desk%20enquiry">Ask official support ↗</a></div>
         </article>
         <article class="partner-card">
           <div class="partner-symbol partner-logo-frame"><img src="assets/images/online-cooperative-logo.jpg" alt="The Online Cooperative logo"></div>
@@ -173,8 +177,8 @@
         <details class="faq-item"><summary>Are profits guaranteed?</summary><div class="faq-answer"><p>No. Trading and investing involve risk, and profits are never guaranteed. A signal is not a promise or certainty of a market outcome. Only risk money you can afford to lose, and consider getting independent financial advice.</p></div></details>
         <details class="faq-item"><summary>What is The Online Cooperative?</summary><div class="faq-answer"><p>It is a separate network-based opportunity with package options and member milestones.</p></div></details>
         <details class="faq-item"><summary>How do I fund my account or withdraw?</summary><div class="faq-answer"><p>Follow the current instructions in your account or contact official support. We don’t publish unverified payment or withdrawal instructions here. Never send your password or private login codes to anyone.</p></div></details>
-        <details class="faq-item"><summary>How do I get help?</summary><div class="faq-answer"><p>Email <a href="mailto:contactmonarchcodex@gmail.com">contactmonarchcodex@gmail.com</a>. For account access, payments or approval, contact official support directly.</p></div></details>
-        <details class="faq-item"><summary>Can I join the trading class?</summary><div class="faq-answer"><p>Yes, you can ask about it, but the confirmed date, time and official class link have not been provided on this page. <a href="mailto:contactmonarchcodex@gmail.com?subject=Trading%20class%20enquiry">Contact support to confirm details.</a></p></div></details>
+        <details class="faq-item"><summary>How do I get help?</summary><div class="faq-answer"><p>Email <a href="mailto:support@monarchcodex.online">support@monarchcodex.online</a>. For account access, payments or approval, contact official support directly.</p></div></details>
+        <details class="faq-item"><summary>Can I join the trading class?</summary><div class="faq-answer"><p>Yes, you can ask about it, but the confirmed date, time and official class link have not been provided on this page. <a href="mailto:support@monarchcodex.online?subject=Trading%20class%20enquiry">Contact support to confirm details.</a></p></div></details>
       </div>
     </section>
 
@@ -192,7 +196,7 @@
     <section id="contact" class="contact-section">
       <div class="section-wrap contact-layout">
         <div><p class="eyebrow">YOUR PEOPLE, ONE TAP AWAY</p><h2>Got a question?<br><span>Let’s connect.</span></h2><p class="contact-intro">Need help with access, a class, a partner or something on the site? Reach the team through official support.</p>
-          <div class="contact-links icon-links social-bubbles" aria-label="Contact and social links"><a class="contact-icon email-icon" href="mailto:contactmonarchcodex@gmail.com" aria-label="Email Monarch Codex support" title="Email"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></a><a class="contact-icon telegram-icon" href="https://t.me/Trade_Monarch" target="_blank" rel="noopener noreferrer" aria-label="Open Telegram" title="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4Z"></path><path d="M10 14 21 3"></path></svg></a><a class="contact-icon x-icon" href="https://x.com/MetaTron777X" target="_blank" rel="noopener noreferrer" aria-label="Open X profile" title="X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l10 16h-4L5 4Z"></path><path d="M19 4 5 20"></path></svg></a><a class="contact-icon youtube-icon" href="https://www.youtube.com/@Monachcodexacademy" target="_blank" rel="noopener noreferrer" aria-label="Open YouTube channel" title="YouTube"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="4"></rect><path d="m10 9 5 3-5 3Z"></path></svg></a></div>
+          <div class="contact-links icon-links social-bubbles" aria-label="Contact and social links"><a class="contact-icon email-icon" href="mailto:support@monarchcodex.online" aria-label="Email Monarch Codex support" title="Email"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m4 7 8 6 8-6"></path></svg></a><a class="contact-icon telegram-icon" href="https://t.me/Trade_Monarch" target="_blank" rel="noopener noreferrer" aria-label="Open Telegram" title="Telegram"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 3-7 18-4-7-7-4Z"></path><path d="M10 14 21 3"></path></svg></a><a class="contact-icon x-icon" href="https://x.com/MetaTron777X" target="_blank" rel="noopener noreferrer" aria-label="Open X profile" title="X"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h4l10 16h-4L5 4Z"></path><path d="M19 4 5 20"></path></svg></a><a class="contact-icon youtube-icon" href="https://www.youtube.com/@Monachcodexacademy" target="_blank" rel="noopener noreferrer" aria-label="Open YouTube channel" title="YouTube"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="4"></rect><path d="m10 9 5 3-5 3Z"></path></svg></a></div>
         </div>
         <form class="contact-form" id="contactForm">
           <label for="visitorName">Your name</label><input id="visitorName" name="name" autocomplete="name" required>
@@ -206,11 +210,43 @@
     </section>
   </main>
 
+  <section class="platform-downloads" id="download-app" aria-labelledby="platform-download-title">
+    <div class="platform-downloads-inner">
+      <div class="section-heading centered">
+        <p class="eyebrow">MONARCH CODEX ON YOUR DEVICE</p>
+        <h2 id="platform-download-title">Your platform. Your way.</h2>
+        <p class="section-intro">Use Monarch Codex on the web or install the app-like experience on your device. Your account stays connected to the same platform.</p>
+      </div>
+      <div class="platform-grid">
+        <article class="platform-card">
+          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="11" y="8" width="26" height="33" rx="5"/><path d="M18 4l4 5M30 4l-4 5M18 35h12"/><circle cx="18" cy="14" r="1" fill="currentColor" stroke="none"/><circle cx="30" cy="14" r="1" fill="currentColor" stroke="none"/></svg></div>
+          <h3>Android</h3><p>Install from your browser now. A standalone APK package is a separate release.</p>
+          <button type="button" data-install-app data-platform="android">Install for Android ↓</button>
+        </article>
+        <article class="platform-card">
+          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M29 25c0-5 4-7 4-7-2-3-5-3-6-3-3 0-4 2-6 2s-3-2-6-2c-4 0-8 4-8 10 0 5 4 14 8 14 2 0 4-2 6-2s3 2 6 2c3 0 6-5 7-8-1 0-5-2-5-6Z"/><path d="M26 12c1-4 4-6 7-6 0 4-3 7-7 7"/></svg></div>
+          <h3>iPhone & iPad</h3><p>Add the website to your Home Screen using Safari for an app-like shortcut.</p>
+          <button type="button" data-install-app data-platform="ios">Set up iOS ↓</button>
+        </article>
+        <article class="platform-card">
+          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="5" y="8" width="38" height="27" rx="3"/><path d="M18 41h12M24 35v6M10 14h28"/></svg></div>
+          <h3>Mac</h3><p>Install from a supported browser or keep Monarch Codex in your dock.</p>
+          <button type="button" data-install-app data-platform="mac">Set up Mac ↓</button>
+        </article>
+        <article class="platform-card">
+          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M5 9 21 7v16H5Zm19-2 19-3v19H24ZM5 25h16v16L5 39Zm19 0h19v19l-19-3Z"/></svg></div>
+          <h3>Windows</h3><p>Install from Microsoft Edge or Chrome when the browser offers the option.</p>
+          <button type="button" data-install-app data-platform="windows">Set up Windows ↓</button>
+        </article>
+      </div>
+      <p class="platform-note">The website and installable web app are available now. A separate Android APK and signed native iOS, macOS and Windows packages are not published yet; we won’t show fake download links. <a href="mailto:support@monarchcodex.online">Need help? Contact support.</a></p>
+    </div>
+  </section>
   <div class="app-install-panel" id="appInstallPanel" role="dialog" aria-modal="true" aria-labelledby="appInstallTitle" aria-hidden="true"><div class="app-install-card"><button class="app-install-close" type="button" data-close-install aria-label="Close install instructions">×</button><p class="eyebrow">YOUR COMMUNITY. ONE TAP AWAY.</p><h2 id="appInstallTitle">Take Monarch Codex with you.</h2><p id="appInstallMessage">Install the app for a faster, app-like experience from your home screen.</p><ol id="appInstallSteps"><li>Open this website in Chrome.</li><li>Tap the browser menu <strong>⋮</strong>.</li><li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>, then follow the prompt.</li></ol><button class="button button-gold" type="button" data-close-install>Got it</button></div></div>
   <footer class="footer">
     <a class="brand footer-brand" href="#top"><span class="brand-mark"><img src="assets/images/monarch-codex-logo.svg" alt=""></span><span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span></a>
     <p>Knowledge. Strategy. Empowerment.</p>
-    <div class="footer-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms & policies</a><a href="mailto:contactmonarchcodex@gmail.com">Contact support</a></div>
+    <div class="footer-links"><a href="privacy.html">Privacy</a><a href="terms.html">Terms & policies</a><a href="mailto:support@monarchcodex.online">Contact support</a></div>
     <small class="copyright">© <span id="year"></span> Monarch Codex. All rights reserved.</small>
     <p class="footer-disclaimer">Monarch Codex provides educational content, mentorship and trading-related guidance. All financial markets involve risk, and outcomes are never guaranteed. Information shared by Monarch Codex is not a substitute for your own judgement or an assessment of your personal circumstances.</p>
   </footer>
@@ -255,11 +291,22 @@
     window.addEventListener('appinstalled',()=>{installPrompt=null;if(message)message.textContent='Monarch Codex is installed. You can open it from your home screen.';});
     function openPanel(){if(!panel)return;panel.classList.add('is-open');panel.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';}
     function closePanel(){if(!panel)return;panel.classList.remove('is-open');panel.setAttribute('aria-hidden','true');document.body.style.overflow='';}
+    const platformHelp={
+      android:{message:'Install Monarch Codex on Android from your browser today. The separate APK download is not published yet.',steps:['Open monarchcodex.online in Chrome.','Tap the browser menu ⋮.','Choose Install app or Add to Home screen, then confirm.']},
+      ios:{message:'On iPhone or iPad, add Monarch Codex to your Home Screen from Safari.',steps:['Open monarchcodex.online in Safari.','Tap the Share button.','Choose Add to Home Screen, then tap Add.']},
+      mac:{message:'On Mac, use your browser’s install option when available, or keep a shortcut in your Dock.',steps:['Open monarchcodex.online in Chrome or another supported browser.','Look for the install icon in the address bar or use the browser menu.','Choose Install app if offered. Otherwise, create a website shortcut or bookmark.']},
+      windows:{message:'On Windows, install Monarch Codex from a supported browser when the option is available.',steps:['Open monarchcodex.online in Microsoft Edge or Chrome.','Open the browser menu.','Choose Apps → Install this site as an app or Install app if shown.']}
+    };
     document.querySelectorAll('[data-install-app]').forEach(button=>button.addEventListener('click',async()=>{
-      if(isStandalone){if(message)message.textContent='Monarch Codex is already installed on this device.';if(steps)steps.hidden=true;openPanel();return;}
-      if(installPrompt){installPrompt.prompt();try{await installPrompt.userChoice;}catch(_){}installPrompt=null;return;}
-      if(message)message.textContent='You can add Monarch Codex to your home screen without downloading a separate APK. The exact wording depends on your browser.';
-      if(steps)steps.hidden=false;openPanel();
+      const platform=button.dataset.platform||'android';
+      const help=platformHelp[platform]||platformHelp.android;
+      if(message)message.textContent=isStandalone?'Monarch Codex is already installed on this device.':help.message;
+      if(steps){steps.replaceChildren();help.steps.forEach(instruction=>{const li=document.createElement('li');li.textContent=instruction;steps.append(li);});steps.hidden=isStandalone;}
+      if(platform==='android'&&installPrompt&&!isStandalone){
+        try{installPrompt.prompt();await installPrompt.userChoice;}catch(_){}
+        installPrompt=null;return;
+      }
+      openPanel();
     }));
     document.querySelectorAll('[data-close-install]').forEach(button=>button.addEventListener('click',closePanel));
     if(panel)panel.addEventListener('click',event=>{if(event.target===panel)closePanel();});
