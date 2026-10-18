@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore Monarch Codex: trading education, The Sovereign Desk, The Online Cooperative, community events and FAQs.">
   <meta name="theme-color" content="#0b0b0c">
+  <meta name="application-name" content="Monarch Codex">
+  <link rel="manifest" href="/manifest.webmanifest">
   <title>Monarch Codex | Knowledge. Strategy. Empowerment.</title>
   <link rel="icon" type="image/svg+xml" href="assets/images/monarch-codex-logo.svg">
   <link rel="stylesheet" href="assets/css/style.css">
@@ -27,6 +29,7 @@
     .notice-card{margin-top:22px;padding:18px 20px;border-left:4px solid #f3cf3c;border-radius:0 14px 14px 0;background:rgba(255,211,61,.07)}
     .nav-login{display:inline-flex;align-items:center;justify-content:center;padding:2px 9px;min-height:0;height:28px;border:1px solid rgba(255,211,61,.38);border-radius:999px;color:#ffe16b;font-size:.72rem;line-height:1;font-weight:750;text-decoration:none;white-space:nowrap;flex:0 0 auto;align-self:center;transition:background .18s ease,border-color .18s ease,color .18s ease}.nav-login:hover{background:rgba(255,211,61,.10);border-color:rgba(255,211,61,.7)}@media(max-width:760px){.nav .nav-login{align-self:flex-start;padding:5px 10px;height:28px;min-height:0;margin-top:4px;width:auto;font-size:.74rem}}
     .button-login{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.65);border-radius:999px;color:#ffe16b;background:rgba(15,16,23,.72);font-weight:800;text-decoration:none}.button-login:hover{background:#f3cf3c;color:#111}
+    .app-install-button{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.45);border-radius:999px;color:#f7e7ad;background:linear-gradient(135deg,rgba(255,211,61,.13),rgba(255,211,61,.04));font:inherit;font-weight:800;cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease}.app-install-button:hover{transform:translateY(-2px);border-color:#ffda52;background:rgba(255,211,61,.16)}.nav-app-install{display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(255,211,61,.5);border-radius:999px;padding:8px 13px;color:#ffe16b;font-size:.78rem;font-weight:800;white-space:nowrap;cursor:pointer;background:rgba(255,211,61,.07)}.app-install-panel{position:fixed;z-index:30000;inset:0;display:none;place-items:center;padding:20px;background:rgba(0,0,0,.78);backdrop-filter:blur(8px)}.app-install-panel.is-open{display:grid}.app-install-card{width:min(100%,430px);padding:28px;border:1px solid rgba(255,211,61,.38);border-radius:24px;background:linear-gradient(145deg,#1b1a17,#0e0e10);box-shadow:0 28px 90px #000}.app-install-card h2{font-family:"Playfair Display",Georgia,serif;font-size:2rem;line-height:1.15;margin:10px 0;color:#ffe16b}.app-install-card p,.app-install-card li{color:#d0cec6}.app-install-close{display:flex;margin-left:auto;width:38px;height:38px;align-items:center;justify-content:center;border:1px solid rgba(255,211,61,.25);border-radius:50%;background:transparent;color:#ffe16b;font-size:1.4rem;cursor:pointer}.app-install-card ol{padding-left:22px}.app-install-card li{padding:4px 0}.app-install-card .button{width:100%;justify-content:center;margin-top:10px}@media(max-width:760px){.nav-app-install{align-self:flex-start}.app-install-card{padding:22px}}
     @media(max-width:700px){.partner-grid,.event-grid{grid-template-columns:1fr}.partner-card,.event-card{padding:22px}.faq-item summary{padding:18px}.faq-answer{padding:0 18px 18px}}
   </style>
 </head>
@@ -38,7 +41,7 @@
     </a>
     <button class="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
     <nav class="nav" aria-label="Main navigation">
-      <a href="#about">About</a><a href="#partners">Partners</a><a href="#events">Events</a><a href="#market-news">Market News</a><a href="#faqs">FAQs</a><a class="nav-login" href="/login">Log In</a><a class="nav-cta" href="/register">Become A Monarch</a>
+      <a href="#about">About</a><a href="#partners">Partners</a><a href="#events">Events</a><a href="#market-news">Market News</a><a href="#faqs">FAQs</a><a class="nav-login" href="/login">Log In</a><button class="nav-app-install" type="button" data-install-app>Install App ↓</button><a class="nav-cta" href="/register">Become A Monarch</a>
     </nav>
   </header>
 
@@ -52,6 +55,7 @@
         <div class="hero-actions">
           <a class="button button-gold" href="/register">Become A Monarch <span>↗</span></a>
           <a class="button button-login" href="/login">Already a member? Log in <span>→</span></a>
+          <button class="app-install-button" type="button" data-install-app>✦ Install Monarch Codex <span aria-hidden="true">↓</span></button>
           <a class="text-link" href="#partners">Explore our partners</a>
         </div>
         <p class="microcopy">Learn first. Ask questions. Make informed decisions. Financial markets involve risk; no profit is guaranteed.</p>
@@ -164,6 +168,7 @@
     </section>
   </main>
 
+  <div class="app-install-panel" id="appInstallPanel" role="dialog" aria-modal="true" aria-labelledby="appInstallTitle" aria-hidden="true"><div class="app-install-card"><button class="app-install-close" type="button" data-close-install aria-label="Close install instructions">×</button><p class="eyebrow">YOUR COMMUNITY. ONE TAP AWAY.</p><h2 id="appInstallTitle">Take Monarch Codex with you.</h2><p id="appInstallMessage">Install the app for a faster, app-like experience from your home screen.</p><ol id="appInstallSteps"><li>Open this website in Chrome.</li><li>Tap the browser menu <strong>⋮</strong>.</li><li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>, then follow the prompt.</li></ol><button class="button button-gold" type="button" data-close-install>Got it</button></div></div>
   <footer class="footer">
     <a class="brand footer-brand" href="#top"><span class="brand-mark"><img src="assets/images/monarch-codex-logo.svg" alt=""></span><span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span></a>
     <p>Knowledge. Strategy. Empowerment.</p>
@@ -199,6 +204,29 @@
     }catch(_){
       grid.replaceChildren();const empty=document.createElement('p');empty.className='partner-note';empty.textContent='Events are temporarily unavailable. Please check back soon.';grid.append(empty);
     }
+  })();
+  </script>
+  <script>
+  (function(){
+    let installPrompt=null;
+    const panel=document.getElementById('appInstallPanel');
+    const message=document.getElementById('appInstallMessage');
+    const steps=document.getElementById('appInstallSteps');
+    const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+    window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;});
+    window.addEventListener('appinstalled',()=>{installPrompt=null;if(message)message.textContent='Monarch Codex is installed. You can open it from your home screen.';});
+    function openPanel(){if(!panel)return;panel.classList.add('is-open');panel.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';}
+    function closePanel(){if(!panel)return;panel.classList.remove('is-open');panel.setAttribute('aria-hidden','true');document.body.style.overflow='';}
+    document.querySelectorAll('[data-install-app]').forEach(button=>button.addEventListener('click',async()=>{
+      if(isStandalone){if(message)message.textContent='Monarch Codex is already installed on this device.';if(steps)steps.hidden=true;openPanel();return;}
+      if(installPrompt){installPrompt.prompt();try{await installPrompt.userChoice;}catch(_){}installPrompt=null;return;}
+      if(message)message.textContent='You can add Monarch Codex to your home screen without downloading a separate APK. The exact wording depends on your browser.';
+      if(steps)steps.hidden=false;openPanel();
+    }));
+    document.querySelectorAll('[data-close-install]').forEach(button=>button.addEventListener('click',closePanel));
+    if(panel)panel.addEventListener('click',event=>{if(event.target===panel)closePanel();});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape')closePanel();});
+    if('serviceWorker' in navigator && location.protocol==='https:'){window.addEventListener('load',()=>navigator.serviceWorker.register('/service-worker.js').catch(()=>{}));}
   })();
   </script>
   <script src="assets/js/main.js"></script>
