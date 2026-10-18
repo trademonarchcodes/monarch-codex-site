@@ -10,6 +10,7 @@
       if (approved === true) {
         link.removeAttribute('data-kyc-locked');
         link.removeAttribute('aria-disabled');
+        link.href = link.getAttribute('data-member-href') || link.href;
         if (badge) badge.remove();
         link.classList.add('kyc-unlocked');
         return;
@@ -17,6 +18,7 @@
 
       link.setAttribute('data-kyc-locked', 'true');
       link.setAttribute('aria-disabled', 'true');
+      link.href = '/kyc?required=approval';
       link.classList.remove('kyc-unlocked');
       if (!badge) {
         badge = document.createElement('span');
