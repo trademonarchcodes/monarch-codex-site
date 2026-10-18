@@ -6,24 +6,28 @@ const { MEMBER_NAV_ITEMS, renderMemberNavigation } = require('../lib/member-navi
 
 test('the same navigation renders all member destinations and KYC lock badges', () => {
   const html = renderMemberNavigation('/dashboard');
+  const unlocked = ['/dashboard', '/profile', '/kyc'];
+  const locked = ['/sovereign-desk', '/deposit', '/withdraw', '/transactions', '/investments', '/referrals', '/online-cooperative'];
 
   for (const item of MEMBER_NAV_ITEMS) {
-    assert.ok(html.includes('href="' + item.href + '"'), 'missing ' + item.href);
     assert.ok(html.includes(item.label), 'missing label ' + item.label);
-    assert.equal(html.includes('href="' + item.href + '" aria-current="page"'), item.href === '/dashboard');
+    if (unlocked.includes(item.href)) {
+      assert.ok(html.includes('href="' + item.href + '"'), 'missing unlocked destination ' + item.href);
+      assert.match(html, new RegExp('href="' + item.href.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '"[^>]*' + (item.href === '/dashboard' ? 'aria-current="page"' : '')));
+    } else {
+      assert.match(html, new RegExp('href="/kyc\\?required=approval"[^>]*data-kyc-locked="true"[^>]*data-member-href="' + item.href.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '"'));
+    }
   }
 
-  for (const href of ['/deposit', '/withdraw', '/investments', '/referrals', '/online-cooperative']) {
-    assert.match(html, new RegExp('href="' + href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"[^>]*data-kyc-locked="true"'));
+  for (const href of locked) {
+    assert.match(html, new RegExp('data-kyc-locked="true"[^>]*data-member-href="' + href.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '"'));
   }
-
-  assert.doesNotMatch(html, /href="\/transactions"[^>]*data-kyc-locked="true"/);
-  assert.equal((html.match(/class="member-kyc-lock"/g) || []).length, 5);
+  assert.equal((html.match(/class="member-kyc-lock"/g) || []).length, 7);
 });
 
-test('the shared navigation marks the current route without changing lock policy', () => {
+test('the shared navigation marks the current route and preserves KYC locks', () => {
   const html = renderMemberNavigation('/transactions');
-  assert.match(html, /href="\/transactions" aria-current="page"/);
-  assert.match(html, /href="\/deposit"[^>]*data-kyc-locked="true"/);
+  assert.match(html, /href="\/kyc\?required=approval"[^>]*aria-current="page"[^>]*data-kyc-locked="true"[^>]*data-member-href="\/transactions"/);
+  assert.match(html, /href="\/kyc\?required=approval"[^>]*data-kyc-locked="true"[^>]*data-member-href="\/deposit"/);
   assert.equal((html.match(/aria-current="page"/g) || []).length, 1);
 });
