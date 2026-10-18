@@ -659,3 +659,49 @@ html,body{max-width:100%;overflow-x:clip}
     -webkit-overflow-scrolling: touch;
   }
 }
+
+
+/* Emergency sidebar recovery: keep member navigation visible while retaining scroll. */
+.member-experience > .member-rail,
+.member-experience .member-rail {
+  display: flex !important;
+  flex-direction: column !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  transform: none !important;
+  width: auto;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: calc(100dvh - 28px) !important;
+  max-height: calc(100dvh - 28px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  position: relative;
+  inset: auto;
+  z-index: 2;
+}
+.member-experience .member-rail nav {
+  display: grid !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  flex: 0 0 auto !important;
+}
+.member-experience .member-rail nav a {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+@media (max-width: 850px) {
+  .member-experience > .member-rail,
+  .member-experience .member-rail {
+    position: relative !important;
+    top: auto !important;
+    bottom: auto !important;
+    left: auto !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border-right: 0;
+  }
+}
