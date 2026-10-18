@@ -602,3 +602,14 @@ html,body{max-width:100%;overflow-x:clip}
     max-height: 100dvh;
   }
 }
+
+
+/* Member sidebar scroll support — desktop and mobile */
+.member-rail{height:calc(100dvh - 28px);max-height:calc(100dvh - 28px);min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#8a7135 #111113}
+.member-rail nav{flex:0 0 auto}
+.member-rail-account,.member-rail-logout{flex-shrink:0}
+.member-rail::-webkit-scrollbar{width:7px}
+.member-rail::-webkit-scrollbar-track{background:#111113;border-radius:99px}
+.member-rail::-webkit-scrollbar-thumb{background:#6b592b;border:1px solid #111113;border-radius:99px}
+.member-rail::-webkit-scrollbar-thumb:hover{background:#b99a42}
+@media(max-width:850px){.member-rail{height:100dvh;max-height:100dvh;overscroll-behavior-y:contain;scrollbar-width:thin}}
