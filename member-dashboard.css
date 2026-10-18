@@ -705,3 +705,86 @@ html,body{max-width:100%;overflow-x:clip}
     border-right: 0;
   }
 }
+
+
+/* Readable member sidebar + clearly visible bottom logout */
+.member-experience .member-rail {
+  color: #f7f3e8 !important;
+  background: linear-gradient(180deg, #19191d 0%, #111114 100%) !important;
+  border-right-color: #494027 !important;
+}
+.member-experience .member-rail-label {
+  color: #e2c65d !important;
+}
+.member-experience .member-rail nav a {
+  color: #e0dde5 !important;
+  font-weight: 700 !important;
+  opacity: 1 !important;
+}
+.member-experience .member-rail nav a .member-nav-icon {
+  background: #292821 !important;
+  color: #f0d56b !important;
+}
+.member-experience .member-rail nav a:hover,
+.member-experience .member-rail nav a[aria-current="page"] {
+  color: #ffe77b !important;
+  border-color: #786126 !important;
+  background: linear-gradient(100deg, #3a2f12, #211d12) !important;
+}
+.member-experience .member-rail-account {
+  margin-top: auto !important;
+  flex-shrink: 0 !important;
+  border-color: #65532a !important;
+  background: linear-gradient(145deg, #29210e, #17171a) !important;
+}
+.member-experience .member-rail-account > small {
+  color: #c3bdad !important;
+}
+.member-experience .member-rail-logout {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  flex: 0 0 auto !important;
+  flex-shrink: 0 !important;
+  margin-top: 12px !important;
+  padding-top: 12px !important;
+  border-top: 1px solid #40392b !important;
+}
+.member-experience .member-rail-logout form {
+  display: block !important;
+  margin: 0 !important;
+}
+.member-experience .member-rail-logout button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 11px !important;
+  width: 100% !important;
+  min-height: 46px !important;
+  padding: 12px 13px !important;
+  border: 1px solid #714039 !important;
+  border-radius: 12px !important;
+  background: linear-gradient(100deg, #321c1b, #211616) !important;
+  color: #ffc2b7 !important;
+  font: inherit !important;
+  font-weight: 800 !important;
+  text-align: left !important;
+  opacity: 1 !important;
+  cursor: pointer !important;
+}
+.member-experience .member-rail-logout button:hover,
+.member-experience .member-rail-logout button:focus-visible {
+  border-color: #b85e50 !important;
+  background: #40201e !important;
+  color: #fff0e9 !important;
+  outline: 2px solid #9d5147 !important;
+  outline-offset: 2px !important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a {
+  color: #242630 !important;
+}
+html[data-theme="light"] .member-experience .member-rail-logout button {
+  background: #fff0ed !important;
+  color: #8e2821 !important;
+  border-color: #e0a49c !important;
+}
