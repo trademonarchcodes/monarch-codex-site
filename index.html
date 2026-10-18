@@ -116,10 +116,7 @@
     <section id="events" class="focus-section">
       <div class="section-wrap section-pad">
         <div class="section-heading centered"><p class="eyebrow">SAVE THE VIBE</p><h2>Events & meetups</h2><p class="subhead">Workshops, learning sessions and community updates belong here.</p></div>
-        <div class="event-grid">
-          <article class="event-card event-featured"><div class="event-emoji" aria-hidden="true">👑</div><p class="partner-kicker">SPECIAL ACCESS EVENT · SATURDAY, 24 OCTOBER 2026</p><h3>The Sovereign Desk Signals Launch</h3><p>The first 20 unique members to request access from their dashboard receive <strong>the full Sovereign Desk for 14 days free</strong>. After the 20 free places are claimed, full service costs <strong>$10 for 14 days</strong>.</p><p>Register or log in, open The Sovereign Desk, and request access from your dashboard. Free places are first come, first served. You can preview the public trade watchlist without paying. Trading involves risk; profits are not guaranteed.</p><div class="hero-actions"><a class="button button-gold" href="/register">Register for access <span>↗</span></a><a class="button button-login" href="/login">Already registered? Log in <span>→</span></a><a class="button button-login" href="/sovereign-desk/watchlist">Preview the public watchlist ↗</a></div></article>
-          <article class="event-card"><div class="event-emoji" aria-hidden="true">🔐</div><h3>How to claim your access</h3><p>Create a Monarch Codex account or log in. You can view the public trade watchlist without an account. To unlock the full Sovereign Desk, request access from your dashboard: the first 20 unique requests receive 14 days free, and later access costs $10 for 14 days.</p><div class="hero-actions"><a class="button button-gold" href="/register">Create account <span>↗</span></a><a class="button button-login" href="/login">Log in <span>→</span></a></div></article>
-        </div>
+        <div class="event-grid" id="homepageEvents"><p class="partner-note">Loading current events…</p></div>
       </div>
     </section>
 
@@ -174,6 +171,36 @@
     <small class="copyright">© <span id="year"></span> Monarch Codex. All rights reserved.</small>
     <p class="footer-disclaimer">Monarch Codex provides educational content, mentorship and trading-related guidance. All financial markets involve risk, and outcomes are never guaranteed. Information shared by Monarch Codex is not a substitute for your own judgement or an assessment of your personal circumstances.</p>
   </footer>
+  <script>
+  (async function loadHomepageEvents(){
+    const grid=document.getElementById('homepageEvents');
+    if(!grid)return;
+    try{
+      const response=await fetch('/api/public-events',{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw new Error('Events unavailable');
+      const events=await response.json();
+      grid.replaceChildren();
+      if(!events.length){
+        const empty=document.createElement('p');empty.className='partner-note';empty.textContent='No upcoming events are published right now. Check back soon.';grid.append(empty);return;
+      }
+      for(const event of events){
+        const card=document.createElement('article');card.className='event-card event-featured';
+        const label=document.createElement('p');label.className='partner-kicker';label.textContent=event.label||'MONARCH CODEX EVENT';
+        const title=document.createElement('h3');title.textContent=event.title;
+        const summary=document.createElement('p');summary.textContent=event.summary;
+        const time=document.createElement('p');time.className='partner-note';
+        const dateText=value=>{const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});};
+        time.textContent='Starts: '+dateText(event.startsAt)+' · Ends: '+dateText(event.endsAt);
+        const actions=document.createElement('div');actions.className='hero-actions';
+        const register=document.createElement('a');register.className='button button-gold';register.href='/register';register.textContent='Register ↗';
+        const login=document.createElement('a');login.className='button button-login';login.href='/login';login.textContent='Log in →';
+        actions.append(register,login);card.append(label,title,summary,time,actions);grid.append(card);
+      }
+    }catch(_){
+      grid.replaceChildren();const empty=document.createElement('p');empty.className='partner-note';empty.textContent='Events are temporarily unavailable. Please check back soon.';grid.append(empty);
+    }
+  })();
+  </script>
   <script src="assets/js/main.js"></script>
 </body>
 </html>
