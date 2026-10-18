@@ -891,3 +891,38 @@ html[data-theme="light"] .member-experience .member-rail-logout button {
   .dashboard-layout .dashboard-metrics { gap:8px!important; }
   .dashboard-layout .dashboard-topline { gap:8px!important; }
 }
+
+
+/* Targeted regression fix: keep the NGN/USD segmented control horizontal on narrow screens.
+   This intentionally changes only the currency switch, not the dashboard layout. */
+.dashboard-layout .currency-toggle {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  gap: 4px !important;
+}
+.dashboard-layout .currency-toggle-option {
+  display: inline-flex !important;
+  flex: 1 1 0 !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 50% !important;
+  min-width: 0 !important;
+  max-width: 50% !important;
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  padding: 8px 6px !important;
+  letter-spacing: normal !important;
+}
+.dashboard-layout .currency-toggle-option > span {
+  flex: 0 0 22px !important;
+  white-space: nowrap !important;
+}
