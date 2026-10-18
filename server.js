@@ -1299,12 +1299,20 @@ app.get('/dashboard', requireAuth, async (req, res, next) => {
       if(Number.isFinite(rate) && rate>0) dashboardConversionRate=rate;
     } catch(e) { if(e.code!=='ER_NO_SUCH_TABLE') throw e; }
     const moneyPair=rows=>{
-      const v={USD:0,NGN:0},present={USD:false,NGN:false};
-      for(const r of rows){if(Object.prototype.hasOwnProperty.call(v,r.currency)){v[r.currency]=Number(r.total)||0;present[r.currency]=true;}}
+      const v={USD:0,NGN:0};
+      for(const r of rows){
+        if(Object.prototype.hasOwnProperty.call(v,r.currency)) v[r.currency]=Number(r.total)||0;
+      }
       if(dashboardConversionRate){
         const totalNgn=v.NGN+(v.USD*dashboardConversionRate);
-        const totalUsd=totalNgn/dashboardConversionRate;
-        return '₦'+totalNgn.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})+' · 
+        const totalUsd=v.USD+(v.NGN/dashboardConversionRate);
+        return 'USD $'+totalUsd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' · NGN ₦'+totalNgn.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
+      }
+      const parts=[];
+      if(v.USD!==0) parts.push('USD $'+v.USD.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+      if(v.NGN!==0) parts.push('NGN ₦'+v.NGN.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2}));
+      return parts.length?parts.join(' · '):'USD $0.00 · NGN ₦0.00 (FX rate unavailable)';
+    };
     const investmentDisplay=investmentDataReady?moneyPair(investmentTotals):'Not available';
     const earningsDisplay=earningsDataReady?moneyPair(earningsTotals):'Not available';
     const recentActivityHtml=recentTransactions.length?'<div class="dashboard-recent-list">'+recentTransactions.map(t=>'<a class="dashboard-recent-item" href="/transactions"><span class="dashboard-recent-icon">'+(Number(t.amount)<0?'↗':'✓')+'</span><span class="dashboard-recent-main"><strong>'+esc(String(t.transaction_type||'transaction').replace(/[_-]+/g,' ').replace(/\\b\\w/g,c=>c.toUpperCase()))+'</strong><small>'+esc(t.reference||'Recorded transaction')+' · '+esc(t.created_at)+'</small></span><strong class="dashboard-recent-amount '+(Number(t.amount)<0?'is-debit':'is-credit')+'">'+(Number(t.amount)<0?'−':'＋')+esc(String(t.currency||''))+' '+esc(Math.abs(Number(t.amount)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:8}))+'</strong></a>').join('')+'</div>':'<div class="section-card"><strong>'+(ledgerReady?'Your activity starts here':'Activity history is being prepared')+'</strong><p class="muted small">'+(ledgerReady?'Completed deposits and investment purchases will appear here as soon as they are recorded. You can view submitted deposit and withdrawal requests in transaction history.':'The financial activity table is not installed yet. Contact support or your administrator to complete the database setup.')+'</p></div>';
