@@ -151,6 +151,34 @@ async function requireApprovedKyc(req, res, next) {
     return next(error);
   }
 }
+// Enforce the KYC lock on the server, not just in dashboard navigation.
+const KYC_RESTRICTED_MEMBER_ROOTS = [
+  '/sovereign-desk', '/deposit', '/withdraw', '/transactions',
+  '/investments', '/referrals', '/online-cooperative', '/notifications',
+  '/api/deposit-quote', '/api/deposit-status'
+];
+app.use(async (req, res, next) => {
+  if (!req.session || !req.session.memberId) return next();
+  const pathname = req.path;
+  const restricted = KYC_RESTRICTED_MEMBER_ROOTS.some(root => pathname === root || pathname.startsWith(root + '/'));
+  if (!restricted) return next();
+  try {
+    const [rows] = await pool.execute(
+      "SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",
+      [req.session.memberId]
+    );
+    if (rows.length && String(rows[0].status || '').trim().toLowerCase() === 'approved') return next();
+    if (req.method === 'GET' || req.method === 'HEAD') return res.redirect('/kyc?required=approval');
+    return res.status(403).send(page('Verification required',
+      '<h1>Complete verification first</h1><p class="muted">This section stays locked until your identity verification is approved.</p><a class="btn" href="/kyc?required=approval">Continue to verification</a>'));
+  } catch (error) {
+    if (error && error.code === 'ER_NO_SUCH_TABLE') {
+      if (req.method === 'GET' || req.method === 'HEAD') return res.redirect('/kyc?required=approval');
+      return res.status(403).send(page('Verification required', '<h1>Complete verification first</h1><p class="muted">Your verification status is not available yet. Please open the verification page.</p><a class="btn" href="/kyc">Verify account</a>'));
+    }
+    return next(error);
+  }
+});
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254; }
 function validUsername(username) { return /^[a-zA-Z0-9_]{6,30}$/.test(username); }
 function formError(title, message, back) { return page(title, '<h1>' + esc(title) + '</h1><div class="notice">' + esc(message) + '</div><a class="btn" href="' + esc(back || '/register') + '">Go back</a>'); }
