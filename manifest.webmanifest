@@ -2,7 +2,7 @@
   "name": "Monarch Codex",
   "short_name": "Monarch Codex",
   "description": "Knowledge. Strategy. Empowerment. The Monarch Codex community.",
-  "start_url": "/",
+  "start_url": "/?app=1",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
