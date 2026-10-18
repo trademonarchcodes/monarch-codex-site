@@ -2483,9 +2483,18 @@ app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.
 });
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
-app.use((err, _req, res, _next) => {
-  console.error('[app error]', err && err.message ? err.message : 'Unknown error');
+app.use((err, req, res, _next) => {
+  const incidentId = crypto.randomBytes(5).toString('hex').toUpperCase();
+  console.error('[app error][' + incidentId + ']', {
+    message: err && err.message ? err.message : 'Unknown error',
+    path: req && req.path,
+    method: req && req.method,
+    code: err && err.code
+  });
   if (res.headersSent) return;
-  res.status(500).send(page('Something went wrong', '<h1>Something went wrong</h1><p class="muted">Please try again shortly.</p><a class="btn" href="/">Return home</a>'));
+  const incident = esc(incidentId);
+  const html = '<main class="mc-feedback-page"><section class="mc-feedback-card"><div class="mc-feedback-mark" aria-hidden="true">!</div><h1>We hit a temporary problem</h1><p>We couldn’t complete that request. Your action may not have been saved. Please try again, and if this keeps happening, share the support reference below with Monarch Codex support.</p><p style="margin-top:18px;color:#f3cf3c;font-weight:800">Support reference: ' + incident + '</p><a class="mc-feedback-link" href="/">Return home</a></section></main>';
+  const fallback = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#09090b"><title>Temporary problem · Monarch Codex</title><style>body{margin:0;background:#09090b;color:#f7f4e9;font:16px/1.65 system-ui,sans-serif}.mc-feedback-page{min-height:100vh;box-sizing:border-box;display:grid;place-items:center;padding:22px;background:radial-gradient(ellipse at 50% 0%,rgba(243,207,60,.13),transparent 50%),#09090b}.mc-feedback-card{width:min(520px,100%);box-sizing:border-box;padding:clamp(24px,6vw,38px);border:1px solid rgba(243,207,60,.38);border-radius:26px;background:linear-gradient(145deg,#1b1a16,#101012);box-shadow:0 24px 80px #0008;text-align:center}.mc-feedback-card h1{color:#f3cf3c;margin:0 0 12px;font-size:clamp(1.5rem,6vw,2rem)}.mc-feedback-card p{color:#d5d0c3;overflow-wrap:anywhere}.mc-feedback-mark{width:60px;height:60px;display:grid;place-items:center;border-radius:20px;margin:0 auto 18px;background:rgba(243,207,60,.13);border:1px solid rgba(243,207,60,.45);color:#f3cf3c;font-size:28px}.mc-feedback-link{display:inline-block;margin-top:24px;padding:12px 24px;border-radius:999px;background:#f3cf3c;color:#17140a;text-decoration:none;font-weight:850}</style></head><body>' + html + '</body></html>';
+  res.status(500).type('html').send(fallback);
 });
 app.listen(port, () => console.log('Monarch Codex server listening on port', port));
