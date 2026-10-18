@@ -30,11 +30,11 @@ module.exports = function createToolsRouter({ pool, requireAuth, requireAdmin, c
           ]);
         }
       });
+      await schemaReady;
       await pool.execute(
         "UPDATE member_tools SET url=CASE title WHEN 'Bybit' THEN ? WHEN 'WEEX' THEN ? WHEN 'Google Flow' THEN ? ELSE url END WHERE (title='Bybit' AND url='https://www.bybit.com/') OR (title='WEEX' AND url='https://www.weex.com/') OR (title='Google Flow' AND url='https://labs.google/fx/tools/flow')",
         ['https://www.bybit.com/invite?ref=ZDWQB3B&medium=referral&utm_campaign=evergreen&share_to=post', 'https://weex.com/register?vipCode=h3wh', 'https://labs.google/fx/tools/flow/']
       );
-      await schemaReady;
       next();
     } catch (error) { schemaReady = null; next(error); }
   };
