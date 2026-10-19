@@ -324,55 +324,82 @@ const liveMarketCache = new Map();
 async function getLiveMarketCache(key, ttlMs, loader) {
   const item = liveMarketCache.get(key);
   if (item && Date.now() - item.at < ttlMs) return { value: item.value, cached: true };
-  const value = await loader();
-  liveMarketCache.set(key, { at: Date.now(), value });
-  return { value, cached: false };
+  try {
+    const value = await loader();
+    liveMarketCache.set(key, { at: Date.now(), value });
+    return { value, cached: false };
+  } catch (error) {
+    // Keep the last successful quote set available during provider outages/rate limits.
+    if (item && item.value) {
+      console.warn('[live-markets] Serving stale cache for', key, '-', error.message);
+      return { value: { ...item.value, stale: true }, cached: true };
+    }
+    throw error;
+  }
 }
 app.get('/api/live-markets/crypto', async (req, res) => {
   const allowed = new Set(['USD', 'NGN', 'EUR', 'GBP']);
   const convert = String(req.query.convert || 'USD').toUpperCase();
   if (!allowed.has(convert)) return res.status(400).json({ message: 'Unsupported quote currency.' });
   try {
-    const result = await getLiveMarketCache('coingecko-listings-' + convert, 5 * 1000, async () => {
+    const result = await getLiveMarketCache('crypto-listings-' + convert, 30 * 1000, async () => {
       const query = new URLSearchParams({
         vs_currency: convert.toLowerCase(), order: 'market_cap_desc',
         per_page: '100', page: '1', sparkline: 'false',
         price_change_percentage: '24h'
       });
-      const raw = await fetchMarketSource('https://api.coingecko.com/api/v3/coins/markets?' + query.toString(), 'application/json');
-      const listings = JSON.parse(raw);
-      if (!Array.isArray(listings) || !listings.length) throw new Error('No crypto listings returned');
-      const coins = listings.map((coin, index) => ({
-        id: coin.id, name: coin.name, symbol: coin.symbol, slug: coin.id,
-        cmc_rank: coin.market_cap_rank || index + 1, logo: coin.image || '',
-        circulating_supply: coin.circulating_supply,
-        quote: {
-          [convert]: {
-            price: coin.current_price,
-            percent_change_24h: coin.price_change_percentage_24h,
-            market_cap: coin.market_cap,
-            volume_24h: coin.total_volume
-          }
-        }
-      }));
+      let coins;
       let global = {};
+      let source = 'CoinGecko';
       try {
-        const globalRaw = await fetchMarketSource('https://api.coingecko.com/api/v3/global', 'application/json');
-        const globalParsed = JSON.parse(globalRaw);
-        const metrics = globalParsed && globalParsed.data;
-        if (metrics) global = {
-          total_market_cap: { USD: metrics.total_market_cap && metrics.total_market_cap.usd },
-          total_volume_24h: { USD: metrics.total_volume && metrics.total_volume.usd }
-        };
-      } catch (error) {
-        console.warn('[live-markets] Global metrics unavailable:', error.message);
+        const raw = await fetchMarketSource('https://api.coingecko.com/api/v3/coins/markets?' + query.toString(), 'application/json');
+        const listings = JSON.parse(raw);
+        if (!Array.isArray(listings) || !listings.length) throw new Error('CoinGecko returned no listings');
+        coins = listings.map((coin, index) => ({
+          id: coin.id, name: coin.name, symbol: coin.symbol, slug: coin.id,
+          cmc_rank: coin.market_cap_rank || index + 1, logo: coin.image || '',
+          circulating_supply: coin.circulating_supply,
+          quote: { [convert]: {
+            price: coin.current_price, percent_change_24h: coin.price_change_percentage_24h,
+            market_cap: coin.market_cap, volume_24h: coin.total_volume
+          } }
+        }));
+        // Global statistics are optional; a failure here must not break otherwise valid coin prices.
+        try {
+          const globalParsed = JSON.parse(await fetchMarketSource('https://api.coingecko.com/api/v3/global', 'application/json'));
+          const metrics = globalParsed && globalParsed.data;
+          if (metrics) global = { total_market_cap: { USD: metrics.total_market_cap && metrics.total_market_cap.usd }, total_volume_24h: { USD: metrics.total_volume && metrics.total_volume.usd } };
+        } catch (error) { console.warn('[live-markets] Global metrics unavailable:', error.message); }
+      } catch (primaryError) {
+        // Independent public fallback helps recover when CoinGecko is rate-limited or unavailable.
+        console.warn('[live-markets] CoinGecko unavailable; trying CoinCap:', primaryError.message);
+        const fallback = JSON.parse(await fetchMarketSource('https://api.coincap.io/v2/assets?limit=100', 'application/json'));
+        if (!Array.isArray(fallback.data) || !fallback.data.length) throw primaryError;
+        let fxRate = 1;
+        if (convert !== 'USD') {
+          const fx = JSON.parse(await fetchMarketSource('https://open.er-api.com/v6/latest/USD', 'application/json'));
+          if (fx.result !== 'success' || !Number(fx.rates && fx.rates[convert])) throw new Error('Could not convert fallback prices to ' + convert);
+          fxRate = Number(fx.rates[convert]);
+        }
+        source = 'CoinCap fallback';
+        coins = fallback.data.map((coin, index) => ({
+          id: coin.id, name: coin.name, symbol: coin.symbol, slug: coin.id,
+          cmc_rank: Number(coin.rank) || index + 1, logo: '',
+          circulating_supply: Number(coin.supply) || null,
+          quote: { [convert]: {
+            price: Number(coin.priceUsd) * fxRate,
+            percent_change_24h: Number(coin.changePercent24Hr),
+            market_cap: Number(coin.marketCapUsd) * fxRate,
+            volume_24h: Number(coin.volumeUsd24Hr) * fxRate
+          } }
+        }));
       }
-      return { coins, global, source: 'CoinGecko', updatedAt: new Date().toISOString() };
+      return { coins, global, source, updatedAt: new Date().toISOString() };
     });
     res.set('Cache-Control', 'no-store').json({ ...result.value, cached: result.cached });
   } catch (error) {
     console.warn('[live-markets] Crypto quotes unavailable:', error.message);
-    res.status(502).json({ message: 'Crypto market data is temporarily unavailable. Please refresh shortly.' });
+    res.status(502).json({ message: 'Market data provider is temporarily unavailable. Please retry shortly.' });
   }
 });
 app.get('/api/live-markets/forex', async (_req, res) => {
@@ -383,7 +410,7 @@ app.get('/api/live-markets/forex', async (_req, res) => {
       if (parsed.result !== 'success' || !parsed.rates || typeof parsed.rates !== 'object') throw new Error('Unexpected FX reference response');
       return { rates: parsed, updatedAt: new Date().toISOString(), source: 'ExchangeRate-API', sourceUrl: 'https://www.exchangerate-api.com/' };
     });
-    res.set('Cache-Control', 'public, max-age=300').json({ ...result.value, cached: result.cached });
+    res.set('Cache-Control', 'no-store').json({ ...result.value, cached: result.cached });
   } catch (error) {
     console.warn('[live-markets] FX reference rates unavailable:', error.message);
     res.status(502).json({ message: 'Foreign-exchange reference rates are temporarily unavailable. Please refresh shortly.' });
