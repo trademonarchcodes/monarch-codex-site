@@ -57,6 +57,9 @@ jobs:
         working-directory: android-app
         run: npx --yes @capacitor/assets generate --android --assetPath assets
 
+      - name: Prepare Capacitor asset directory
+        run: mkdir -p android-app/android/app/src/main/assets
+
       - name: Sync Android project
         working-directory: android-app
         run: npx cap sync android
