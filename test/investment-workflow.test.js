@@ -26,7 +26,7 @@ test('investment purchase charges 1 percent on top of package principal', () => 
 test('purchase writes wallet debit, investment record and member notification in one transaction', () => {
   assert.match(server, /await conn\.beginTransaction\(\)/);
   assert.match(server, /INSERT INTO member_investments/);
-  assert.match(server, /INSERT INTO financial_transactions \\(member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note\\) VALUES \\(\\?,NULL,\\?,\'investment_purchase\',\\?,\\?,\\?,\\?\\)/);
+  assert.ok(server.includes("INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)"));
   assert.match(server, /INSERT INTO member_notifications/);
   assert.match(server, /await conn\.commit\(\)/);
   assert.match(server, /await conn\.rollback\(\)/);
