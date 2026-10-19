@@ -333,27 +333,41 @@ app.get('/api/live-markets/crypto', async (req, res) => {
   const convert = String(req.query.convert || 'USD').toUpperCase();
   if (!allowed.has(convert)) return res.status(400).json({ message: 'Unsupported quote currency.' });
   try {
-    const result = await getLiveMarketCache('cmc-listings-' + convert, 60 * 1000, async () => {
-      const query = new URLSearchParams({ start: '1', limit: '100', convert });
-      const raw = await fetchMarketSource('https://pro-api.coinmarketcap.com/public-api/v1/cryptocurrency/listings/latest?' + query.toString(), 'application/json');
-      const parsed = JSON.parse(raw);
-      if (parsed.status && parsed.status.error_code) throw new Error(parsed.status.error_message || 'CoinMarketCap API error');
-      const listings = Array.isArray(parsed.data) ? parsed.data : [];
-      if (!listings.length) throw new Error('No crypto listings returned');
-      const coins = listings.map(coin => ({
-        id: coin.id, name: coin.name, symbol: coin.symbol, slug: coin.slug,
-        cmc_rank: coin.cmc_rank, circulating_supply: coin.circulating_supply,
-        quote: coin.quote || {}
+    const result = await getLiveMarketCache('coingecko-listings-' + convert, 60 * 1000, async () => {
+      const query = new URLSearchParams({
+        vs_currency: convert.toLowerCase(), order: 'market_cap_desc',
+        per_page: '100', page: '1', sparkline: 'false',
+        price_change_percentage: '24h'
+      });
+      const raw = await fetchMarketSource('https://api.coingecko.com/api/v3/coins/markets?' + query.toString(), 'application/json');
+      const listings = JSON.parse(raw);
+      if (!Array.isArray(listings) || !listings.length) throw new Error('No crypto listings returned');
+      const coins = listings.map((coin, index) => ({
+        id: coin.id, name: coin.name, symbol: coin.symbol, slug: coin.id,
+        cmc_rank: coin.market_cap_rank || index + 1, logo: coin.image || '',
+        circulating_supply: coin.circulating_supply,
+        quote: {
+          [convert]: {
+            price: coin.current_price,
+            percent_change_24h: coin.price_change_percentage_24h,
+            market_cap: coin.market_cap,
+            volume_24h: coin.total_volume
+          }
+        }
       }));
       let global = {};
       try {
-        const globalRaw = await fetchMarketSource('https://pro-api.coinmarketcap.com/public-api/v1/global-metrics/quotes/latest?convert=USD', 'application/json');
+        const globalRaw = await fetchMarketSource('https://api.coingecko.com/api/v3/global', 'application/json');
         const globalParsed = JSON.parse(globalRaw);
-        if (!(globalParsed.status && globalParsed.status.error_code)) global = globalParsed.data || {};
+        const metrics = globalParsed && globalParsed.data;
+        if (metrics) global = {
+          total_market_cap: { USD: metrics.total_market_cap && metrics.total_market_cap.usd },
+          total_volume_24h: { USD: metrics.total_volume && metrics.total_volume.usd }
+        };
       } catch (error) {
         console.warn('[live-markets] Global metrics unavailable:', error.message);
       }
-      return { coins, global, source: 'CoinMarketCap', updatedAt: new Date().toISOString() };
+      return { coins, global, source: 'CoinGecko', updatedAt: new Date().toISOString() };
     });
     res.set('Cache-Control', 'public, max-age=30').json({ ...result.value, cached: result.cached });
   } catch (error) {
@@ -2673,7 +2687,7 @@ app.get(['/manifest.webmanifest', '/service-worker.js', '/app-icon.svg'], (req, 
   if (req.path === '/service-worker.js') return res.sendFile(file, { headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' } });
   return res.sendFile(file, { headers: { 'Cache-Control': 'public, max-age=3600' } });
 });
-app.get(['/privacy.html', '/terms.html', '/market-news.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
+app.get(['/privacy.html', '/terms.html', '/market-news.html', '/market-movers.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
   res.sendFile(path.join(__dirname, path.basename(req.path)));
 });
 app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.js', '/wallet-balances.js', '/member-nav.js', '/member-dashboard.js'], (req, res) => {
