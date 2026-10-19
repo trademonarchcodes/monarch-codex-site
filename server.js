@@ -405,18 +405,47 @@ app.get('/api/live-markets/crypto', async (req, res) => {
 app.get('/api/live-markets/forex', async (_req, res) => {
   try {
     const result = await getLiveMarketCache('fx-reference-usd', 30 * 60 * 1000, async () => {
-      const raw = await fetchMarketSource('https://open.er-api.com/v6/latest/USD', 'application/json');
-      const parsed = JSON.parse(raw);
-      if (parsed.result !== 'success' || !parsed.rates || typeof parsed.rates !== 'object') throw new Error('Unexpected FX reference response');
-      return { rates: parsed, updatedAt: new Date().toISOString(), source: 'ExchangeRate-API', sourceUrl: 'https://www.exchangerate-api.com/' };
+      const providers = [
+        {
+          name: 'ExchangeRate-API',
+          url: 'https://open.er-api.com/v6/latest/USD',
+          parse(parsed) {
+            if (parsed.result !== 'success' || !parsed.rates || typeof parsed.rates !== 'object') throw new Error('Unexpected ExchangeRate-API response');
+            return { base_code: parsed.base_code || 'USD', rates: parsed.rates, date: parsed.time_last_update_utc || parsed.time_last_update_unix || null };
+          }
+        },
+        {
+          name: 'Currency API fallback',
+          url: 'https://latest.currency-api.pages.dev/v1/currencies/usd.json',
+          parse(parsed) {
+            const rawRates = parsed.usd;
+            if (!rawRates || typeof rawRates !== 'object') throw new Error('Unexpected Currency API response');
+            const rates = Object.fromEntries(Object.entries(rawRates).map(([code, value]) => [code.toUpperCase(), Number(value)]).filter(([, value]) => Number.isFinite(value) && value > 0));
+            if (!rates.NGN || !rates.EUR || !rates.GBP) throw new Error('Currency API fallback is missing expected rates');
+            rates.USD = 1;
+            return { base_code: 'USD', rates, date: parsed.date || null };
+          }
+        }
+      ];
+      const errors = [];
+      for (const provider of providers) {
+        try {
+          const parsed = JSON.parse(await fetchMarketSource(provider.url, 'application/json'));
+          const normalized = provider.parse(parsed);
+          return { rates: normalized, updatedAt: new Date().toISOString(), source: provider.name, sourceUrl: provider.url, rateDate: normalized.date };
+        } catch (error) {
+          errors.push(provider.name + ': ' + error.message);
+          console.warn('[live-markets] FX provider failed:', provider.name, error.message);
+        }
+      }
+      throw new Error(errors.join(' | ') || 'No FX providers available');
     });
     res.set('Cache-Control', 'no-store').json({ ...result.value, cached: result.cached });
   } catch (error) {
     console.warn('[live-markets] FX reference rates unavailable:', error.message);
-    res.status(502).json({ message: 'Foreign-exchange reference rates are temporarily unavailable. Please refresh shortly.' });
+    res.status(502).json({ message: 'FX reference providers are temporarily unavailable. Please retry shortly.' });
   }
 });
-
 app.get('/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ ok: true, service: 'monarch-codex' }); } catch (_) { res.status(503).json({ ok: false, service: 'monarch-codex' }); } });
 app.get('/api/wallet-balances', requireAuth, async (req,res,next) => {
   try {
