@@ -109,7 +109,7 @@ test('admin control centre has grouped navigation, responsive shell, and role-aw
   assert.match(server, /function adminControlPage\(title, active, content, req\)/);
   assert.match(server, /Financial operations/);
   assert.match(server, /Members & verification/);
-  assert.match(server, /System & security/);
+  assert.match(server, /Notifications & security/);
   assert.match(server, /adminNavSearch/);
   assert.match(server, /ac-layout\.ac-menu-open \.ac-side/);
   assert.match(server, /@media\(max-width:820px\)/);
