@@ -333,7 +333,7 @@ app.get('/api/live-markets/crypto', async (req, res) => {
   const convert = String(req.query.convert || 'USD').toUpperCase();
   if (!allowed.has(convert)) return res.status(400).json({ message: 'Unsupported quote currency.' });
   try {
-    const result = await getLiveMarketCache('coingecko-listings-' + convert, 60 * 1000, async () => {
+    const result = await getLiveMarketCache('coingecko-listings-' + convert, 5 * 1000, async () => {
       const query = new URLSearchParams({
         vs_currency: convert.toLowerCase(), order: 'market_cap_desc',
         per_page: '100', page: '1', sparkline: 'false',
@@ -369,7 +369,7 @@ app.get('/api/live-markets/crypto', async (req, res) => {
       }
       return { coins, global, source: 'CoinGecko', updatedAt: new Date().toISOString() };
     });
-    res.set('Cache-Control', 'public, max-age=30').json({ ...result.value, cached: result.cached });
+    res.set('Cache-Control', 'no-store').json({ ...result.value, cached: result.cached });
   } catch (error) {
     console.warn('[live-markets] Crypto quotes unavailable:', error.message);
     res.status(502).json({ message: 'Crypto market data is temporarily unavailable. Please refresh shortly.' });
