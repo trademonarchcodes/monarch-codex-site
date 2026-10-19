@@ -105,11 +105,11 @@ app.use((req,res,next)=>{
   };
   next();
 });
-const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, message: 'This network has reached the hourly registration safety limit. Please try again later.' });
-// Keep an IP-wide abuse ceiling, but enforce the strict login limit per account + IP so people sharing mobile-carrier Wi-Fi/NAT do not lock one another out.
-const loginNetworkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many login requests from this network. Please wait a few minutes and try again.' });
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many attempts for this account. Please wait 15 minutes and try again.' });
-const resetNetworkLimiter = rateLimit({ windowMs: 3600000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many password-reset requests from this network. Please try again later.' });
+// Shared mobile-carrier NATs can represent many legitimate members. Keep network-wide limits high enough for a community launch; the stricter per-account login/reset limits still deter targeted abuse.
+const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 1000, standardHeaders: 'draft-7', legacyHeaders: false, message: 'The registration safety limit was reached. Please wait and try again.' });
+const loginNetworkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, message: 'The login safety limit for this network was reached. Please wait a few minutes and try again.' });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many attempts for this account. Please wait 15 minutes and try again.' });
+const resetNetworkLimiter = rateLimit({ windowMs: 3600000, limit: 100, standardHeaders: 'draft-7', legacyHeaders: false, message: 'The password-reset safety limit for this network was reached. Please try again later.' });
 const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.email || '').trim().toLowerCase().slice(0, 254), message: 'Too many requests for this email address. Please try again later.' });
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const mailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
