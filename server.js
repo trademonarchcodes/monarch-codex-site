@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const path = require('node:path');
 const fs = require('node:fs');
 const multer = require('multer');
@@ -106,9 +107,9 @@ app.use((req,res,next)=>{
 const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, message: 'This network has reached the hourly registration safety limit. Please try again later.' });
 // Keep an IP-wide abuse ceiling, but enforce the strict login limit per account + IP so people sharing mobile-carrier Wi-Fi/NAT do not lock one another out.
 const loginNetworkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many login requests from this network. Please wait a few minutes and try again.' });
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => String(req.ip || 'unknown') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many attempts for this account. Please wait 15 minutes and try again.' });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many attempts for this account. Please wait 15 minutes and try again.' });
 const resetNetworkLimiter = rateLimit({ windowMs: 3600000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many password-reset requests from this network. Please try again later.' });
-const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => String(req.ip || 'unknown') + ':' + String(req.body && req.body.email || '').trim().toLowerCase().slice(0, 254), message: 'Too many requests for this email address. Please try again later.' });
+const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.email || '').trim().toLowerCase().slice(0, 254), message: 'Too many requests for this email address. Please try again later.' });
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const mailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
 async function sendAppEmail({ to, subject, text, html }) {
