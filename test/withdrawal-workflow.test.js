@@ -57,7 +57,7 @@ test('KYC page styling is a single responsive design system for form and review 
   assert.ok(css.includes('.kyc-status-card'));
   assert.ok(css.includes('.kyc-status-pending'));
   assert.ok(css.includes('.kyc-review-notice.is-rejected'));
-  assert.ok(css.includes('@media(max-width:520px)'));
+  assert.match(css, /@media\s*\(\s*max-width:\s*520px\s*\)/);
   assert.ok(css.includes('prefers-reduced-motion:reduce'));
   assert.ok(!css.includes('/* Approved state: purpose-built success screen'));
 });
