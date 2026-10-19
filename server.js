@@ -2795,7 +2795,7 @@ app.get('/transfer', requireAuth, requireApprovedKyc, async (req,res,next) => {
   try {
     const member=await getMemberForPage(req,res); if(!member)return;
     const key=crypto.randomBytes(32).toString('hex');
-    const inner='<form method="post" action="/transfer" class="member-form" onsubmit="return confirm('Confirm this transfer? Verify the recipient, currency and amount carefully. A completed transfer may not be reversible.');">' + csrfField(req) +
+    const inner='<form method="post" action="/transfer" class="member-form" onsubmit="return confirm(&quot;Confirm this transfer? Verify the recipient, currency and amount carefully. A completed transfer may not be reversible.&quot;);">' + csrfField(req) +
       '<input type="hidden" name="request_key" value="'+key+'">' +
       '<label for="recipient">Recipient Monarch ID, username or email</label><input id="recipient" name="recipient" autocomplete="off" maxlength="190" required placeholder="Enter member details">' +
       '<label for="currency">Currency</label><select id="currency" name="currency" required><option value="NGN">NGN — Nigerian naira</option><option value="USD">USD — US dollar</option></select>' +
@@ -2849,7 +2849,7 @@ app.get('/pay', requireAuth, requireApprovedKyc, async(req,res,next) => {
     const key=crypto.randomBytes(32).toString('hex');
     const options=services.map(x=>'<option value="'+Number(x.id)+'">'+esc(x.name)+' — '+esc(x.currency)+' '+Number(x.price).toLocaleString('en-US',{maximumFractionDigits:8})+'</option>').join('');
     const inner=services.length
-      ? '<form method="post" action="/pay" class="member-form" onsubmit="return confirm('Confirm payment for the selected service? The amount will be deducted from your wallet.');">'+csrfField(req)+'<input type="hidden" name="request_key" value="'+key+'"><label for="service_id">Choose a service</label><select id="service_id" name="service_id" required>'+options+'</select><p class="muted">The service price and currency are set by Monarch Codex. Review them before confirming payment.</p><button class="btn" type="submit">Review and pay</button></form>'
+      ? '<form method="post" action="/pay" class="member-form" onsubmit="return confirm(&quot;Confirm payment for the selected service? The amount will be deducted from your wallet.&quot;);">'+csrfField(req)+'<input type="hidden" name="request_key" value="'+key+'"><label for="service_id">Choose a service</label><select id="service_id" name="service_id" required>'+options+'</select><p class="muted">The service price and currency are set by Monarch Codex. Review them before confirming payment.</p><button class="btn" type="submit">Review and pay</button></form>'
       : '<div class="member-card"><h2>No services are available yet</h2><p class="muted">The service catalogue is empty or all services are inactive. No payment can be made until an administrator configures a service.</p></div>';
     res.send(walletActionPage('Pay','/pay',member,inner,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Payments unavailable','<h1>Service payments are being set up</h1><p>Required database setup is incomplete. No payment was made.</p>')); next(e); }
