@@ -107,8 +107,8 @@ app.use((req,res,next)=>{
 });
 // Shared mobile-carrier NATs can represent many legitimate members. Keep network-wide limits high enough for a community launch; the stricter per-account login/reset limits still deter targeted abuse.
 const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 1000, standardHeaders: 'draft-7', legacyHeaders: false, message: 'The registration safety limit was reached. Please wait and try again.' });
-const loginNetworkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, message: 'The login safety limit for this network was reached. Please wait a few minutes and try again.' });
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many attempts for this account. Please wait 15 minutes and try again.' });
+// Do not impose a shared-IP login ceiling: Hostinger/mobile-carrier NAT can put many real members behind one address. Limit failed attempts per account+IP instead; successful logins do not consume the allowance.
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: 'draft-7', legacyHeaders: false, skipSuccessfulRequests: true, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many unsuccessful attempts for this account. Please wait 15 minutes and try again.' });
 const resetNetworkLimiter = rateLimit({ windowMs: 3600000, limit: 100, standardHeaders: 'draft-7', legacyHeaders: false, message: 'The password-reset safety limit for this network was reached. Please try again later.' });
 const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => ipKeyGenerator(req.ip || '0.0.0.0') + ':' + String(req.body && req.body.email || '').trim().toLowerCase().slice(0, 254), message: 'Too many requests for this email address. Please try again later.' });
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
@@ -504,7 +504,7 @@ app.get('/verify-email', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 app.get('/login', (req, res) => res.send(loginForm(req)));
-app.post('/login', loginNetworkLimiter, loginLimiter, csrfCheck, async (req, res, next) => {
+app.post('/login', loginLimiter, csrfCheck, async (req, res, next) => {
   try {
     const identity = String(req.body.identity || '').trim(), password = String(req.body.password || '');
     const [rows] = await pool.execute('SELECT id, password_hash, email_verified_at FROM members WHERE email = ? OR username = ? LIMIT 1', [identity.toLowerCase(), identity]);
