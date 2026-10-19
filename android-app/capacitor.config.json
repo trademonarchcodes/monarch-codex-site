@@ -1,0 +1,21 @@
+{
+  "appId": "online.monarchcodex.app",
+  "appName": "Monarch Codex",
+  "webDir": "www",
+  "server": {
+    "url": "https://monarchcodex.online",
+    "cleartext": false,
+    "androidScheme": "https",
+    "allowNavigation": [
+      "monarchcodex.online",
+      "www.monarchcodex.online"
+    ]
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#0B0B0C",
+      "showSpinner": false
+    }
+  }
+}
