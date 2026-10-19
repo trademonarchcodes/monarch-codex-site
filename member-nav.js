@@ -51,7 +51,10 @@
       .then(function (response) {
         if (!response.ok) {
           var error = new Error('KYC access status unavailable');
-          error.retryable = response.status === 429 || response.status >= 500;
+          error.status = response.status;
+          // A 429 is a throttling response, not evidence that KYC is unapproved.
+          // Do not retry it; the server still enforces KYC on protected routes.
+          error.retryable = response.status >= 500 && response.status !== 429;
           throw error;
         }
         return response.json();
@@ -60,11 +63,22 @@
         renderAccess(data && data.approved === true);
       })
       .catch(function (error) {
-        if (attempt < 2 && (!error || error.retryable !== false)) {
-          window.setTimeout(function () { loadAccessStatus(attempt + 1); }, 900 * (attempt + 1));
+        if (error && error.status === 429) {
+          // Avoid turning a temporary rate limit into a false KYC lock for an
+          // already-approved member. Protected routes remain server-authorized.
+          renderAccess(true);
           return;
         }
-        renderAccess(false);
+        // Retry only one transient 5xx response; avoid multiplying traffic.
+        if (attempt < 1 && error && error.retryable === true) {
+          window.setTimeout(function () { loadAccessStatus(attempt + 1); }, 1200);
+          return;
+        }
+        // Only treat an explicit non-retryable status response as unapproved.
+        if (error && error.status >= 400 && error.status < 500) {
+          renderAccess(false);
+        }
+        // For network/server failures, preserve the existing navigation state.
       });
   }
   loadAccessStatus(0);
