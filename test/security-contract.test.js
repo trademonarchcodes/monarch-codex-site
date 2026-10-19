@@ -82,7 +82,7 @@ test('member profile redesign preserves secure account workflows and adds respon
   assert.match(server, /profile-experience/);
   assert.match(server, /profile-hero/);
   assert.match(server, /profile-form-grid/);
-  assert.ok(server.includes('action="/profile/photo"'));
+  assert.match(server, /profilePhotoChooserPage\(req,'\/profile\/photo','\/profile'/);
   assert.ok(server.includes('action="/profile/bank"'));
   assert.ok(server.includes("action=\"/profile/bank/'+encodeURIComponent(b.id)+'/delete\""));
   assert.match(server, /decryptProfileValue\(row\.details_ciphertext\)/);
@@ -108,7 +108,7 @@ test('transaction history uses member-owned database records and mobile-friendly
 test('admin control centre has grouped navigation, responsive shell, and role-aware workspaces', () => {
   assert.match(server, /function adminControlPage\(title, active, content, req\)/);
   assert.match(server, /Financial operations/);
-  assert.match(server, /People & compliance/);
+  assert.match(server, /Members & verification/);
   assert.match(server, /System & security/);
   assert.match(server, /adminNavSearch/);
   assert.match(server, /ac-layout\.ac-menu-open \.ac-side/);
