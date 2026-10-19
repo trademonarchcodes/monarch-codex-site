@@ -6,6 +6,10 @@
   <meta name="description" content="Explore Monarch Codex: trading education, The Sovereign Desk, The Online Cooperative, community events and FAQs.">
   <meta name="theme-color" content="#0b0b0c">
   <meta name="application-name" content="Monarch Codex">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Monarch Codex">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/app-icon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
   <title>Monarch Codex | Knowledge. Strategy. Empowerment.</title>
   <link rel="icon" type="image/svg+xml" href="assets/images/monarch-codex-logo.svg">
@@ -288,24 +292,39 @@
     const message=document.getElementById('appInstallMessage');
     const steps=document.getElementById('appInstallSteps');
     const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+    function detectPlatform(){
+      const ua=navigator.userAgent||'';
+      const touchMac=(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+      if(/iPhone|iPad|iPod/i.test(ua)||touchMac)return 'ios';
+      if(/Android/i.test(ua))return 'android';
+      if(/Macintosh|Mac OS X/i.test(ua))return 'mac';
+      if(/Windows/i.test(ua))return 'windows';
+      return 'android';
+    }
     window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;});
-    window.addEventListener('appinstalled',()=>{installPrompt=null;if(message)message.textContent='Monarch Codex is installed. You can open it from your home screen.';});
+    window.addEventListener('appinstalled',()=>{installPrompt=null;if(message)message.textContent='Monarch Codex is installed. You can open it from your apps or Home Screen.';});
     function openPanel(){if(!panel)return;panel.classList.add('is-open');panel.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';}
     function closePanel(){if(!panel)return;panel.classList.remove('is-open');panel.setAttribute('aria-hidden','true');document.body.style.overflow='';}
     const platformHelp={
-      android:{message:'Install Monarch Codex on Android from your browser today. The separate APK download is not published yet.',steps:['Open monarchcodex.online in Chrome.','Tap the browser menu ⋮.','Choose Install app or Add to Home screen, then confirm.']},
-      ios:{message:'On iPhone or iPad, add Monarch Codex to your Home Screen from Safari.',steps:['Open monarchcodex.online in Safari.','Tap the Share button.','Choose Add to Home Screen, then tap Add.']},
-      mac:{message:'On Mac, use your browser’s install option when available, or keep a shortcut in your Dock.',steps:['Open monarchcodex.online in Chrome or another supported browser.','Look for the install icon in the address bar or use the browser menu.','Choose Install app if offered. Otherwise, create a website shortcut or bookmark.']},
-      windows:{message:'On Windows, install Monarch Codex from a supported browser when the option is available.',steps:['Open monarchcodex.online in Microsoft Edge or Chrome.','Open the browser menu.','Choose Apps → Install this site as an app or Install app if shown.']}
+      android:{message:'Install the Monarch Codex web app from Chrome. A separate APK file is not published yet.',steps:['Open monarchcodex.online directly in Google Chrome.','Tap the browser menu ⋮.','Choose Install app or Add to Home screen, then confirm. If no install option appears, update Chrome and reload the page.']},
+      ios:{message:'iPhone and iPad do not download a separate app file from this page. Add the secure Monarch Codex web app to your Home Screen using Safari.',steps:['If this page opened inside WhatsApp, Telegram or another app, open its menu and choose Open in Safari.','In Safari, visit https://monarchcodex.online.','Tap the Share button (the square with the upward arrow).','Scroll the share sheet and tap Add to Home Screen. If needed, tap Edit Actions to find it.','Keep “Open as Web App” enabled if shown, then tap Add. Open Monarch Codex from the new Home Screen icon.']},
+      mac:{message:'On a Mac, install Monarch Codex from a supported browser, or add it to your Dock in recent versions of Safari. No separate .dmg installer is published yet.',steps:['Open https://monarchcodex.online in Safari, Chrome or Microsoft Edge.','In Safari on macOS Sonoma or later, choose File → Add to Dock. In Chrome, use the install icon or menu → Cast, save and share → Install page as app. In Edge, use Apps → Install this site as an app.','Confirm the install prompt. If your browser does not offer installation, bookmark the site or add it to your Dock.']},
+      windows:{message:'On Windows, install Monarch Codex as a web app from Microsoft Edge or Google Chrome. There is no separate .exe installer published yet.',steps:['Open https://monarchcodex.online in Microsoft Edge or Google Chrome.','In Edge, open ⋯ → Apps → Install this site as an app. In Chrome, open ⋮ → Cast, save and share → Install page as app (or use the install icon in the address bar).','Confirm the install prompt. If no install option appears, update the browser and reload the homepage.']}
     };
     document.querySelectorAll('[data-install-app]').forEach(button=>button.addEventListener('click',async()=>{
-      const platform=button.dataset.platform||'android';
-      const help=platformHelp[platform]||platformHelp.android;
+      const platform=button.dataset.platform||detectPlatform();
+      const help=platformHelp[platform]||platformHelp[detectPlatform()];
       if(message)message.textContent=isStandalone?'Monarch Codex is already installed on this device.':help.message;
       if(steps){steps.replaceChildren();help.steps.forEach(instruction=>{const li=document.createElement('li');li.textContent=instruction;steps.append(li);});steps.hidden=isStandalone;}
-      if(platform==='android'&&installPrompt&&!isStandalone){
-        try{installPrompt.prompt();await installPrompt.userChoice;}catch(_){}
-        installPrompt=null;return;
+      if(installPrompt&&!isStandalone&&platform!=='ios'){
+        const promptEvent=installPrompt;
+        installPrompt=null;
+        try{
+          promptEvent.prompt();
+          const choice=await promptEvent.userChoice;
+          if(choice&&choice.outcome!=='accepted')openPanel();
+        }catch(_){openPanel();}
+        return;
       }
       openPanel();
     }));
