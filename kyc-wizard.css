@@ -124,7 +124,7 @@
 .kyc-camera-btn:hover{background:#443713;border-color:#c7a943}
 .kyc-camera-status{font-size:.78rem!important;font-weight:500!important;color:#aaa69a!important;line-height:1.6;margin:7px 0 0!important}
 .kyc-camera-actions button[hidden],.kyc-selfie-card video[hidden],.kyc-selfie-card img[hidden]{display:none!important}
-@media(max-width:760px){
+@media (max-width: 760px), (max-device-width: 760px){
  .wrap:has(.kyc-page){width:calc(100% - 24px)!important;margin:10px auto 28px!important}
  .kyc-page{padding-top:4px}
  .kyc-page-head{gap:10px;margin-bottom:23px;padding-bottom:17px}
@@ -140,7 +140,7 @@
  .kyc-two-col{gap:12px}
  .kyc-stage-copy{margin-bottom:22px}
 }
-@media(max-width:520px){
+@media (max-width: 520px), (max-device-width: 520px){
  .wrap:has(.kyc-page){width:calc(100% - 18px)!important;margin:7px auto 22px!important}
  .kyc-page-head{gap:7px;margin-bottom:19px}
  .kyc-head-spacer{width:45px}
@@ -197,6 +197,6 @@
 .kyc-member-links strong{color:#f2ecdc;font-size:.8rem;line-height:1.4;overflow-wrap:anywhere}
 .kyc-member-links small{color:#a9a69d;font-size:.7rem;line-height:1.55;overflow-wrap:anywhere}
 .kyc-member-arrow{justify-self:end;color:var(--gold);font-size:.85rem}
-@media(max-width:760px){.kyc-member-links{grid-template-columns:1fr}.kyc-member-links>a{grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;padding:12px}.kyc-member-links small{font-size:.75rem}}
-@media(max-width:520px){.kyc-member-next{padding:15px 12px;margin-top:22px}.kyc-member-next h3{font-size:1rem}.kyc-member-links{gap:8px}}
+@media (max-width: 760px), (max-device-width: 760px){.kyc-member-links{grid-template-columns:1fr}.kyc-member-links>a{grid-template-columns:36px minmax(0,1fr) 16px;align-items:center;padding:12px}.kyc-member-links small{font-size:.75rem}}
+@media (max-width: 520px), (max-device-width: 520px){.kyc-member-next{padding:15px 12px;margin-top:22px}.kyc-member-next h3{font-size:1rem}.kyc-member-links{gap:8px}}
 @media(prefers-reduced-motion:reduce){.kyc-member-links>a{transition:none}}
