@@ -405,40 +405,64 @@ app.get('/api/live-markets/crypto', async (req, res) => {
 app.get('/api/live-markets/forex', async (_req, res) => {
   try {
     const result = await getLiveMarketCache('fx-reference-usd', 30 * 60 * 1000, async () => {
+      const normalizeRates = (rawRates) => {
+        if (!rawRates || typeof rawRates !== 'object') throw new Error('Provider returned no rates');
+        const rates = Object.fromEntries(Object.entries(rawRates)
+          .map(([code, value]) => [String(code).toUpperCase(), Number(value)])
+          .filter(([code, value]) => /^[A-Z]{3}$/.test(code) && Number.isFinite(value) && value > 0));
+        rates.USD = 1;
+        if (!rates.NGN || !rates.EUR || !rates.GBP) throw new Error('Provider is missing required NGN, EUR or GBP rates');
+        return rates;
+      };
       const providers = [
         {
           name: 'ExchangeRate-API',
           url: 'https://open.er-api.com/v6/latest/USD',
           parse(parsed) {
-            if (parsed.result !== 'success' || !parsed.rates || typeof parsed.rates !== 'object') throw new Error('Unexpected ExchangeRate-API response');
-            return { base_code: parsed.base_code || 'USD', rates: parsed.rates, date: parsed.time_last_update_utc || parsed.time_last_update_unix || null };
+            if (parsed.result !== 'success') throw new Error('Unexpected ExchangeRate-API response');
+            return { rates: normalizeRates(parsed.rates), date: parsed.time_last_update_utc || parsed.time_last_update_unix || null };
           }
         },
         {
-          name: 'Currency API fallback',
+          name: 'Currency API (Cloudflare Pages)',
           url: 'https://latest.currency-api.pages.dev/v1/currencies/usd.json',
           parse(parsed) {
-            const rawRates = parsed.usd;
-            if (!rawRates || typeof rawRates !== 'object') throw new Error('Unexpected Currency API response');
-            const rates = Object.fromEntries(Object.entries(rawRates).map(([code, value]) => [code.toUpperCase(), Number(value)]).filter(([, value]) => Number.isFinite(value) && value > 0));
-            if (!rates.NGN || !rates.EUR || !rates.GBP) throw new Error('Currency API fallback is missing expected rates');
-            rates.USD = 1;
-            return { base_code: 'USD', rates, date: parsed.date || null };
+            return { rates: normalizeRates(parsed.usd), date: parsed.date || null };
+          }
+        },
+        {
+          name: 'Currency API (jsDelivr)',
+          url: 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json',
+          parse(parsed) {
+            return { rates: normalizeRates(parsed.usd), date: parsed.date || null };
+          }
+        },
+        {
+          name: 'Currency API (GitHub mirror)',
+          url: 'https://cdn.jsdelivr.net/gh/fawazahmed0/currency-api@1/latest/v1/currencies/usd.json',
+          parse(parsed) {
+            return { rates: normalizeRates(parsed.usd), date: parsed.date || null };
           }
         }
       ];
-      const errors = [];
-      for (const provider of providers) {
+      const attempts = providers.map(async provider => {
         try {
           const parsed = JSON.parse(await fetchMarketSource(provider.url, 'application/json'));
           const normalized = provider.parse(parsed);
-          return { rates: normalized, updatedAt: new Date().toISOString(), source: provider.name, sourceUrl: provider.url, rateDate: normalized.date };
+          console.info('[live-markets] FX rates loaded from', provider.name);
+          return { rates: { base_code: 'USD', rates: normalized.rates, date: normalized.date }, updatedAt: new Date().toISOString(), source: provider.name, sourceUrl: provider.url, rateDate: normalized.date };
         } catch (error) {
-          errors.push(provider.name + ': ' + error.message);
           console.warn('[live-markets] FX provider failed:', provider.name, error.message);
+          throw new Error(provider.name + ': ' + error.message);
         }
+      });
+      try {
+        // Race independent providers so one slow or blocked host doesn't delay a healthy fallback.
+        return await Promise.any(attempts);
+      } catch (error) {
+        const failures = error && error.errors ? error.errors.map(item => item.message).join(' | ') : String(error);
+        throw new Error(failures || 'No FX providers available');
       }
-      throw new Error(errors.join(' | ') || 'No FX providers available');
     });
     res.set('Cache-Control', 'no-store').json({ ...result.value, cached: result.cached });
   } catch (error) {
