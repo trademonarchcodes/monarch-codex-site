@@ -6,7 +6,7 @@ const { MEMBER_NAV_ITEMS, renderMemberNavigation } = require('../lib/member-navi
 
 test('the same navigation renders all member destinations and KYC lock badges', () => {
   const html = renderMemberNavigation('/dashboard');
-  const unlocked = ['/dashboard', '/profile', '/kyc'];
+  const unlocked = ['/dashboard', '/profile', '/kyc', '/tools', '/market-news.html', '/market-movers.html'];
   const locked = ['/sovereign-desk', '/deposit', '/withdraw', '/transactions', '/investments', '/referrals', '/online-cooperative'];
 
   for (const item of MEMBER_NAV_ITEMS) {
