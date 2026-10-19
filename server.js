@@ -103,9 +103,12 @@ app.use((req,res,next)=>{
   };
   next();
 });
-const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 100, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many registration attempts from this network. Please wait and try again.' });
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many login attempts. Please wait 15 minutes and try again.' });
-const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many reset requests. Please try again later.' });
+const registrationLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, message: 'This network has reached the hourly registration safety limit. Please try again later.' });
+// Keep an IP-wide abuse ceiling, but enforce the strict login limit per account + IP so people sharing mobile-carrier Wi-Fi/NAT do not lock one another out.
+const loginNetworkLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many login requests from this network. Please wait a few minutes and try again.' });
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => String(req.ip || 'unknown') + ':' + String(req.body && req.body.identity || '').trim().toLowerCase().slice(0, 254), message: 'Too many attempts for this account. Please wait 15 minutes and try again.' });
+const resetNetworkLimiter = rateLimit({ windowMs: 3600000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, message: 'Too many password-reset requests from this network. Please try again later.' });
+const resetLimiter = rateLimit({ windowMs: 3600000, limit: 5, standardHeaders: 'draft-7', legacyHeaders: false, keyGenerator: req => String(req.ip || 'unknown') + ':' + String(req.body && req.body.email || '').trim().toLowerCase().slice(0, 254), message: 'Too many requests for this email address. Please try again later.' });
 const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const mailConfigured = () => Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
 async function sendAppEmail({ to, subject, text, html }) {
@@ -443,7 +446,7 @@ app.post('/register', registrationLimiter, csrfCheck, async (req, res, next) => 
 });
 app.get('/verification-pending', (req, res) => res.send(page('Verify your email', '<h1>Check your inbox</h1><p class="muted">We sent a verification link to the email address you used to register. Open it within 24 hours before logging in.</p><a class="btn" href="/resend-verification">Resend verification email</a><div class="links"><a href="/login">Back to login</a></div>')));
 app.get('/resend-verification', (req, res) => res.send(page('Resend verification', '<h1>Resend verification email</h1><p class="muted">Enter the email address you used to register.</p><form method="post" action="/resend-verification">' + csrfField(req) + '<label for="email">Email address</label><input id="email" name="email" type="email" maxlength="254" required><button class="btn" type="submit">Send verification link</button></form><div class="links"><a href="/login">Back to login</a></div>')));
-app.post('/resend-verification', resetLimiter, csrfCheck, async (req, res, next) => {
+app.post('/resend-verification', resetNetworkLimiter, resetLimiter, csrfCheck, async (req, res, next) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     let resultTitle = 'Check your inbox';
@@ -499,7 +502,7 @@ app.get('/verify-email', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 app.get('/login', (req, res) => res.send(loginForm(req)));
-app.post('/login', loginLimiter, csrfCheck, async (req, res, next) => {
+app.post('/login', loginNetworkLimiter, loginLimiter, csrfCheck, async (req, res, next) => {
   try {
     const identity = String(req.body.identity || '').trim(), password = String(req.body.password || '');
     const [rows] = await pool.execute('SELECT id, password_hash, email_verified_at FROM members WHERE email = ? OR username = ? LIMIT 1', [identity.toLowerCase(), identity]);
@@ -2576,7 +2579,7 @@ app.post('/logout', csrfCheck, (req, res, next) => req.session.destroy(err => {
   res.redirect('/');
 }));
 app.get('/forgot-password', (req, res) => res.send(page('Reset password', '<h1>Reset your password</h1><p class="muted">Enter your account email. If it exists, we will send reset instructions.</p><form method="post" action="/forgot-password">' + csrfField(req) + '<label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required maxlength="254"><button class="btn" type="submit">Send reset link</button></form><div class="links"><a href="/login">Back to login</a></div>')));
-app.post('/forgot-password', resetLimiter, csrfCheck, async (req, res, next) => {
+app.post('/forgot-password', resetNetworkLimiter, resetLimiter, csrfCheck, async (req, res, next) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     const [rows] = await pool.execute('SELECT id, email FROM members WHERE email = ? LIMIT 1', [email]);
