@@ -1123,3 +1123,59 @@ html[data-theme="light"] .dashboard-sidebar-scroll-controls button {
     overflow-y: auto !important;
   }
 }
+
+
+/* Light theme readability patch (2026-10-19): fix inherited dark-mode text
+   without flattening button, badge, alert, or semantic status colours. */
+html[data-theme="light"] .dashboard-layout .dashboard-content,
+html[data-theme="light"] .dashboard-layout .dashboard-content p,
+html[data-theme="light"] .dashboard-layout .dashboard-content li,
+html[data-theme="light"] .dashboard-layout .dashboard-content label,
+html[data-theme="light"] .dashboard-layout .dashboard-content small,
+html[data-theme="light"] .dashboard-layout .dashboard-content summary,
+html[data-theme="light"] .dashboard-layout .dashboard-content td,
+html[data-theme="light"] .dashboard-layout .dashboard-content th,
+html[data-theme="light"] .dashboard-layout .dashboard-content dt,
+html[data-theme="light"] .dashboard-layout .dashboard-content dd,
+html[data-theme="light"] .dashboard-layout .dashboard-content figcaption,
+html[data-theme="light"] .dashboard-layout .dashboard-content .muted,
+html[data-theme="light"] .dashboard-layout .dashboard-content .helper-text,
+html[data-theme="light"] .dashboard-layout .dashboard-content .form-hint,
+html[data-theme="light"] .dashboard-layout .dashboard-content .description {
+  color: #252832 !important;
+  text-shadow: none !important;
+  opacity: 1;
+}
+html[data-theme="light"] .dashboard-layout .dashboard-content h1,
+html[data-theme="light"] .dashboard-layout .dashboard-content h2,
+html[data-theme="light"] .dashboard-layout .dashboard-content h3,
+html[data-theme="light"] .dashboard-layout .dashboard-content h4,
+html[data-theme="light"] .dashboard-layout .dashboard-content h5,
+html[data-theme="light"] .dashboard-layout .dashboard-content legend {
+  color: #17191f !important;
+  text-shadow: none !important;
+  opacity: 1;
+}
+html[data-theme="light"] .dashboard-layout .dashboard-content input,
+html[data-theme="light"] .dashboard-layout .dashboard-content select,
+html[data-theme="light"] .dashboard-layout .dashboard-content textarea,
+html[data-theme="light"] .dashboard-layout .dashboard-content option {
+  color: #17191f !important;
+  background-color: #fff !important;
+  border-color: #c9cdd5 !important;
+}
+html[data-theme="light"] .dashboard-layout .dashboard-content input::placeholder,
+html[data-theme="light"] .dashboard-layout .dashboard-content textarea::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+html[data-theme="light"] .dashboard-layout .dashboard-content a:not(.btn):not(.button):not([class*="button"]):not([class*="badge"]) {
+  color: #694900;
+}
+html[data-theme="light"] .dashboard-layout .dashboard-sidebar nav a {
+  color: #242630 !important;
+}
+html[data-theme="light"] .dashboard-layout .dashboard-sidebar nav a[aria-current="page"],
+html[data-theme="light"] .dashboard-layout .dashboard-sidebar nav a.active {
+  color: #17191f !important;
+}
