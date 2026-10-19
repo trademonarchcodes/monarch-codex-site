@@ -15,7 +15,7 @@ test('the same navigation renders all member destinations and KYC lock badges', 
       assert.ok(html.includes('href="' + item.href + '"'), 'missing unlocked destination ' + item.href);
       assert.match(html, new RegExp('href="' + item.href + '"[^>]*' + (item.href === '/dashboard' ? 'aria-current="page"' : '')));
     } else {
-      assert.match(html, new RegExp('href="/kyc\\?required=approval"[^>]*data-kyc-locked="true"[^>]*data-member-href="' + item.href + '"'));
+      assert.match(html, new RegExp('href="/kyc\\?required=approval"[^>]*data-kyc-locked="true"[^>]*data-member-href="' + item.href + '"'), 'locked destination ' + item.href);
     }
   }
 
