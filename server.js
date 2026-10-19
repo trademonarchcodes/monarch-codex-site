@@ -7,7 +7,8 @@ const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = require('express-rate-limit');
+// express-rate-limit v7 exports ipKeyGenerator; older installed versions do not. Keep startup/login compatible during dependency refresh.
+const ipKeyGenerator = rateLimit.ipKeyGenerator || (ip => String(ip || '0.0.0.0'));
 const path = require('node:path');
 const fs = require('node:fs');
 const multer = require('multer');
