@@ -1,0 +1,78 @@
+name: Monarch Codex Android APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "android-app/**"
+      - ".github/workflows/android-apk.yml"
+      - "app-icon.svg"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: android-app/package.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Android build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick librsvg2-bin
+
+      - name: Prepare branded app assets
+        run: |
+          mkdir -p android-app/assets
+          rsvg-convert -w 1024 -h 1024 app-icon.svg -o android-app/assets/icon.png
+          convert -size 2732x2732 xc:"#0b0b0c" \
+            \( android-app/assets/icon.png -resize 900x900 \) \
+            -gravity center -composite android-app/assets/splash.png
+
+      - name: Install Android wrapper dependencies
+        working-directory: android-app
+        run: npm install --no-audit --no-fund
+
+      - name: Generate Android project
+        working-directory: android-app
+        run: npx cap add android
+
+      - name: Generate branded Android icons and splash screen
+        working-directory: android-app
+        run: npx --yes @capacitor/assets generate --android --assetPath assets
+
+      - name: Sync Android project
+        working-directory: android-app
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload installable test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: monarch-codex-android-test-apk
+          path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
