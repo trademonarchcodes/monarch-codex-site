@@ -1370,3 +1370,90 @@ html[data-theme="light"] .member-experience .member-menu-toggle {
   .dashboard-layout .dashboard-content .section-card,
   .dashboard-layout .quick-action-grid a { transition: none !important; }
 }
+
+
+/* Auth form selectors match the existing server-rendered login/register markup. */
+.wrap:has(.register-form),
+.wrap:has(form[action="/login"]),
+.wrap:has(form[action="/forgot-password"]),
+.wrap:has(form[action="/resend-verification"]) {
+  width: min(calc(100% - 28px), 620px) !important;
+  margin: clamp(20px, 6vh, 64px) auto !important;
+  padding: clamp(20px, 4vw, 36px) !important;
+  border: 1px solid rgba(217,183,91,.28) !important;
+  border-radius: 24px !important;
+  background: radial-gradient(ellipse at 100% 0%, rgba(217,183,91,.08), transparent 42%), linear-gradient(145deg,#19191d,#101013) !important;
+  box-shadow: 0 24px 75px rgba(0,0,0,.24) !important;
+}
+.wrap:has(.register-form) > .panel,
+.wrap:has(form[action="/login"]) > .panel,
+.wrap:has(form[action="/forgot-password"]) > .panel,
+.wrap:has(form[action="/resend-verification"]) > .panel {
+  padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important;
+}
+.wrap:has(.register-form) .links a[href="/"],
+.wrap:has(form[action="/login"]) .links a[href="/"],
+.wrap:has(form[action="/forgot-password"]) .links a[href="/"],
+.wrap:has(form[action="/resend-verification"]) .links a[href="/"] {
+  display: inline-flex !important; align-items: center; justify-content: center; gap: 8px;
+  min-height: 45px; padding: 10px 16px; border: 1px solid #92762e; border-radius: 12px;
+  background: linear-gradient(135deg,#332912,#201b10); color: #f4d66a !important;
+  font-weight: 800; text-decoration: none; transition: background .18s ease, transform .18s ease;
+}
+.wrap:has(.register-form) .links a[href="/"]:hover,
+.wrap:has(form[action="/login"]) .links a[href="/"]:hover { background: #403217; transform: translateY(-1px); }
+.wrap:has(form[action="/login"]) form[action="/login"],
+.wrap:has(form[action="/forgot-password"]) form[action="/forgot-password"] { display: grid; gap: 10px; }
+.wrap:has(form[action="/login"]) form[action="/login"] label,
+.wrap:has(form[action="/forgot-password"]) form[action="/forgot-password"] label {
+  display: block; margin: 10px 0 2px; color: #e7e1d4; font-weight: 750;
+}
+.wrap:has(form[action="/login"]) form[action="/login"] > .btn,
+.wrap:has(form[action="/forgot-password"]) form[action="/forgot-password"] > .btn {
+  width: 100%; min-height: 50px; margin-top: 12px; border-radius: 12px;
+  background: linear-gradient(120deg,#f3d76b,#d6ad38); color: #17140a; font-weight: 900;
+}
+html[data-theme="light"] .wrap:has(.register-form),
+html[data-theme="light"] .wrap:has(form[action="/login"]),
+html[data-theme="light"] .wrap:has(form[action="/forgot-password"]),
+html[data-theme="light"] .wrap:has(form[action="/resend-verification"]) {
+  color: #20232b !important; background: #fff !important; border-color: #dfe3ea !important;
+  box-shadow: 0 18px 54px rgba(24,35,55,.10) !important;
+}
+html[data-theme="light"] .wrap:has(.register-form) :is(h1,h2,h3,strong,b,label),
+html[data-theme="light"] .wrap:has(form[action="/login"]) :is(h1,h2,h3,strong,b,label),
+html[data-theme="light"] .wrap:has(form[action="/forgot-password"]) :is(h1,h2,h3,strong,b,label) { color: #171a21 !important; }
+html[data-theme="light"] .wrap:has(.register-form) :is(p,.field-help,.register-intro),
+html[data-theme="light"] .wrap:has(form[action="/login"]) p,
+html[data-theme="light"] .wrap:has(form[action="/forgot-password"]) p { color: #444a55 !important; }
+html[data-theme="light"] .wrap:has(.register-form) :is(input,select,textarea),
+html[data-theme="light"] .wrap:has(form[action="/login"]) :is(input,select,textarea),
+html[data-theme="light"] .wrap:has(form[action="/forgot-password"]) :is(input,select,textarea) {
+  background: #fff !important; color: #171a21 !important; border-color: #c7cdd7 !important;
+}
+html[data-theme="light"] .wrap:has(.register-form) .register-consent,
+html[data-theme="light"] .wrap:has(.register-form) .password-rules {
+  background: #f6f7fa !important; border-color: #dce1e9 !important;
+}
+.member-rail-scroll-controls,
+.dashboard-sidebar-scroll-controls {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  margin: 10px 0 14px; padding: 7px; border: 1px solid #494027; border-radius: 12px;
+  background: rgba(217,183,91,.06);
+}
+.member-rail-scroll-controls span,
+.dashboard-sidebar-scroll-controls span { color: #b7a45a; font-size: .62rem; font-weight: 900; letter-spacing: .16em; }
+.member-rail-scroll-controls button,
+.dashboard-sidebar-scroll-controls button {
+  display: grid; place-items: center; width: 32px; height: 30px; border: 1px solid #6f5a27;
+  border-radius: 8px; background: #28210f; color: #f3d66d; font-size: 1.05rem; font-weight: 900; cursor: pointer;
+}
+html[data-theme="light"] .dashboard-sidebar-scroll-controls { background: #fff9e8; border-color: #e3d39d; }
+html[data-theme="light"] .dashboard-sidebar-scroll-controls span { color: #765714; }
+@media (max-width: 520px) {
+  .wrap:has(.register-form), .wrap:has(form[action="/login"]),
+  .wrap:has(form[action="/forgot-password"]), .wrap:has(form[action="/resend-verification"]) {
+    width: calc(100% - 20px) !important; margin: 12px auto !important;
+    padding: 18px 14px !important; border-radius: 18px !important;
+  }
+}
