@@ -144,8 +144,30 @@ async function requireAuth(req, res, next) {
     }
     next();
   } catch (e) {
-    if (e && (e.code === 'ER_BAD_FIELD_ERROR' || e.code === 'ER_NO_SUCH_TABLE')) return next();
+    // Never grant a member route when the account/block-status check cannot run.
+    if (e && (e.code === 'ER_BAD_FIELD_ERROR' || e.code === 'ER_NO_SUCH_TABLE')) {
+      return res.status(503).send(page('Account access temporarily unavailable',
+        '<h1>Account access temporarily unavailable</h1><p class="muted">We could not verify this account securely. Please try again shortly.</p>'));
+    }
     next(e);
+  }
+}
+async function redirectAuthenticatedMember(req, res, next) {
+  if (!req.session || !req.session.memberId) return next();
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, is_blocked FROM members WHERE id = ? LIMIT 1',
+      [req.session.memberId]
+    );
+    if (rows.length && Number(rows[0].is_blocked) !== 1) return res.redirect('/dashboard');
+    req.session.destroy(error => error ? next(error) : next());
+  } catch (error) {
+    // If we cannot validate an existing session, do not show auth forms or reveal state.
+    if (error && (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 'ER_NO_SUCH_TABLE')) {
+      return res.status(503).send(page('Sign-in temporarily unavailable',
+        '<h1>Sign-in temporarily unavailable</h1><p class="muted">We could not verify the current session safely. Please try again shortly.</p>'));
+    }
+    next(error);
   }
 }
 async function requireApprovedKyc(req, res, next) {
@@ -486,7 +508,7 @@ app.get('/api/wallet-balances', requireAuth, async (req,res,next) => {
   }
 });
 app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
-app.get('/register', (req, res) => res.send(registerForm(req)));
+app.get('/register', redirectAuthenticatedMember, (req, res) => res.send(registerForm(req)));
 app.post('/register', registrationLimiter, csrfCheck, async (req, res, next) => {
   try {
     const fullName = String(req.body.fullName || '').trim(), email = String(req.body.email || '').trim().toLowerCase();
@@ -597,7 +619,7 @@ app.get('/verify-email', async (req, res, next) => {
     });
   } catch (e) { next(e); }
 });
-app.get('/login', (req, res) => res.send(loginForm(req)));
+app.get('/login', redirectAuthenticatedMember, (req, res) => res.send(loginForm(req)));
 app.post('/login', loginLimiter, csrfCheck, async (req, res, next) => {
   try {
     const identity = String(req.body.identity || '').trim(), password = String(req.body.password || '');
