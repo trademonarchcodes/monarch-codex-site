@@ -1179,3 +1179,194 @@ html[data-theme="light"] .dashboard-layout .dashboard-sidebar nav a[aria-current
 html[data-theme="light"] .dashboard-layout .dashboard-sidebar nav a.active {
   color: #17191f !important;
 }
+
+
+/* Monarch Codex member UI refresh — presentation only; preserve routes and form behavior. */
+:root {
+  color-scheme: dark;
+  --mc-gold: #d9b75b;
+  --mc-gold-strong: #b38a20;
+  --mc-ink: #111318;
+  --mc-paper: #f6f7fa;
+  --mc-line: #e0e3e9;
+}
+.member-experience,
+.dashboard-layout,
+.member-experience * ,
+.dashboard-layout * { box-sizing: border-box; }
+.member-experience .member-rail,
+.dashboard-layout .dashboard-sidebar {
+  scrollbar-width: auto !important;
+  scrollbar-color: #b18c32 #25231f !important;
+}
+.member-experience .member-rail::-webkit-scrollbar,
+.dashboard-layout .dashboard-sidebar::-webkit-scrollbar { width: 11px !important; }
+.member-experience .member-rail::-webkit-scrollbar-track,
+.dashboard-layout .dashboard-sidebar::-webkit-scrollbar-track {
+  background: #25231f !important; border-radius: 99px !important;
+}
+.member-experience .member-rail::-webkit-scrollbar-thumb,
+.dashboard-layout .dashboard-sidebar::-webkit-scrollbar-thumb {
+  min-height: 42px; background: #b18c32 !important;
+  border: 2px solid #25231f !important; border-radius: 99px !important;
+}
+.member-experience .member-rail::-webkit-scrollbar-thumb:hover,
+.dashboard-layout .dashboard-sidebar::-webkit-scrollbar-thumb:hover { background: #f0d477 !important; }
+.member-experience .member-rail,
+.dashboard-layout .dashboard-sidebar { scrollbar-gutter: stable; }
+.member-experience .member-rail nav a,
+.dashboard-layout .dashboard-sidebar nav a { transition: color .18s ease, background .18s ease, border-color .18s ease; }
+.member-experience .member-rail nav a:focus-visible,
+.dashboard-layout .dashboard-sidebar nav a:focus-visible,
+.member-experience .member-rail button:focus-visible,
+.dashboard-layout .dashboard-sidebar button:focus-visible {
+  outline: 3px solid #e2c05e !important; outline-offset: 3px !important;
+}
+.member-experience .member-page-heading h1,
+.dashboard-layout .dashboard-topline h1 { text-wrap: balance; }
+.member-experience .member-main .member-card,
+.dashboard-layout .dashboard-content > .panel {
+  box-shadow: 0 14px 38px rgba(0,0,0,.12);
+}
+.member-experience .member-main .member-card,
+.dashboard-layout .dashboard-content .stat,
+.dashboard-layout .dashboard-content .section-card,
+.dashboard-layout .quick-action-grid a { transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.member-experience .member-main .member-card:hover,
+.dashboard-layout .dashboard-content .stat:hover,
+.dashboard-layout .dashboard-content .section-card:hover { border-color: #8c7439; }
+.member-experience .member-main :is(button,.btn,.button,input[type=submit]),
+.dashboard-layout .dashboard-content :is(button,.btn,.button,input[type=submit]) {
+  cursor: pointer;
+}
+.member-experience .member-main :is(input,select,textarea):focus-visible,
+.dashboard-layout .dashboard-content :is(input,select,textarea):focus-visible {
+  outline: 3px solid rgba(217,183,91,.5) !important; outline-offset: 2px;
+}
+
+/* True light theme: override the dark component backgrounds as well as text colors. */
+html[data-theme="light"] .member-experience {
+  color: #20232b !important;
+  background: #f3f5f9 !important;
+  border-color: #dfe3ea !important;
+  box-shadow: 0 18px 50px rgba(24,35,55,.08) !important;
+}
+html[data-theme="light"] .member-experience .member-workspace,
+html[data-theme="light"] .member-experience .member-page-content,
+html[data-theme="light"] .member-experience .member-main {
+  color: #20232b !important;
+}
+html[data-theme="light"] .member-experience .member-page-heading {
+  border-bottom-color: #dfe3eb !important;
+}
+html[data-theme="light"] .member-experience .member-page-heading h1,
+html[data-theme="light"] .member-experience .member-content-heading h2,
+html[data-theme="light"] .member-experience .member-main h1,
+html[data-theme="light"] .member-experience .member-main h2,
+html[data-theme="light"] .member-experience .member-main h3,
+html[data-theme="light"] .member-experience .member-main h4,
+html[data-theme="light"] .member-experience .member-main strong,
+html[data-theme="light"] .member-experience .member-main b,
+html[data-theme="light"] .member-experience .member-main legend {
+  color: #171a21 !important; text-shadow: none !important; opacity: 1 !important;
+}
+html[data-theme="light"] .member-experience .member-main :is(p,li,label,small,summary,td,th,dt,dd,figcaption,.muted,.helper-text,.form-hint,.description,.field-help,.hint,.subtitle,.empty-state,.notice,.alert,.status) {
+  color: #343944 !important; text-shadow: none !important; opacity: 1 !important;
+}
+html[data-theme="light"] .member-experience .member-main :is(.member-card,.section-card,.stat,.panel,.deposit-workflow,.deposit-payment-details,.deposit-history-card,.deposit-calculator,.deposit-calc-item,.deposit-destination-field,.investment-card,.inv-card,.notice,.alert) {
+  color: #20232b !important;
+  background: #ffffff !important;
+  background-image: none !important;
+  border-color: #dce1e9 !important;
+  box-shadow: 0 8px 24px rgba(24,35,55,.055) !important;
+}
+html[data-theme="light"] .member-experience .member-main :is(input,select,textarea,option) {
+  color: #171a21 !important; background: #fff !important; border-color: #c7cdd7 !important;
+  caret-color: #171a21 !important; opacity: 1 !important;
+}
+html[data-theme="light"] .member-experience .member-main input::placeholder,
+html[data-theme="light"] .member-experience .member-main textarea::placeholder { color: #646b78 !important; opacity: 1 !important; }
+html[data-theme="light"] .member-experience .member-main a:not(.btn):not(.button):not([class*="button"]) {
+  color: #79570b !important;
+}
+html[data-theme="light"] .member-experience .member-main :is(table,thead,tbody,tr,th,td) {
+  border-color: #dfe3ea !important;
+}
+html[data-theme="light"] .member-experience .member-main th {
+  background: #f0f2f6 !important; color: #343944 !important;
+}
+html[data-theme="light"] .member-experience .member-rail {
+  color: #f7f3e8 !important;
+  background: #ffffff !important;
+  border-color: #d9dee7 !important;
+  box-shadow: 12px 0 34px rgba(24,35,55,.08) !important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a {
+  color: #353945 !important; background: transparent !important;
+  border-color: transparent !important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a .member-nav-icon {
+  color: #7a5b12 !important; background: #f2f4f7 !important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a:hover,
+html[data-theme="light"] .member-experience .member-rail nav a[aria-current="page"] {
+  color: #553c04 !important; background: #fff5d5 !important; border-color: #e3ca7e !important;
+}
+html[data-theme="light"] .member-experience .member-rail nav a[data-kyc-locked="true"] {
+  color: #38301a !important; background: #fff4c7 !important; border-color: #c6a037 !important;
+}
+html[data-theme="light"] .member-experience .member-rail-account {
+  background: #fffaf0 !important; border-color: #e2d3a8 !important;
+}
+html[data-theme="light"] .member-experience .member-rail-account :is(strong,small,span) { color: #34302a !important; }
+html[data-theme="light"] .member-experience .member-rail-logout button {
+  background: #f6f7fa !important; color: #343944 !important; border-color: #dce1e9 !important;
+}
+html[data-theme="light"] .member-experience .member-heading-status,
+html[data-theme="light"] .member-experience .member-secure-label {
+  color: #343944 !important; background: #fff !important; border-color: #dce1e9 !important;
+}
+html[data-theme="light"] .member-experience .member-mobile-head { border-color: #dfe3eb !important; }
+html[data-theme="light"] .member-experience .member-menu-toggle {
+  color: #684b08 !important; background: #fff !important; border-color: #d8c27e !important;
+}
+
+/* Dashboard-style login and registration forms, including the homepage return action. */
+.auth-page, .login-page, .register-page, .registration-page, body.auth-page {
+  color: #f5f2e9;
+}
+.auth-page main, .login-page main, .register-page main, .registration-page main {
+  width: min(100% - 28px, 520px); margin: clamp(24px,7vh,72px) auto;
+}
+.auth-page form, .login-page form, .register-page form, .registration-page form {
+  padding: clamp(22px,5vw,38px); border: 1px solid rgba(217,183,91,.28);
+  border-radius: 22px; background: linear-gradient(145deg,#1a1a1e,#111114);
+  box-shadow: 0 24px 70px rgba(0,0,0,.25);
+}
+.auth-page :is(input,select,textarea), .login-page :is(input,select,textarea),
+.register-page :is(input,select,textarea), .registration-page :is(input,select,textarea) {
+  width: 100%; min-height: 48px; padding: 12px 14px; border: 1px solid #45434a;
+  border-radius: 11px; background: #0d0d10; color: #f7f4ec; font: inherit;
+}
+.auth-page :is(button[type=submit],input[type=submit],.btn,.button),
+.login-page :is(button[type=submit],input[type=submit],.btn,.button),
+.register-page :is(button[type=submit],input[type=submit],.btn,.button),
+.registration-page :is(button[type=submit],input[type=submit],.btn,.button) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: 48px; padding: 12px 19px; border-radius: 12px; font-weight: 800;
+}
+.auth-page a[href="/"], .login-page a[href="/"], .register-page a[href="/"],
+.registration-page a[href="/"], .auth-page a[href*="homepage"],
+.login-page a[href*="homepage"], .register-page a[href*="homepage"] {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 44px; margin: 0 0 18px; padding: 10px 16px; border: 1px solid #a98a36;
+  border-radius: 12px; background: #211b0d; color: #f4d66a; font-weight: 800;
+  text-decoration: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .member-experience .member-rail nav a,
+  .member-experience .member-main .member-card,
+  .dashboard-layout .dashboard-content .stat,
+  .dashboard-layout .dashboard-content .section-card,
+  .dashboard-layout .quick-action-grid a { transition: none !important; }
+}
