@@ -17,6 +17,7 @@ const { renderMemberNavigation } = require('./lib/member-navigation');
 const createMonarchsDirectoryRouter = require('./monarchs-directory');
 const createToolsRouter = require('./tools');
 const createMobileApiRouter = require('./mobile-api');
+const createRoleManagementRouter = require('./role-management');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -702,7 +703,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
-    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Role management','♜'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
@@ -2812,4 +2813,5 @@ app.use((err, req, res, _next) => {
   const fallback = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#09090b"><title>Temporary problem · Monarch Codex</title><style>body{margin:0;background:#09090b;color:#f7f4e9;font:16px/1.65 system-ui,sans-serif}.mc-feedback-page{min-height:100vh;box-sizing:border-box;display:grid;place-items:center;padding:22px;background:radial-gradient(ellipse at 50% 0%,rgba(243,207,60,.13),transparent 50%),#09090b}.mc-feedback-card{width:min(520px,100%);box-sizing:border-box;padding:clamp(24px,6vw,38px);border:1px solid rgba(243,207,60,.38);border-radius:26px;background:linear-gradient(145deg,#1b1a16,#101012);box-shadow:0 24px 80px #0008;text-align:center}.mc-feedback-card h1{color:#f3cf3c;margin:0 0 12px;font-size:clamp(1.5rem,6vw,2rem)}.mc-feedback-card p{color:#d5d0c3;overflow-wrap:anywhere}.mc-feedback-mark{width:60px;height:60px;display:grid;place-items:center;border-radius:20px;margin:0 auto 18px;background:rgba(243,207,60,.13);border:1px solid rgba(243,207,60,.45);color:#f3cf3c;font-size:28px}.mc-feedback-link{display:inline-block;margin-top:24px;padding:12px 24px;border-radius:999px;background:#f3cf3c;color:#17140a;text-decoration:none;font-weight:850}</style></head><body>' + html + '</body></html>';
   res.status(500).type('html').send(fallback);
 });
+app.use(createRoleManagementRouter({ pool }));
 app.listen(port, () => console.log('Monarch Codex server listening on port', port));
