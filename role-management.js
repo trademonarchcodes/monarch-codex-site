@@ -117,7 +117,7 @@ function createRoleManagementRouter({ pool }) {
       const [[admin]] = await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1', [req.session.memberId]);
       if (!admin || admin.role !== 'sovereign_desk_admin') return res.status(403).send('Only the Sovereign Desk administrator can submit this company request.');
       await ensureReady();
-      res.send(shell('Founder Partner request','<section class="hero"><p class="muted">SOVEREIGN DESK · COMPANY REQUEST</p><h1>Request Founder Partner role</h1><p class="muted">Submit this request on behalf of the company. It will be reviewed by a Monarch Codex administrator and will not grant access automatically.</p></section><section class="card"><form method="post" action="/sovereign-admin/roles/partner-request">'+csrfField(req)+'<div class="field"><label>Company / partner name</label><input name="companyName" value="Sovereign Desk" maxlength="160" required></div><div class="field"><label>Reason for request</label><textarea name="message" rows="4" maxlength="1000" required>Request Founder Partner role for the Sovereign Desk company.</textarea></div><button class="btn gold" type="submit">Submit company request</button></form></section>',true));
+      res.send(shell('Partner request','<section class="hero"><p class="muted">SOVEREIGN DESK · COMPANY REQUEST</p><h1>Request Partner role</h1><p class="muted">Submit this request on behalf of the company. It will be reviewed by a Monarch Codex administrator and will not grant access automatically.</p></section><section class="card"><form method="post" action="/sovereign-admin/roles/partner-request">'+csrfField(req)+'<div class="field"><label>Company / partner name</label><input name="companyName" value="Sovereign Desk" maxlength="160" required></div><div class="field"><label>Reason for request</label><textarea name="message" rows="4" maxlength="1000" required>Request Partner role for the Sovereign Desk company.</textarea></div><button class="btn gold" type="submit">Submit company request</button></form></section>',true));
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).send(shell('Roles not configured','<section class="hero"><h1>Role management is being prepared</h1><p>'+esc(e.message)+'</p></section>',true)); next(e); }
   });
   router.post('/sovereign-admin/roles/partner-request', csrf, async (req, res, next) => {
@@ -126,8 +126,8 @@ function createRoleManagementRouter({ pool }) {
       const [[admin]] = await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1', [req.session.memberId]);
       if (!admin || admin.role !== 'sovereign_desk_admin') return res.status(403).send('Only the Sovereign Desk administrator can submit a company Founder Partner request.');
       await ensureReady();
-      const [[role]] = await pool.execute("SELECT id FROM member_role_catalog WHERE role_key='founder_partner' AND is_active=1 LIMIT 1");
-      if (!role) return res.status(409).send('Founder Partner role is not active. Contact a Monarch Codex administrator.');
+      const [[role]] = await pool.execute("SELECT id FROM member_role_catalog WHERE role_key='partner' AND is_active=1 LIMIT 1");
+      if (!role) return res.status(409).send('Partner role is not active. Contact a Monarch Codex administrator.');
       const [[pending]] = await pool.execute("SELECT id FROM member_role_requests WHERE member_id=? AND role_id=? AND status='pending' LIMIT 1", [req.session.memberId,role.id]);
       if (!pending) await pool.execute("INSERT INTO member_role_requests (member_id,role_id,request_source,company_name,message,status) VALUES (?,?, 'sovereign_desk',? ,?,'pending')", [req.session.memberId,role.id,String(req.body.companyName||'Sovereign Desk').trim().slice(0,160),String(req.body.message||'Company role request').trim().slice(0,1000)]);
       res.redirect('/sovereign-admin?roleRequest=pending');
