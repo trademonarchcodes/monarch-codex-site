@@ -238,13 +238,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try {
       const [[member]] = await pool.execute('SELECT monarch_uid FROM members WHERE id=? LIMIT 1', [req.session.memberId]);
       if (!member) return res.status(401).json({ error: 'account_not_found', message: 'Please sign in again.' });
+      const [[count]] = await pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by=?', [req.session.memberId]);
       const [rows] = await pool.execute(
         'SELECT full_name, username, monarch_uid, created_at FROM members WHERE referred_by=? ORDER BY created_at DESC LIMIT 100',
         [req.session.memberId]
       );
-      const base = String(appBaseUrl || 'https://monarchcodex.online').replace(/\\/+$/, '');
+      const base = String(appBaseUrl || 'https://monarchcodex.online').replace(/\/+$/, '');
       return res.set('Cache-Control', 'no-store, private').json({
-        referralCount: rows.length,
+        referralCount: Number(count && count.total) || 0,
         referralLink: base + '/register?ref=' + encodeURIComponent(member.monarch_uid),
         referrals: rows.map(row => ({
           fullName: row.full_name || row.username || 'Monarch member',
