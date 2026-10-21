@@ -449,7 +449,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if (Number(kyc.locked)>0 && current.full_name!==fullName) return res.status(400).json({error:'name_locked',message:'Your legal name is locked while KYC is pending or approved.'});
       const [[dupe]] = await pool.execute('SELECT SUM(LOWER(username)=LOWER(?)) AS username_used,SUM(LOWER(email)=LOWER(?)) AS email_used FROM members WHERE id<>?',[username,email,req.session.memberId]);
       if (Number(dupe.username_used)>0 || Number(dupe.email_used)>0) return res.status(409).json({error:'profile_conflict',message:'That username or email is already in use.'});
-      await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
+      await pool.execute('UPDATE members SET full_name=?,username=?,email=?,phone=? WHERE id=?',[fullName,username,email,req.session.memberId]);
       await pool.execute('INSERT INTO member_profiles (member_id,phone_number) VALUES (?,?) ON DUPLICATE KEY UPDATE phone_number=VALUES(phone_number)',[req.session.memberId,phone||null]);
       const [[updated]] = await pool.execute('SELECT id,monarch_uid,full_name,email,phone,username,email_verified_at FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
       res.json({ok:true,member:{...publicMember(updated),phone:phone,profilePhotoUrl:'/member-avatar-current'}});
