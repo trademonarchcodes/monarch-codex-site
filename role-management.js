@@ -38,8 +38,8 @@ function createRoleManagementRouter({ pool }) {
     try {
       await ensureReady();
       const [[member]] = await pool.execute('SELECT full_name,monarch_uid FROM members WHERE id=? LIMIT 1', [req.session.memberId]);
-      const [roles] = await pool.query('SELECT r.id,r.role_name,r.description, a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 ORDER BY r.role_name', [req.session.memberId]);
-      const [requests] = await pool.execute('SELECT q.id,q.status,q.message,q.created_at,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.member_id=? ORDER BY q.created_at DESC LIMIT 20', [req.session.memberId]);
+      const [roles] = await pool.query('SELECT r.id,r.role_name,r.description, a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 AND LOWER(r.role_key)<>'founder' AND LOWER(r.role_name)<>'founder' ORDER BY r.role_name', [req.session.memberId]);
+      const [requests] = await pool.execute('SELECT q.id,q.status,q.message,q.created_at,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.member_id=? AND LOWER(r.role_key)<>'founder' AND LOWER(r.role_name)<>'founder' ORDER BY q.created_at DESC LIMIT 20', [req.session.memberId]);
       const roleCards = roles.map(r => '<article class="card"><h2>' + esc(r.role_name) + '</h2><p class="muted">' + esc(r.description || 'Role access is subject to administrator approval.') + '</p>' + (r.assignment_id ? '<span class="pill success">Assigned</span>' : '<form method="post" action="/roles/request/' + Number(r.id) + '">' + csrfField(req) + '<div class="field"><label>Why are you requesting this role?</label><textarea name="message" maxlength="1000" rows="3" placeholder="Briefly explain your request"></textarea></div><button class="btn gold" type="submit">Request role</button></form>') + '</article>').join('');
       const history = requests.map(q => '<tr><td>' + esc(q.role_name) + '</td><td><span class="pill">' + esc(q.status) + '</span></td><td>' + esc(q.message || '—') + '</td><td>' + esc(q.created_at) + '</td></tr>').join('');
       res.send(shell('My roles', '<section class="hero"><p class="muted">MEMBER ACCESS</p><h1>My roles</h1><p class="muted">Hello ' + esc(member.full_name) + '. Request access here. Roles are only assigned after review by an authorised administrator.</p></section><section class="grid">' + roleCards + '</section><section class="card"><h2>Request history</h2><div class="tablewrap"><table><thead><tr><th>Role</th><th>Status</th><th>Message</th><th>Requested</th></tr></thead><tbody>' + (history || '<tr><td colspan="4">No role requests yet.</td></tr>') + '</tbody></table></div></section>'));
@@ -50,7 +50,7 @@ function createRoleManagementRouter({ pool }) {
       await ensureReady();
       const roleId = Number(req.params.roleId), message = String(req.body.message || '').trim().slice(0, 1000);
       if (!Number.isSafeInteger(roleId) || roleId < 1) return res.sendStatus(400);
-      const [[role]] = await pool.execute('SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 LIMIT 1', [roleId]);
+      const [[role]] = await pool.execute('SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 AND LOWER(role_key)<>'founder' AND LOWER(role_name)<>'founder' LIMIT 1', [roleId]);
       if (!role) return res.status(404).send('That role is not available.');
       const [[assigned]] = await pool.execute('SELECT id FROM member_role_assignments WHERE member_id=? AND role_id=? LIMIT 1', [req.session.memberId, roleId]);
       if (assigned) return res.redirect('/roles?notice=already-assigned');
@@ -79,6 +79,7 @@ function createRoleManagementRouter({ pool }) {
       const id = Number(req.body.roleId || 0), name = String(req.body.roleName || '').trim(), description = String(req.body.description || '').trim().slice(0,500), active = req.body.isActive === undefined && id ? 0 : (req.body.isActive === '1' ? 1 : 0);
       const key = keyFor(name);
       if (!name || name.length > 100 || !key) return res.status(400).send('Enter a valid role name.');
+      if (key === 'founder') return res.status(403).send('Founder is reserved exclusively for the Monarch Codex Super Admin and cannot be created as a member role.');
       if (id) await pool.execute('UPDATE member_role_catalog SET role_key=?,role_name=?,description=?,is_active=? WHERE id=?', [key,name,description||null,active,id]);
       else await pool.execute('INSERT INTO member_role_catalog (role_key,role_name,description,is_active,created_by_member_id) VALUES (?,?,?,1,?)', [key,name,description||null,req.session.memberId]);
       res.redirect('/admin/roles');
@@ -92,8 +93,9 @@ function createRoleManagementRouter({ pool }) {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        const [[request]] = await connection.execute("SELECT id,member_id,role_id,status FROM member_role_requests WHERE id=? FOR UPDATE", [id]);
+        const [[request]] = await connection.execute("SELECT q.id,q.member_id,q.role_id,q.status,r.role_key,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.id=? FOR UPDATE", [id]);
         if (!request || request.status !== 'pending') { await connection.rollback(); return res.status(409).send('This request has already been reviewed.'); }
+        if (decision === 'approve' && (String(request.role_key).toLowerCase() === 'founder' || String(request.role_name).toLowerCase() === 'founder')) { await connection.rollback(); return res.status(403).send('Founder is reserved exclusively for the Monarch Codex Super Admin.'); }
         if (decision === 'approve') await connection.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)', [request.member_id,request.role_id,req.session.memberId]);
         await connection.execute('UPDATE member_role_requests SET status=?,reviewed_by_member_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?', [decision === 'approve' ? 'approved' : 'rejected',req.session.memberId,id]);
         await connection.commit();
@@ -106,6 +108,9 @@ function createRoleManagementRouter({ pool }) {
       await ensureReady();
       const memberId = Number(req.body.memberId), roleId = Number(req.body.roleId), action = String(req.body.action || 'assign');
       if (!Number.isSafeInteger(memberId) || memberId < 1 || !Number.isSafeInteger(roleId) || roleId < 1 || !['assign','remove'].includes(action)) return res.sendStatus(400);
+      const [[targetRole]] = await pool.execute('SELECT role_key,role_name FROM member_role_catalog WHERE id=? LIMIT 1',[roleId]);
+      if (!targetRole) return res.status(404).send('Role not found.');
+      if (String(targetRole.role_key).toLowerCase() === 'founder' || String(targetRole.role_name).toLowerCase() === 'founder') return res.status(403).send('Founder cannot be assigned to members.');
       if (action === 'assign') await pool.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)', [memberId,roleId,req.session.memberId]);
       else await pool.execute('DELETE FROM member_role_assignments WHERE member_id=? AND role_id=?', [memberId,roleId]);
       res.redirect('/admin/roles');
