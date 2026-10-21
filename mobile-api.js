@@ -160,13 +160,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl }) {
     try {
       const member = await memberById(req.session.memberId);
       if (!member) return res.status(401).json({ error: 'account_not_found', message: 'Please sign in again.' });
-      const [[walletRows], [fxRows], [referralRows], [notificationRows], [kycRows]] = await Promise.all([
+      const [walletResult, fxResult, referralResult, notificationResult, kycResult] = await Promise.all([
         pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [member.id]),
         pool.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1'),
         pool.execute('SELECT COUNT(*) AS total FROM members WHERE referred_by=?', [member.id]),
         pool.execute('SELECT COUNT(*) AS total FROM member_notifications WHERE member_id=? AND read_at IS NULL', [member.id]),
         pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1', [member.id])
       ]);
+      const walletRows = walletResult[0], fxRows = fxResult[0], referralRows = referralResult[0], notificationRows = notificationResult[0], kycRows = kycResult[0];
       let ngn = 0, usd = 0;
       for (const row of walletRows) {
         if (row.currency === 'NGN') ngn = Number(row.balance) || 0;
