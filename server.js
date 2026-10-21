@@ -705,7 +705,8 @@ function adminControlPage(title, active, content, req) {
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
-    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/cooperative-connections','Online Cooperative','♙'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Community & platform links',links:[['/admin/community-moderation','Community moderation','◉'],['/admin/social-links','Official social links','↗']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
@@ -890,7 +891,7 @@ const adminSectionInfo = {
   '/admin/academy': ['Academy management','Manage learning content and eligible access.','The existing Academy management data source has not yet been connected to this control centre.'],
   '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']};
-app.get('/admin/transactions', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/transactions', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT f.id,f.member_id,f.transaction_type,f.currency,f.amount,f.reference,f.admin_note,f.created_at,m.full_name,m.username,m.monarch_uid FROM financial_transactions f LEFT JOIN members m ON m.id=f.member_id ORDER BY f.created_at DESC LIMIT 500');
     const money = (currency, amount) => esc(String(currency || '') + ' ' + Number(amount || 0).toLocaleString('en-US',{maximumFractionDigits:8}));
@@ -918,7 +919,7 @@ function requireFinanceAdmin(req,res,next) {
   });
 }
 
-app.get('/admin/earnings', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/earnings', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const [members] = await pool.execute("SELECT id,full_name,username,monarch_uid FROM members ORDER BY full_name ASC,username ASC LIMIT 1000");
     const [rows] = await pool.execute("SELECT f.id,f.member_id,f.transaction_type,f.currency,f.amount,f.reference,f.admin_note,f.created_at,m.full_name,m.username,m.monarch_uid FROM financial_transactions f LEFT JOIN members m ON m.id=f.member_id WHERE f.transaction_type IN ('admin_bonus','investment_profit','loss_adjustment') ORDER BY f.created_at DESC LIMIT 300");
@@ -946,7 +947,7 @@ app.get('/admin/earnings', requireFinanceAdmin, async (req,res,next) => {
   }
 });
 
-app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const memberId=Number(req.body.member_id),operation=String(req.body.operation||''),currency=String(req.body.currency||''),amountText=String(req.body.amount||'').trim(),note=String(req.body.note||'').trim().slice(0,500);
   if(!Number.isSafeInteger(memberId)||memberId<1||!['admin_bonus','investment_profit','loss_adjustment'].includes(operation)||!['NGN','USD'].includes(currency)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText)||!Number.isFinite(Number(amountText))||Number(amountText)<=0||!note) return res.status(400).send(formError('Check adjustment details','Choose a member, valid currency, positive amount and clear reason.','/admin/earnings'));
   let conn;
@@ -980,7 +981,7 @@ app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:fa
   }
 });
 
-app.get('/admin/investments', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/investments', requireFinanceAdmin, requireWebCategoryAccess('invest_market','view'), async (req,res,next) => {
   try {
     const [packages]=await pool.execute('SELECT id,name,description,currency,price,duration_days,terms,status,created_at,updated_at FROM investment_packages ORDER BY created_at DESC,id DESC');
     const rows=packages.map(p=>{
@@ -1015,7 +1016,7 @@ app.get('/admin/investments', requireFinanceAdmin, async (req,res,next) => {
     next(e);
   }
 });
-app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, requireWebCategoryAccess('invest_market','manage'), async (req,res,next) => {
   const id=String(req.body.id||'').trim(),name=String(req.body.name||'').trim().slice(0,120),description=String(req.body.description||'').trim().slice(0,1000),currency=String(req.body.currency||''),priceText=String(req.body.price||'').trim(),durationText=String(req.body.duration_days||'').trim(),terms=String(req.body.terms||'').trim().slice(0,2000),status=String(req.body.status||'draft');
   if(!name||!['NGN','USD'].includes(currency)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(priceText)||Number(priceText)<=0||!(durationText===''||/^\d{1,5}$/.test(durationText))||!['draft','active','inactive'].includes(status)||!terms) return res.status(400).send(formError('Check package details','Provide a name, valid positive price, currency, optional duration and clear terms.','/admin/investments'));
   try {
@@ -1029,7 +1030,7 @@ app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded(
     res.redirect('/admin/investments');
   } catch(e){if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));next(e);}
 });
-app.get('/admin/withdrawals', requireFinanceAdmin, async (req,res,next)=>{
+app.get('/admin/withdrawals', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next)=>{
   try{
     const [requests]=await pool.query('SELECT w.*,m.username,m.full_name,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id ORDER BY CASE w.status WHEN \'pending\' THEN 0 WHEN \'approved\' THEN 1 ELSE 2 END,w.created_at DESC LIMIT 200');
     const rows=requests.map(w=>{
@@ -1048,7 +1049,7 @@ app.get('/admin/withdrawals', requireFinanceAdmin, async (req,res,next)=>{
     res.send(adminControlPage('Withdrawals','/admin/withdrawals',content,req));
   }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Withdrawal workflow setup required','migrations/009_withdrawal_requests.sql'));next(e);}
 });
-app.post('/admin/withdrawals/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+app.post('/admin/withdrawals/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations',req=>req.body.decision==='paid'?'manage':req.body.decision==='approved'?'approve':'reject'), async(req,res,next)=>{
   const id=String(req.params.id||''),decision=String(req.body.decision||''),note=String(req.body.reviewer_note||'').trim().slice(0,1000),paymentReference=String(req.body.payment_reference||'').trim().slice(0,190);
   if(!/^\d{1,20}$/.test(id)||!['approved','rejected','paid'].includes(decision))return res.status(400).send(formError('Invalid withdrawal review','Choose a valid request and review decision.','/admin/withdrawals'));
   if(decision==='paid'&&!paymentReference)return res.status(400).send(formError('Transfer reference required','Enter the reference for the actual completed transfer before marking a withdrawal paid.','/admin/withdrawals'));
@@ -1096,7 +1097,7 @@ app.get('/api/admin/pending-deposit-count', requireFinanceAdmin, async (req,res,
   }
 });
 
-app.get('/admin/deposits', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/deposits', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
     const [methods] = await pool.query('SELECT * FROM deposit_payment_methods ORDER BY is_active DESC,currency,method_type,id DESC');
@@ -1114,7 +1115,7 @@ app.get('/admin/deposits', requireFinanceAdmin, async (req,res,next) => {
     res.send(adminControlPage('Deposits','/admin/deposits',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/deposits/methods', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/deposits/methods', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const id = String(req.body.id || '').trim();
   const type = String(req.body.method_type || '');
   const currency = String(req.body.currency || '');
@@ -1143,7 +1144,7 @@ app.post('/admin/deposits/methods', requireFinanceAdmin, express.urlencoded({ext
     res.redirect('/admin/deposits');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const id=String(req.params.id||''), active=String(req.body.is_active||'');
   if (!/^\d{1,20}$/.test(id) || !['0','1'].includes(active)) return res.status(400).send(page('Invalid destination status','<h1>Invalid destination status</h1><a class="btn" href="/admin/deposits">Return to deposits</a>'));
   try {
@@ -1153,7 +1154,7 @@ app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urle
     res.redirect('/admin/deposits');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.get('/admin/deposits/:id/proof', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/deposits/:id/proof', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const id=String(req.params.id||'');
     if (!/^\d{1,20}$/.test(id)) return res.status(400).send(page('Invalid proof','<h1>Invalid payment proof</h1>'));
@@ -1167,7 +1168,7 @@ app.get('/admin/deposits/:id/proof', requireFinanceAdmin, async (req,res,next) =
     res.sendFile(filePath);
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations',req=>req.body.decision==='approved'?'approve':'reject'), async (req,res,next) => {
   const id=String(req.params.id||''), decision=String(req.body.decision||req.query.decision||''), note=String(req.body.reviewer_note||'').trim().slice(0,1000);
   if (!/^\d{1,20}$/.test(id) || !['approved','rejected'].includes(decision)) return res.status(400).send(page('Invalid deposit review','<h1>Invalid deposit review</h1><a class="btn" href="/admin/deposits">Return to deposits</a>'));
   let conn;
@@ -1204,7 +1205,7 @@ app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({
   } finally { if(conn) conn.release(); }
 });
 
-app.get('/admin/referrals', requireAdmin, async (req,res,next) => {
+app.get('/admin/referrals', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT c.id,c.full_name,c.username,c.email,c.monarch_uid,c.created_at,r.full_name AS referrer_name,r.username AS referrer_username,r.monarch_uid AS referrer_uid FROM members c JOIN members r ON r.id=c.referred_by ORDER BY c.created_at DESC LIMIT 300');
     const items = rows.map(r => '<tr><td><strong>' + esc(r.full_name || r.username) + '</strong><br><small>' + esc(r.email) + '</small><br>' + esc(r.monarch_uid || '—') + '</td><td><strong>' + esc(r.referrer_name || r.referrer_username) + '</strong><br><small>' + esc(r.referrer_username) + ' · ' + esc(r.referrer_uid || '—') + '</small></td><td>' + esc(r.created_at || '—') + '</td></tr>').join('');
@@ -1212,7 +1213,7 @@ app.get('/admin/referrals', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Referral monitoring','/admin/referrals',content,req));
   } catch(e) { next(e); }
 });
-app.get('/admin/academy', requireAdmin, async (req,res,next) => {
+app.get('/admin/academy', requireAdmin, requireWebCategoryAccess('invest_market','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT l.id,l.title,l.description,l.access_level,l.status,l.sort_order,l.created_at,m.username AS creator FROM academy_lessons l LEFT JOIN members m ON m.id=l.created_by ORDER BY l.sort_order ASC,l.created_at DESC LIMIT 200');
     const items = rows.map(l => '<tr><td><strong>' + esc(l.title) + '</strong><br><small>' + esc(l.description || '') + '</small></td><td>' + esc(l.access_level) + '</td><td>' + esc(l.status) + '</td><td>' + esc(l.creator || '—') + '</td><td><form method="post" action="/admin/academy/lessons/' + encodeURIComponent(l.id) + '/status">' + csrfField(req) + '<select name="status" aria-label="Lesson status"><option value="draft"' + (l.status === 'draft' ? ' selected' : '') + '>Draft</option><option value="published"' + (l.status === 'published' ? ' selected' : '') + '>Published</option><option value="archived"' + (l.status === 'archived' ? ' selected' : '') + '>Archived</option></select><button class="btn" type="submit">Save status</button></form></td></tr>').join('');
@@ -1220,7 +1221,7 @@ app.get('/admin/academy', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Academy management','/admin/academy',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
-app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:false,limit:'60kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:false,limit:'60kb'}), csrfCheck, requireWebCategoryAccess('invest_market','manage'), async (req,res,next) => {
   try {
     const title = String(req.body.title || '').trim().slice(0,180);
     const description = String(req.body.description || '').trim().slice(0,1000);
@@ -1235,7 +1236,7 @@ app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:fa
     await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);    res.redirect('/admin/academy');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
-app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('invest_market','manage'), async (req,res,next) => {
   const id = String(req.params.id || '');
   const status = String(req.body.status || '');
   if (!/^\d{1,20}$/.test(id) || !['draft','published','archived'].includes(status)) return res.status(400).send(page('Invalid lesson update','<h1>Invalid lesson status</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
@@ -1249,7 +1250,7 @@ app.get('/admin/sovereign-desk', requireAdmin, (req,res) => {
   if (req.adminRole === 'sovereign_desk_admin') return res.redirect('/sovereign-admin');
   res.redirect('/sovereign-admin');
 });
-app.get('/admin/notifications', requireAdmin, async (req,res,next) => {
+app.get('/admin/notifications', requireAdmin, requireWebCategoryAccess('notifications','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT n.id,n.notification_type,n.title,n.body,n.target_url,n.read_at,n.created_at,m.full_name,m.username,m.email FROM member_notifications n JOIN members m ON m.id=n.member_id ORDER BY n.created_at DESC LIMIT 200');
     const items = rows.map(n => '<tr><td><strong>' + esc(n.title) + '</strong><br><small>' + esc(n.notification_type) + '</small><p>' + esc(n.body) + '</p></td><td>' + esc(n.full_name || n.username) + '<br><small>' + esc(n.email) + '</small></td><td>' + esc(n.read_at ? 'Read' : 'Unread') + '</td><td>' + esc(n.created_at) + '</td></tr>').join('');
@@ -1257,7 +1258,7 @@ app.get('/admin/notifications', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Notifications','/admin/notifications',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Notification setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
-app.get('/admin/audit', requireAdmin, async (req,res,next) => {
+app.get('/admin/audit', requireAdmin, requireWebCategoryAccess('security_audit','view'), async (req,res,next) => {
   try {
     const [admins] = await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name,m.email FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
     const [events] = await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 100');
@@ -1267,7 +1268,7 @@ app.get('/admin/audit', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Audit & access','/admin/audit',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Audit setup required','migrations/002_admin_access.sql')); next(e); }
 });
-app.get('/admin/settings', requireAdmin, async (req,res,next) => {
+app.get('/admin/settings', requireAdmin, requireWebCategoryAccess('security_audit','manage'), async (req,res,next) => {
   try {
     const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd,updated_at FROM deposit_pricing_settings WHERE id=1');
     const settings = [
@@ -1294,7 +1295,7 @@ app.get('/admin/settings', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Platform settings','/admin/settings',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit pricing setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/settings/deposit-pricing', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/settings/deposit-pricing', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const base = Number(req.body.base_usd_ngn_rate);
   const markup = Number(req.body.markup_percent);
   const bankFee = Number(req.body.bank_fee_usd);
@@ -1340,7 +1341,7 @@ app.get('/admin/roles', requireAdmin, (req,res)=>{
   res.send(adminControlPage('Member roles','/admin/roles',content,req));
 });
 
-app.get('/admin/members', requireAdmin, async (req,res,next)=>{
+app.get('/admin/members', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next)=>{
   try {
     let blockColumn=false; try { const [blockCols]=await pool.query("SHOW COLUMNS FROM members LIKE 'is_blocked'"); blockColumn=blockCols.length>0; } catch (_) { blockColumn=false; }
     const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active,mp.avatar_key'+(blockColumn?',m.is_blocked':' ,0 AS is_blocked')+' FROM members m LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY m.id DESC LIMIT 200');
@@ -1354,7 +1355,7 @@ app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   } catch(e){next(e);}
 });
 
-app.post('/admin/members/:memberId/block', requireAdmin, (req,res,next)=>{
+app.post('/admin/members/:memberId/block', requireAdmin, requireWebCategoryAccess('members_roles','edit'), (req,res,next)=>{
   csrfCheck(req,res,async csrfErr=>{
     if(csrfErr)return;
     try{
@@ -1372,7 +1373,7 @@ app.post('/admin/members/:memberId/block', requireAdmin, (req,res,next)=>{
   });
 });
 
-app.post('/admin/members/:memberId/delete', requireAdmin, (req,res,next)=>{
+app.post('/admin/members/:memberId/delete', requireAdmin, requireWebCategoryAccess('members_roles','delete'), (req,res,next)=>{
   csrfCheck(req,res,async csrfErr=>{
     if(csrfErr)return;
     let conn;
@@ -1395,7 +1396,7 @@ app.post('/admin/members/:memberId/delete', requireAdmin, (req,res,next)=>{
   });
 });
 
-app.get('/admin/members/:memberId', requireAdmin, async (req,res,next)=>{
+app.get('/admin/members/:memberId', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next)=>{
   try {
     const memberId=Number(req.params.memberId);
     if(!Number.isSafeInteger(memberId)||memberId<1)return res.sendStatus(400);
@@ -1424,7 +1425,7 @@ const KYC_REJECTION_REASONS = Object.freeze({
   other: { label: 'Other verification issue', message: 'We could not approve this verification submission. Please contact support for clarification before resubmitting.' }
 });
 
-app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
+app.get('/admin/kyc/:id', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next) => {
   try {
     const id=String(req.params.id||''); if(!/^\d{1,20}$/.test(id)) return res.sendStatus(400);
     const [rows]=await pool.execute('SELECT k.*,m.username,m.monarch_uid FROM kyc_submissions k JOIN members m ON m.id=k.member_id WHERE k.id=? LIMIT 1',[id]);
@@ -1439,7 +1440,7 @@ app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('KYC applicant review','/admin/kyc',body,req));
   } catch(e){next(e);}
 });
-app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
+app.get('/admin/kyc/:id/document/:kind', requireAdmin, requireWebCategoryAccess('members_roles','view'), async(req,res,next)=>{
   try {
     const id=String(req.params.id||''),kind=String(req.params.kind||'');
     const cols={front:'document_front_private_key',back:'document_back_private_key',selfie:'selfie_private_key'};
@@ -1451,7 +1452,7 @@ app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
     res.set({'Content-Type':mime,'Content-Disposition':'inline','Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff'});return res.send(image);
   } catch(e){if(e.code==='ENOENT'||e.message==='Invalid encrypted KYC file.')return res.sendStatus(404);next(e);}
 });
-app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
+app.get('/admin/kyc', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query("SELECT k.id,k.member_id,k.legal_full_name,k.contact_email,k.document_type,k.document_issuer_country,k.document_number_last4,k.status,k.submitted_at FROM kyc_submissions k WHERE NOT EXISTS (SELECT 1 FROM kyc_submissions newer WHERE newer.member_id=k.member_id AND (newer.submitted_at>k.submitted_at OR (newer.submitted_at=k.submitted_at AND newer.id>k.id))) ORDER BY k.submitted_at DESC,k.id DESC LIMIT 200");
     const rejectionOptions = Object.entries(KYC_REJECTION_REASONS).map(([value, reason]) => '<option value="' + esc(value) + '">' + esc(reason.label) + '</option>').join('');
@@ -1472,7 +1473,7 @@ app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('KYC review','/admin/kyc', '<section class="ac-panel">' + body + '</section>', req));
   } catch(e) { next(e); }
 });
-app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('members_roles',req=>req.body.status==='approved'?'approve':'reject'), async (req,res,next) => {
   const id = String(req.params.id || '');
   const status = req.body.status;
   const reasonCode = String(req.body.reason_code || '').trim();
@@ -1568,14 +1569,20 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
         kyc_review: { label: 'Identity verification', icon: '✓', tone: 'gold' },
         deposit_review: { label: 'Deposit update', icon: '↗', tone: 'green' },
         withdrawal_review: { label: 'Withdrawal update', icon: '↙', tone: 'blue' },
-        investment_purchase: { label: 'Investment activity', icon: '◇', tone: 'gold' }
+        investment_purchase: { label: 'Investment activity', icon: '◇', tone: 'gold' },
+        cooperative_review: { label: 'Online Cooperative', icon: '♙', tone: 'gold' },
+        community_comment: { label: 'Community reply', icon: '◉', tone: 'blue' },
+        community_review: { label: 'Community review', icon: '◉', tone: 'gold' },
+        community_report: { label: 'Community moderation', icon: '⚑', tone: 'gold' }
       })[type] || { label: 'Account update', icon: '•', tone: 'gold' };
       let safeTarget = null;
       if (type === 'kyc_review') safeTarget = '/kyc';
       else if (type === 'deposit_review') safeTarget = titleLower.includes('approved') ? '/transactions' : '/deposit';
       else if (type === 'withdrawal_review') safeTarget = titleLower.includes('paid') ? '/transactions' : '/withdraw';
       else if (type === 'investment_purchase') safeTarget = '/investments';
-      else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications'].includes(n.target_url)) safeTarget = n.target_url;
+      else if (type === 'cooperative_review') safeTarget = '/online-cooperative';
+      else if (type === 'community_comment') safeTarget = '/community';
+      else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications','/community','/social-links','/online-cooperative'].includes(n.target_url)) safeTarget = n.target_url;
       let messageHtml = '';
       const isKycApproved = type === 'kyc_review' && /\bapproved\b|\bverified\b/i.test(title);
       const isKycRejected = type === 'kyc_review' && !isKycApproved && /not approved|unable to approve|needs attention|rejected/i.test(rawBody + ' ' + title);
@@ -2526,10 +2533,201 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
+
+
+app.get('/social-links', requireAuth, async(req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [items]=await pool.query('SELECT label,url FROM platform_social_links WHERE is_active=1 AND url IS NOT NULL ORDER BY id');
+    const links=items.filter(x=>{try{const u=new URL(x.url);return u.protocol==='https:'&&!u.username&&!u.password;}catch(_){return false;}});
+    const content='<section style="max-width:800px;margin:auto"><p class="muted">OFFICIAL CHANNELS</p><h2>Connect with Monarch Codex</h2><p>These are the official channels published by the platform. Links open in a new tab.</p>'+(links.length?links.map(x=>'<a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;margin:10px 0;border:1px solid #6b5927;border-radius:13px;background:#111216;color:#f3cf3c;text-decoration:none"><strong>'+esc(x.label)+'</strong><span>Open securely ↗</span></a>').join(''):'<p>No official social links have been published yet.</p>')+'</section>';
+    res.send(memberPage('Social links','/social-links',m,content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Social links','/social-links',await getMemberForPage(req,res),'<p>Social links are being configured. Please check back later.</p>',req));next(e);}
+});
+
+app.get('/community', requireAuth, async(req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [posts]=await pool.query("SELECT p.id,p.member_id,p.body,p.post_type,p.created_at,m.full_name,m.username FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+    const postHtml=await Promise.all(posts.map(async p=>{
+      const [comments]=await pool.execute("SELECT c.body,c.created_at,m.full_name,m.username FROM community_comments c JOIN members m ON m.id=c.member_id WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 50",[p.id]);
+      const commentHtml=comments.map(x=>'<div style="margin:8px 0 0 18px;padding:10px;border-left:2px solid #6b5927"><strong>'+esc(x.full_name||x.username||'Member')+'</strong><p>'+esc(x.body)+'</p><small>'+esc(x.created_at)+'</small></div>').join('');
+      return '<article style="padding:18px;margin:14px 0;border:1px solid #40371f;border-radius:16px;background:#111216"><p style="color:#f3cf3c;font-size:12px"><strong>'+esc(p.full_name||p.username||'Member')+'</strong> · '+esc(String(p.post_type).replace(/_/g,' '))+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(p.body)+'</p><small>'+esc(p.created_at)+'</small>'+commentHtml+'<form method="post" action="/community/posts/'+Number(p.id)+'/comments" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+csrfField(req)+'<input name="body" required maxlength="2000" placeholder="Write a reply" style="flex:1;min-width:180px"><button class="btn" type="submit">Reply</button></form><form method="post" action="/community/posts/'+Number(p.id)+'/report" style="margin-top:8px">'+csrfField(req)+'<input name="reason" required minlength="3" maxlength="1000" placeholder="Report reason" aria-label="Report reason"><button type="submit" class="btn">Report</button></form></article>';
+    }));
+    const content='<section style="max-width:900px;margin:auto"><p class="muted">MEMBER NETWORK</p><h2>Community feed</h2><p>Share updates, ask questions and connect with members. Partner campaigns and Sovereign Desk signals are reviewed before publication.</p><form method="post" action="/community/posts" style="display:grid;gap:10px;padding:18px;border:1px solid #6b5927;border-radius:16px;background:#111216">'+csrfField(req)+'<label>Post type<select name="post_type"><option value="post">Community post</option><option value="partner_campaign">Partner campaign (approval required)</option><option value="sovereign_signal">Sovereign Desk signal (approval required)</option></select></label><label>Message<textarea name="body" required minlength="1" maxlength="5000" rows="4" placeholder="Share with the community"></textarea></label><button class="btn" type="submit">Publish / submit for review</button></form>'+(postHtml.length?postHtml.join(''):'<p style="padding:24px;text-align:center;border:1px solid #40371f;border-radius:16px">No community posts yet. Start the conversation.</p>')+'</section>';
+    res.send(memberPage('Community','/community',m,content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Community','/community',await getMemberForPage(req,res),'<p>Community setup is not complete. Apply the platform migration after a verified backup.</p>',req));next(e);}
+});
+
+app.post('/community/posts', requireAuth, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async(req,res,next)=>{
+  const body=String(req.body.body||'').trim(),type=String(req.body.post_type||'post');
+  if(!body||body.length>5000||!['post','partner_campaign','sovereign_signal'].includes(type))return res.status(400).send(page('Invalid post','<main><h1>Check your post</h1><p>Use a supported post type and keep the message under 5,000 characters.</p><a href="/community">Return to community</a></main>'));
+  try{
+    if(type==='partner_campaign'){
+      const [[role]]=await pool.execute("SELECT r.id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key='partner' LIMIT 1",[req.session.memberId]);
+      if(!role)return res.status(403).send(page('Partner access required','<main><h1>Partner access required</h1><p>Apply for Partner status before submitting a campaign.</p><a href="/community">Return to community</a></main>'));
+    }
+    if(type==='sovereign_signal'){
+      const [[role]]=await pool.execute("SELECT r.id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key IN ('sovereign_desk','mega_partner') LIMIT 1",[req.session.memberId]);
+      if(!role)return res.status(403).send(page('Sovereign Desk access required','<main><h1>Sovereign Desk access required</h1><p>Only authorized Sovereign Desk members can submit signals.</p><a href="/community">Return to community</a></main>'));
+    }
+    const status=type==='post'?'published':'pending';
+    const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,type,status]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.post_created','community_post',String(result.insertId),JSON.stringify({type,status})]);
+    if(status==='pending'){
+      const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+      for(const a of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[a.member_id,'community_review','Community item awaiting approval','A partner campaign or Sovereign Desk signal is awaiting review.','/admin/community-moderation','web_community_review_'+result.insertId+'_'+a.member_id]);
+    }
+    res.redirect('/community?post='+status);
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Community setup required','<main><h1>Apply migrations/021_platform_completion_foundation.sql</h1></main>'));next(e);}
+});
+
+app.post('/community/posts/:id/comments', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),body=String(req.body.body||'').trim();
+  if(!Number.isSafeInteger(id)||id<1||!body||body.length>2000)return res.status(400).send(page('Invalid comment','<main><h1>Check your reply</h1><a href="/community">Return to community</a></main>'));
+  try{
+    const [[post]]=await pool.execute("SELECT id,member_id FROM community_posts WHERE id=? AND status='published'",[id]);
+    if(!post)return res.status(404).send(page('Post unavailable','<main><h1>This post is no longer available.</h1><a href="/community">Return to community</a></main>'));
+    await pool.execute('INSERT INTO community_comments (post_id,member_id,body) VALUES (?,?,?)',[id,req.session.memberId,body]);
+    if(Number(post.member_id)!==Number(req.session.memberId))await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[post.member_id,'community_comment','New community reply','A member replied to your community post.','/community','web_community_comment_'+id+'_'+req.session.memberId+'_'+Date.now()]);
+    res.redirect('/community#post-'+id);
+  }catch(e){next(e);}
+});
+
+app.post('/community/posts/:id/report', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),reason=String(req.body.reason||'').trim().slice(0,1000);
+  if(!Number.isSafeInteger(id)||id<1||reason.length<3)return res.status(400).send(page('Invalid report','<main><h1>Provide a clear report reason.</h1><a href="/community">Return to community</a></main>'));
+  try{
+    const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+    if(!post)return res.status(404).send(page('Post unavailable','<main><h1>This post is no longer available.</h1></main>'));
+    await pool.execute('INSERT INTO community_reports (post_id,reporter_member_id,reason) VALUES (?,?,?)',[id,req.session.memberId,reason]);
+    const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+    for(const a of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[a.member_id,'community_report','Community post reported','A member submitted a content report for moderation.','/admin/community-moderation','web_community_report_'+id+'_'+req.session.memberId+'_'+a.member_id]);
+    res.redirect('/community?report=submitted');
+  }catch(e){next(e);}
+});
+
+app.post('/online-cooperative/connection', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const registeredName=String(req.body.registered_name||'').trim().replace(/\s+/g,' ').slice(0,160);
+  const registeredEmail=String(req.body.registered_email||'').trim().toLowerCase();
+  if(registeredName.length<2||registeredName.length>160||registeredEmail.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registeredEmail))return res.status(400).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p class="error">Enter the name and valid email used for your Cooperative registration.</p><a href="/online-cooperative">Return</a>',req));
+  try{
+    const [[existing]]=await pool.execute("SELECT id,status FROM online_cooperative_connections WHERE member_id=? AND status IN ('pending','approved') ORDER BY created_at DESC LIMIT 1",[req.session.memberId]);
+    if(existing)return res.redirect('/online-cooperative?connection='+encodeURIComponent(existing.status));
+    const [result]=await pool.execute("INSERT INTO online_cooperative_connections (member_id,registered_name,registered_email,status) VALUES (?,?,?,'pending')",[req.session.memberId,registeredName,registeredEmail]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'cooperative.connection_submitted','cooperative_connection',String(result.insertId),JSON.stringify({status:'pending'})]);
+    const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+    for(const admin of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[admin.member_id,'cooperative_review','Online Cooperative verification required','A member submitted registration details for manual verification.','/admin/cooperative-connections','web_cooperative_review_'+result.insertId+'_'+admin.member_id]);
+    res.redirect('/online-cooperative?connection=pending');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p>Connection verification setup is not complete yet. Please try again later.</p>',req));next(e);}
+});
+
+
+function requireWebCategoryAccess(category, action) {
+  return async(req,res,next)=>{
+    try{
+      if(req.adminRole==='super_admin')return next();
+      const [[permission]]=await pool.execute('SELECT access_level,allowed_actions FROM platform_admin_permissions WHERE admin_member_id=? AND category_key=? LIMIT 1',[req.session.memberId,category]);
+      if(!permission||permission.access_level==='red')return res.status(403).send(page('Access denied','<main><h1>Access denied</h1><p>Your administrator permission does not allow this category.</p><a href="/admin">Return to Admin</a></main>'));
+      if(permission.access_level==='green')return next();
+      let actions=[];try{actions=Array.isArray(permission.allowed_actions)?permission.allowed_actions:JSON.parse(permission.allowed_actions||'[]');}catch(_){}
+      if(!actions.includes(typeof action==='function'?action(req):action))return res.status(403).send(page('Action not permitted','<main><h1>Action not permitted</h1><p>This action is not included in your partial-access permissions.</p><a href="/admin">Return to Admin</a></main>'));
+      return next();
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Permission setup required','<main><h1>Permission setup required</h1><p>Apply migrations/021_platform_completion_foundation.sql after a verified backup.</p></main>'));next(e);}
+  };
+}
+
+app.get('/admin/community-moderation', requireAdmin, requireWebCategoryAccess('community_moderation','view'), async(req,res,next)=>{
+  try{
+    const [posts]=await pool.query("SELECT p.id,p.member_id,p.body,p.post_type,p.created_at,m.full_name,m.username FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='pending' ORDER BY p.created_at ASC LIMIT 200");
+    const [reports]=await pool.query("SELECT r.id,r.post_id,r.reporter_member_id,r.reason,r.created_at,m.full_name FROM community_reports r JOIN members m ON m.id=r.reporter_member_id WHERE r.status='pending' ORDER BY r.created_at ASC LIMIT 200");
+    const postCards=posts.map(p=>'<article class="ac-panel" style="margin:12px 0;padding:16px"><p class="muted">'+esc(p.full_name||p.username||'Member')+' · '+esc(p.post_type)+' · '+esc(p.created_at)+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(p.body)+'</p><form method="post" action="/admin/community-moderation/'+Number(p.id)+'/review" style="display:grid;gap:10px">'+csrfField(req)+'<label>Review note <textarea name="note" maxlength="1000" rows="2"></textarea></label><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" name="decision" value="approve">Approve & publish</button><button class="btn" name="decision" value="reject">Reject</button><button class="btn" name="decision" value="hide">Hide post</button></div></form></article>').join('');
+    const reportCards=reports.map(r=>'<article class="ac-panel" style="margin:12px 0;padding:16px"><p>Report #'+Number(r.id)+' on post #'+Number(r.post_id)+' · '+esc(r.full_name||'Member')+'</p><p>'+esc(r.reason)+'</p><form method="post" action="/admin/community-moderation/reports/'+Number(r.id)+'/review">'+csrfField(req)+'<button class="btn" name="decision" value="reviewed">Mark reviewed</button> <button class="btn" name="decision" value="dismissed">Dismiss report</button></form></article>').join('');
+    res.send(adminControlPage('Community moderation','/admin/community-moderation','<section class="ac-panel"><h2>Pending posts and campaigns</h2><p class="muted">Partner campaigns and Sovereign Desk signals remain hidden until approved. Every review is audited.</p>'+(postCards||'<p>No pending posts.</p>')+'</section><section class="ac-panel" style="margin-top:18px"><h2>Community reports</h2>'+(reportCards||'<p>No pending reports.</p>')+'</section>',req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(adminControlPage('Community moderation','/admin/community-moderation','<p>Apply migrations/021_platform_completion_foundation.sql after a verified database backup.</p>',req));next(e);}
+});
+app.post('/admin/community-moderation/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('community_moderation',req=>req.body.decision==='approve'?'approve':req.body.decision==='hide'?'moderate':'reject'), async(req,res,next)=>{
+  const id=Number(req.params.id),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000);
+  if(!Number.isSafeInteger(id)||id<1||!['approve','reject','hide'].includes(decision))return res.status(400).send(page('Invalid review','<main><h1>Invalid review</h1></main>'));
+  if(decision!=='approve'&&!note)return res.status(400).send(page('Review note required','<main><h1>Add a review note before rejecting or hiding content.</h1><a href="/admin/community-moderation">Return to moderation</a></main>'));
+  try{
+    const status=decision==='approve'?'published':decision==='hide'?'hidden':'rejected';
+    const [result]=await pool.execute("UPDATE community_posts SET status=?,reviewed_by_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('pending','published')",[status,req.session.memberId,note||null,id]);
+    if(!result.affectedRows)return res.status(404).send(page('Post unavailable','<main><h1>Post not found or already reviewed.</h1></main>'));
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.post_'+status,'community_post',String(id),JSON.stringify({note})]);
+    res.redirect('/admin/community-moderation?review='+status);
+  }catch(e){next(e);}
+});
+app.post('/admin/community-moderation/reports/:id/review', requireAdmin, requireWebCategoryAccess('community_moderation','moderate'), express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),decision=String(req.body.decision||'');
+  if(!Number.isSafeInteger(id)||id<1||!['reviewed','dismissed'].includes(decision))return res.status(400).send(page('Invalid report','<main><h1>Invalid report action.</h1></main>'));
+  try{
+    const [result]=await pool.execute('UPDATE community_reports SET status=?,reviewed_by_member_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status=\'pending\'',[decision,req.session.memberId,id]);
+    if(!result.affectedRows)return res.status(404).send(page('Report unavailable','<main><h1>Report not found or already reviewed.</h1></main>'));
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.report_'+decision,'community_report',String(id),JSON.stringify({decision})]);
+    res.redirect('/admin/community-moderation?report='+decision);
+  }catch(e){next(e);}
+});
+
+app.get('/admin/social-links', requireAdmin, requireWebCategoryAccess('social_links','view'), async(req,res,next)=>{
+  try{
+    const [items]=await pool.query('SELECT link_key,label,url,is_active FROM platform_social_links ORDER BY id');
+    const forms=items.map(x=>'<form method="post" action="/admin/social-links" class="ac-panel" style="padding:16px;margin:12px 0;display:grid;gap:10px">'+csrfField(req)+'<input type="hidden" name="key" value="'+esc(x.link_key)+'"><label>Platform<input name="label" value="'+esc(x.label)+'" maxlength="80" required></label><label>HTTPS URL<input name="url" type="url" value="'+esc(x.url||'')+'" maxlength="1000" placeholder="https://…"></label><label><input type="checkbox" name="active" value="1" '+(Number(x.is_active)?'checked':'')+'> Visible to members</label><button class="btn" type="submit">Save '+esc(x.label)+'</button></form>').join('');
+    res.send(adminControlPage('Official social links','/admin/social-links','<section class="ac-panel"><h2>Official social links</h2><p class="muted">Only HTTPS links are allowed. Personal Founder contacts must not be entered here unless intentionally public as official platform links.</p>'+forms+'</section>',req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(adminControlPage('Official social links','/admin/social-links','<p>Apply migrations/021_platform_completion_foundation.sql after a verified database backup.</p>',req));next(e);}
+});
+app.post('/admin/social-links', requireAdmin, requireWebCategoryAccess('social_links','manage'), express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const key=String(req.body.key||''),label=String(req.body.label||'').trim().slice(0,80),raw=String(req.body.url||'').trim(),active=req.body.active==='1';
+  if(!/^(whatsapp|telegram|facebook|instagram|youtube|tiktok|x|other)$/.test(key)||!label)return res.status(400).send(page('Invalid social link','<main><h1>Invalid platform or label.</h1></main>'));
+  let url=null;if(raw){try{const u=new URL(raw);if(u.protocol!=='https:'||!u.hostname||u.username||u.password)throw new Error();url=u.toString();}catch(_){return res.status(400).send(page('Unsafe social link','<main><h1>Use a valid HTTPS URL without embedded credentials.</h1><a href="/admin/social-links">Return to social links</a></main>'));}}
+  if(active&&!url)return res.status(400).send(page('URL required','<main><h1>An active link must have a URL.</h1><a href="/admin/social-links">Return to social links</a></main>'));
+  try{
+    await pool.execute('INSERT INTO platform_social_links (link_key,label,url,is_active,updated_by_member_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),url=VALUES(url),is_active=VALUES(is_active),updated_by_member_id=VALUES(updated_by_member_id)',[key,label,url,active?1:0,req.session.memberId]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'social_link.updated','social_link',key,JSON.stringify({active,urlPresent:Boolean(url)})]);
+    res.redirect('/admin/social-links?saved=1');
+  }catch(e){next(e);}
+});
+
+app.get('/admin/cooperative-connections', requireAdmin, async(req,res,next)=>{
+  try{
+    const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+    if(!admin||admin.role!=='super_admin')return res.status(403).send(page('Access denied','<main><h1>Super Admin access required</h1><p>Only the Monarch Codex Super Admin can approve Online Cooperative connections.</p><a href="/admin">Return to Admin</a></main>'));
+    const [items]=await pool.query("SELECT c.id,c.member_id,c.registered_name,c.registered_email,c.created_at,m.full_name,m.email AS member_email,m.username FROM online_cooperative_connections c JOIN members m ON m.id=c.member_id WHERE c.status='pending' ORDER BY c.created_at ASC LIMIT 200");
+    const rows=items.map(x=>'<article style="padding:18px;margin:12px 0;border:1px solid #6b5927;border-radius:14px;background:#111216"><h3>'+esc(x.full_name||x.username||'Member')+'</h3><p>Member email: '+esc(x.member_email||'—')+'</p><p>Cooperative registration name: <strong>'+esc(x.registered_name)+'</strong></p><p>Cooperative registration email: <strong>'+esc(x.registered_email)+'</strong></p><small>Submitted '+esc(x.created_at)+'</small><form method="post" action="/admin/cooperative-connections/'+Number(x.id)+'/review" style="display:grid;gap:10px;margin-top:14px">'+csrfField(req)+'<label>Review note (required for rejection)<textarea name="note" maxlength="1000" rows="2"></textarea></label><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" name="decision" value="approve" type="submit">Approve verified connection</button><button class="btn" name="decision" value="reject" type="submit">Reject</button></div></form></article>').join('');
+    res.send(page('Online Cooperative verification','<main style="max-width:850px;margin:28px auto;padding:20px"><h1>Online Cooperative verification</h1><p>Contact the Cooperative administrator and verify the submitted name and email before approval. If uncertain, leave the request pending. Never request a password or OTP.</p><p><a href="/admin">Admin dashboard</a></p>'+(rows||'<p>No pending connection requests.</p>')+'</main>'));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Verification setup required','<main><h1>Verification setup required</h1><p>Apply migrations/021_platform_completion_foundation.sql after taking a verified database backup.</p></main>'));next(e);}
+});
+
+app.post('/admin/cooperative-connections/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000);
+  if(!Number.isSafeInteger(id)||id<1||!['approve','reject'].includes(decision))return res.status(400).send(page('Invalid review','<main><h1>Invalid review request</h1><a href="/admin/cooperative-connections">Return to queue</a></main>'));
+  if(decision==='reject'&&!note)return res.status(400).send(page('Reason required','<main><h1>Add a rejection reason</h1><p>Provide a reason before rejecting a connection.</p><a href="/admin/cooperative-connections">Return to queue</a></main>'));
+  const conn=await pool.getConnection();
+  try{
+    const [[admin]]=await conn.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+    if(!admin||admin.role!=='super_admin'){await conn.rollback();return res.status(403).send(page('Access denied','<main><h1>Super Admin access required</h1></main>'));}
+    await conn.beginTransaction();
+    const [[item]]=await conn.execute("SELECT id,member_id,status FROM online_cooperative_connections WHERE id=? FOR UPDATE",[id]);
+    if(!item||item.status!=='pending'){await conn.rollback();return res.status(409).send(page('Already reviewed','<main><h1>This request is no longer pending.</h1><a href="/admin/cooperative-connections">Return to queue</a></main>'));}
+    const status=decision==='approve'?'approved':'rejected';
+    await conn.execute('UPDATE online_cooperative_connections SET status=?,reviewer_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
+    await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[item.member_id,'cooperative_review',status==='approved'?'Online Cooperative connected':'Online Cooperative connection rejected',status==='approved'?'Your registration was manually verified and connected to Monarch Codex.':'Your connection request was rejected. Reason: '+note,'/online-cooperative','web_cooperative_result_'+id+'_'+status]);
+    await conn.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'cooperative.connection_'+status,'cooperative_connection',String(id),JSON.stringify({memberId:item.member_id,note})]);
+    await conn.commit();
+    res.redirect('/admin/cooperative-connections?review='+status);
+  }catch(e){try{await conn.rollback();}catch(_){}if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Verification setup required','<main><h1>Apply migrations/021_platform_completion_foundation.sql</h1></main>'));next(e);}
+  finally{conn.release();}
+});
+
 app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,next)=>{
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
+    let connection=null, connectionSetup=true;
+    try { const [rows]=await pool.execute('SELECT id,status,review_note,created_at,reviewed_at FROM online_cooperative_connections WHERE member_id=? ORDER BY created_at DESC LIMIT 1',[m.id]); connection=rows[0]||null; }
+    catch(e){if(e.code==='ER_NO_SUCH_TABLE')connectionSetup=false;else throw e;}
+    const connectionStatus = connection ? String(connection.status) : 'not_connected';
+    const connectionPanel = !connectionSetup ? '<section class="coop-member-section"><h4>05 / Connect your Cooperative account</h4><p>Manual verification is being configured. You can still register with Online Cooperative using the referral link above. Return here later to submit your registration name and email for verification.</p></section>' : '<section class="coop-member-section"><h4>05 / Connect your Cooperative account</h4><p>Register using our referral link, then submit the exact name and email used there. The Super Admin will check with the Cooperative administrator and approve only after confirmation. Do not send passwords or OTPs.</p><p><strong>Status: '+esc(connectionStatus.replace(/_/g,' '))+'</strong>'+(connection&&connection.review_note?'<br>Review note: '+esc(connection.review_note):'')+'</p>'+(connectionStatus==='not_connected'||connectionStatus==='rejected'?'<form method="post" action="/online-cooperative/connection" style="display:grid;gap:12px;max-width:520px">'+csrfField(req)+'<label>Registered name<input name="registered_name" required maxlength="160" autocomplete="name"></label><label>Registered email<input name="registered_email" type="email" required maxlength="254" autocomplete="email"></label><button class="btn" type="submit">Submit for manual verification</button></form>':'<p>'+(connectionStatus==='pending'?'Your details are waiting for manual verification.':'Your account is connected to Monarch Codex.')+'</p>')+'</section>';
     const content = `<style>
     .coop-member{display:grid;gap:20px;min-width:0;color:#f5f0e3}
     .coop-member-hero{padding:clamp(24px,4vw,42px);border:1px solid rgba(223,189,98,.3);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(223,189,98,.2),transparent 38%),linear-gradient(135deg,#1d1a13,#101114 72%)}
@@ -2562,6 +2760,7 @@ app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,n
       <section class="coop-member-section"><h4>02 / How the system is described</h4><p><strong>1. Contribute:</strong> choose a stated $10, $100 or $1,000 package. <strong>2. Placement:</strong> referred members are described as automatically placed, with up to 10 direct members per person. <strong>3. Earn:</strong> the description lists referral and network bonuses. <strong>4. Reach the target:</strong> an upgrade prompt is described when the target is reached. <strong>5. Upgrade:</strong> review the next tier and its conditions. <strong>6. Elite:</strong> the final level is described as offering VIP benefits.</p></section>
       <section class="coop-member-section"><h4>03 / Earning structure described</h4><div class="coop-member-bonuses"><div class="coop-member-bonus"><strong>10%</strong><span>Direct referral bonus on eligible contributions, as described</span></div><div class="coop-member-bonus"><strong>$1.00</strong><span>System placement bonus for qualifying placements, up to 10</span></div><div class="coop-member-bonus"><strong>$0.50</strong><span>Network depth bonus for qualifying wider-network members</span></div></div><p>Members can also benefit from the 10% monthly earning feature described by The Online Cooperative, even without direct referrals.</p></section>
       <section class="coop-member-section"><h4>04 / Features highlighted</h4><p>Members can track activity through the dashboard, build a direct network of up to 10 referrals, benefit from automatic placement, and work toward package milestones.</p></section>
+      ${connectionPanel}
       <div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Continue to Online Cooperative ↗</a><a class="secondary" href="/dashboard">Return to member overview</a></div>
     </div>`;
     res.send(memberPage('The Online Cooperative','/online-cooperative',m,content,req));
@@ -2833,7 +3032,7 @@ app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.
 });
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use('/api/mobile', createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl: (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, ''), depositProofUpload, decryptProfileValue, loginLimiter, registrationLimiter }));
-app.use(createRoleManagementRouter({ pool }));
+app.use(createRoleManagementRouter({ pool, requireWebCategoryAccess }));
 app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
 app.use((err, req, res, _next) => {
   const incidentId = crypto.randomBytes(5).toString('hex').toUpperCase();

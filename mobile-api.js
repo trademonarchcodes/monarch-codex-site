@@ -303,6 +303,29 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
   };
 
+
+  const requireCategoryAccess = (categoryValue, actionValue) => async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin)return res.status(403).json({error:'admin_required',message:'Administrator access is required.'});
+      req.mobileAdminRole=admin.role;
+      if(String(admin.role)==='super_admin')return next();
+      const category=typeof categoryValue==='function'?categoryValue(req):categoryValue;
+      const action=typeof actionValue==='function'?actionValue(req):actionValue;
+      const [[permission]]=await pool.execute('SELECT access_level,allowed_actions FROM platform_admin_permissions WHERE admin_member_id=? AND category_key=? LIMIT 1',[req.session.memberId,category]);
+      if(!permission)return res.status(403).json({error:'category_access_denied',category,action,message:'The Super Admin has not granted access to this category.'});
+      if(permission.access_level==='green')return next();
+      if(permission.access_level==='red')return res.status(403).json({error:'category_access_denied',category,action,message:'Your permission level does not allow this action.'});
+      let allowed=[];
+      try{allowed=Array.isArray(permission.allowed_actions)?permission.allowed_actions:JSON.parse(permission.allowed_actions||'[]');}catch(_){}
+      if(!allowed.includes(action))return res.status(403).json({error:'action_access_denied',category,action,message:'This action is not included in your partial-access permissions.'});
+      return next();
+    }catch(error){
+      if(error&&error.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required',message:'Administrator permissions are not configured yet.'});
+      return next(error);
+    }
+  };
+
   router.get('/transactions', noStore, apiAuth, async (req, res, next) => {
     try {
       const [transactions] = await pool.execute(
@@ -387,6 +410,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         'INSERT INTO deposit_requests (member_id,currency,amount,fee_usd,fee_amount,base_usd_ngn_rate,effective_usd_ngn_rate,total_due,payment_method_id,payment_reference,proof_storage_key,proof_mime_type,proof_original_name,member_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [req.session.memberId,currency,amount,feeUsd,fee,base,rate,total,methodId,reference,req.file.filename,req.file.mimetype,require('node:path').basename(req.file.originalname).slice(0,255),note || null]
       );
+      await notifyActiveAdmins({type:'deposit_pending',title:'Deposit awaiting review',body:'A member submitted a deposit receipt for administrator review.',targetUrl:'/admin/deposits',dedupePrefix:'deposit_pending_'+result.insertId});
       return res.status(201).json({ ok: true, requestId: result.insertId, status: 'pending', message: 'Deposit receipt submitted. Your balance will change only after an administrator verifies the payment.' });
     } catch (error) {
       if (req.file && req.file.path) require('node:fs').unlink(req.file.path, () => {});
@@ -438,6 +462,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if (amount > available + 1e-8) { await connection.rollback(); return res.status(400).json({ error: 'insufficient_available_balance', message: 'The amount exceeds your available balance after pending withdrawal reservations.' }); }
       const [created] = await connection.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')", [req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,note || null]);
       await connection.commit();
+      await notifyActiveAdmins({type:'withdrawal_pending',title:'Withdrawal awaiting review',body:'A member submitted a withdrawal request for review.',targetUrl:'/admin/withdrawals',dedupePrefix:'withdrawal_pending_'+created.insertId});
       return res.status(201).json({ ok: true, requestId: created.insertId, status: 'pending', message: 'Withdrawal request submitted for review. This is not an automatic payout.' });
     } catch (error) {
       if (connection) { try { await connection.rollback(); } catch (_) {} }
@@ -459,7 +484,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     [actor,action,targetType,String(targetId),JSON.stringify(details||{}),ip||null]
   );
 
-  router.get('/admin/reviews/:type', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/reviews/:type', noStore, apiAuth, requireCategoryAccess(req=>req.params.type==='kyc'?'members_roles':'financial_operations','view'), async (req,res,next) => {
     const type=String(req.params.type||'');
     if(!['kyc','deposits','withdrawals'].includes(type))return res.status(400).json({error:'invalid_review_queue'});
     if(type!=='kyc' && !['super_admin','main_admin'].includes(String(req.mobileAdminRole)))return res.status(403).json({error:'finance_admin_required',message:'Only Super Admin or Main Admin can review financial requests.'});
@@ -477,18 +502,19 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'review_setup_required',message:'The review queue database is not configured.'}); next(e); }
   });
 
-  router.post('/admin/reviews/kyc/:id', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.post('/admin/reviews/kyc/:id', noStore, apiAuth, requireCategoryAccess('members_roles',req=>req.body.status==='approved'?'approve':'reject'), async (req,res,next) => {
     const id=String(req.params.id||''), status=String(req.body.status||''), note=String(req.body.note||'').trim().slice(0,1000);
     if(!/^\d{1,20}$/.test(id)||!['approved','rejected','needs_resubmission'].includes(status))return res.status(400).json({error:'invalid_review',message:'Choose a valid KYC decision.'});
     if(status!=='approved'&&!note)return res.status(400).json({error:'review_note_required',message:'Add a reason or instructions for this decision.'});
     const conn=await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [[row]]=await conn.execute('SELECT id,status FROM kyc_submissions WHERE id=? FOR UPDATE',[id]);
+      const [[row]]=await conn.execute('SELECT id,member_id,status FROM kyc_submissions WHERE id=? FOR UPDATE',[id]);
       if(!row){await conn.rollback();return res.status(404).json({error:'not_found',message:'KYC submission not found.'});}
       if(row.status==='approved' || row.status===status){await conn.rollback();return res.status(409).json({error:'already_reviewed',message:'This KYC submission is already approved or has this status.'});}
       await conn.execute('UPDATE kyc_submissions SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
       await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note||null]);
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[row.member_id,'kyc_review','Identity verification '+status.replace('_',' '),'Your KYC submission was '+status.replace('_',' ')+(note?' — '+note:''),'/kyc','kyc_'+id+'_'+status]);
       await adminAudit(conn,req.session.memberId,'kyc.'+status,'kyc_submission',id,{status,note},req.ip);
       await conn.commit();
       return res.json({ok:true,id:Number(id),status,message:'KYC review saved.'});
@@ -496,7 +522,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     finally {conn.release();}
   });
 
-  router.post('/admin/reviews/deposits/:id', noStore, apiAuth, requireMobileFinanceAdmin, async (req,res,next) => {
+  router.post('/admin/reviews/deposits/:id', noStore, apiAuth, requireCategoryAccess('financial_operations',req=>req.body.decision==='approved'?'approve':'reject'), async (req,res,next) => {
     const id=String(req.params.id||''), decision=String(req.body.decision||''), note=String(req.body.note||'').trim().slice(0,1000);
     if(!/^\d{1,20}$/.test(id)||!['approved','rejected'].includes(decision))return res.status(400).json({error:'invalid_review',message:'Choose approve or reject.'});
     if(req.body.confirmed!==true)return res.status(400).json({error:'confirmation_required',message:'A second confirmation is required for financial actions.'});
@@ -513,13 +539,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
       await conn.execute('UPDATE deposit_requests SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision,req.session.memberId,note||null,id]);
       await adminAudit(conn,req.session.memberId,'deposit.'+decision,'deposit_request',id,{currency:d.currency,amount:String(d.amount),note,confirmed:true},req.ip);
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[d.member_id,'deposit_review','Deposit '+decision,'Your '+d.currency+' deposit request for '+String(d.amount)+' was '+decision+(note?' — '+note:''),'/transactions','deposit_'+id+'_'+decision]);
       await conn.commit();
       return res.json({ok:true,id:Number(id),status:decision,message:decision==='approved'?'Deposit approved and credited.':'Deposit rejected.'});
     } catch(e) {try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'deposit_setup_required',message:'Deposit workflow tables are not configured.'}); return next(e);}
     finally{conn.release();}
   });
 
-  router.post('/admin/reviews/withdrawals/:id', noStore, apiAuth, requireMobileFinanceAdmin, async (req,res,next) => {
+  router.post('/admin/reviews/withdrawals/:id', noStore, apiAuth, requireCategoryAccess('financial_operations',req=>req.body.decision==='paid'?'manage':req.body.decision==='approved'?'approve':'reject'), async (req,res,next) => {
     const id=String(req.params.id||''),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000),reference=String(req.body.paymentReference||'').trim().slice(0,190);
     if(!/^\d{1,20}$/.test(id)||!['approved','rejected','paid'].includes(decision))return res.status(400).json({error:'invalid_review',message:'Choose a valid withdrawal decision.'});
     if(req.body.confirmed!==true)return res.status(400).json({error:'confirmation_required',message:'A second confirmation is required for financial actions.'});
@@ -545,19 +572,20 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await conn.execute("UPDATE withdrawal_requests SET status='paid',payment_reference=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP,paid_at=CURRENT_TIMESTAMP WHERE id=?",[reference,req.session.memberId,note||null,id]);
       }
       await adminAudit(conn,req.session.memberId,'withdrawal.'+decision,'withdrawal_request',id,{decision,amount:String(w.amount),currency:w.currency,paymentReference:decision==='paid'?reference:null,confirmed:true},req.ip);
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[w.member_id,'withdrawal_review','Withdrawal '+decision,'Your '+w.currency+' withdrawal request for '+String(w.amount)+' is now '+decision+(note?' — '+note:''),'/transactions','withdrawal_'+id+'_'+decision]);
       await conn.commit();
       return res.json({ok:true,id:Number(id),status:decision,message:decision==='paid'?'Withdrawal marked paid after transfer confirmation.':'Withdrawal review saved.'});
     } catch(e) {try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'withdrawal_setup_required',message:'Withdrawal workflow tables are not configured.'}); if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'duplicate_payment_reference',message:'That transfer reference has already been used.'}); return next(e);}
     finally{conn.release();}
   });
 
-  router.get('/admin/audit-events', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/audit-events', noStore, apiAuth, requireCategoryAccess('security_audit','view'), async (req,res,next) => {
     try {
       const [rows]=await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 200');
       return res.json({events:rows});
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'audit_setup_required',message:'Audit logging is not configured.'});next(e);}
   });
-  router.get('/admin/analytics', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/analytics', noStore, apiAuth, requireCategoryAccess('invest_market','view'), async (req,res,next) => {
     try {
       const [[members]]=await pool.query('SELECT COUNT(*) AS total FROM members');
       const [[kyc]]=await pool.query("SELECT COUNT(*) AS total,SUM(status='pending') AS pending,SUM(status='approved') AS approved,SUM(status='rejected') AS rejected FROM kyc_submissions");
@@ -566,7 +594,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       return res.json({members:Number(members.total)||0,kyc:{total:Number(kyc.total)||0,pending:Number(kyc.pending)||0,approved:Number(kyc.approved)||0,rejected:Number(kyc.rejected)||0},deposits:{total:Number(deposits.total)||0,pending:Number(deposits.pending)||0,approvedAmount:String(deposits.approvedAmount||0)},withdrawals:{total:Number(withdrawals.total)||0,pending:Number(withdrawals.pending)||0,approved:Number(withdrawals.approved)||0,paidAmount:String(withdrawals.paidAmount||0)}});
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'analytics_setup_required',message:'Analytics data tables are not configured.'});next(e);}
   });
-  router.get('/admin/security', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/security', noStore, apiAuth, requireCategoryAccess('security_audit','view'), async (req,res,next) => {
     try {
       const [admins]=await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
       const [events]=await pool.query("SELECT action,target_type,target_id,ip_address,created_at FROM admin_audit_log WHERE action LIKE '%login%' OR action LIKE '%security%' OR action LIKE '%session%' ORDER BY created_at DESC LIMIT 100");
@@ -574,7 +602,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'security_setup_required',message:'Security records are not configured.'});next(e);}
   });
 
-  router.get('/admin/overview', noStore, apiAuth, requireMobileAdmin, async (req, res, next) => {
+  router.get('/admin/overview', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req, res, next) => {
     try {
       const [[members]] = await pool.query('SELECT COUNT(*) AS total FROM members');
       const [[pendingKyc]] = await pool.query("SELECT COUNT(*) AS total FROM kyc_submissions WHERE status='pending'");
@@ -655,7 +683,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/roles', noStore, apiAuth, async (req,res,next) => {
     try {
       await requireRoleTables();
-      const [roles]=await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 ORDER BY r.role_name',[req.session.memberId]);
+      const [roles]=await pool.query("SELECT r.id,r.role_key,r.role_name,r.description,a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 AND LOWER(r.role_key)<>'founder' AND LOWER(r.role_name)<>'founder' ORDER BY r.role_name",[req.session.memberId]);
       const [requests]=await pool.execute('SELECT q.id,q.role_id,q.status,q.message,q.created_at,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.member_id=? ORDER BY q.created_at DESC LIMIT 30',[req.session.memberId]);
       res.json({roles:roles.map(r=>({...r,assigned:Boolean(r.assignment_id)})),requests});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
@@ -665,7 +693,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await requireRoleTables();
       const roleId=Number(req.body.roleId), message=String(req.body.message||'').trim().slice(0,1000);
       if(!Number.isSafeInteger(roleId)||roleId<1)return res.status(400).json({error:'invalid_role'});
-      const [[role]]=await pool.execute('SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 LIMIT 1',[roleId]);
+      const [[role]]=await pool.execute("SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 AND LOWER(role_key)<>'founder' AND LOWER(role_name)<>'founder' LIMIT 1",[roleId]);
       if(!role)return res.status(404).json({error:'role_unavailable'});
       const [[assigned]]=await pool.execute('SELECT id FROM member_role_assignments WHERE member_id=? AND role_id=? LIMIT 1',[req.session.memberId,roleId]);
       if(assigned)return res.status(409).json({error:'already_assigned',message:'This role is already assigned.'});
@@ -676,7 +704,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
 
-  router.get('/admin/roles', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.get('/admin/roles', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const [roles]=await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,r.is_active,COUNT(a.id) AS assigned_count FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id GROUP BY r.id ORDER BY r.role_name');
@@ -686,17 +714,18 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.json({roles,requests,members,assignments});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
-  router.post('/admin/roles/catalog', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.post('/admin/roles/catalog', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles','manage'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const id=Number(req.body.roleId||0), name=String(req.body.roleName||'').trim(), description=String(req.body.description||'').trim().slice(0,500), key=roleKey(name), active=req.body.isActive===false?0:1;
       if(!name||name.length>100||!key)return res.status(400).json({error:'invalid_role_name'});
+      if(key==='founder')return res.status(403).json({error:'founder_reserved',message:'Founder is reserved exclusively for the Monarch Codex Super Admin and cannot be created as a member role.'});
       if(id) await pool.execute('UPDATE member_role_catalog SET role_key=?,role_name=?,description=?,is_active=? WHERE id=?',[key,name,description||null,active,id]);
       else await pool.execute('INSERT INTO member_role_catalog (role_key,role_name,description,is_active,created_by_member_id) VALUES (?,?,?,1,?)',[key,name,description||null,req.session.memberId]);
       res.json({ok:true});
     } catch(e) { if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'duplicate_role',message:'Role names and keys must be unique.'}); if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
-  router.post('/admin/roles/requests/:requestId', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.post('/admin/roles/requests/:requestId', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles',req=>req.body.decision==='approve'?'approve':'reject'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const id=Number(req.params.requestId), decision=String(req.body.decision||'');
@@ -704,8 +733,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const connection=await pool.getConnection();
       try {
         await connection.beginTransaction();
-        const [[request]]=await connection.execute("SELECT id,member_id,role_id,status FROM member_role_requests WHERE id=? FOR UPDATE",[id]);
+        const [[request]]=await connection.execute("SELECT q.id,q.member_id,q.role_id,q.status,r.role_key,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.id=? FOR UPDATE",[id]);
         if(!request||request.status!=='pending'){await connection.rollback();return res.status(409).json({error:'already_reviewed'});}
+        if(decision==='approve'&&(String(request.role_key).toLowerCase()==='founder'||String(request.role_name).toLowerCase()==='founder')){await connection.rollback();return res.status(403).json({error:'founder_reserved',message:'Founder is reserved exclusively for the Monarch Codex Super Admin.'});}
         if(decision==='approve')await connection.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)',[request.member_id,request.role_id,req.session.memberId]);
         await connection.execute('UPDATE member_role_requests SET status=?,reviewed_by_member_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision==='approve'?'approved':'rejected',req.session.memberId,id]);
         await connection.commit();
@@ -713,11 +743,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.json({ok:true,status:decision==='approve'?'approved':'rejected'});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
-  router.post('/admin/roles/assign', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.post('/admin/roles/assign', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles','manage'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const memberId=Number(req.body.memberId), roleId=Number(req.body.roleId), action=String(req.body.action||'assign');
       if(!Number.isSafeInteger(memberId)||memberId<1||!Number.isSafeInteger(roleId)||roleId<1||!['assign','remove'].includes(action))return res.status(400).json({error:'invalid_assignment'});
+      const [[targetRole]]=await pool.execute('SELECT role_key,role_name FROM member_role_catalog WHERE id=? LIMIT 1',[roleId]);
+      if(!targetRole)return res.status(404).json({error:'role_not_found'});
+      if(String(targetRole.role_key).toLowerCase()==='founder'||String(targetRole.role_name).toLowerCase()==='founder')return res.status(403).json({error:'founder_reserved',message:'Founder cannot be assigned to members.'});
       if(action==='assign')await pool.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)',[memberId,roleId,req.session.memberId]);
       else await pool.execute('DELETE FROM member_role_assignments WHERE member_id=? AND role_id=?',[memberId,roleId]);
       res.json({ok:true});
@@ -735,6 +768,231 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(!pending)await pool.execute("INSERT INTO member_role_requests (member_id,role_id,request_source,company_name,message,status) VALUES (?,?, 'sovereign_desk',?,?,'pending')",[req.session.memberId,role.id,companyName,message]);
       res.status(201).json({ok:true,status:'pending'});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+
+
+  // Persistent notification centre shared by the Android app and website.
+  router.get('/notifications', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [items] = await pool.execute(
+        'SELECT id,notification_type AS type,title,body,target_url AS targetUrl,read_at AS readAt,created_at AS createdAt FROM member_notifications WHERE member_id=? ORDER BY created_at DESC LIMIT 100',
+        [req.session.memberId]
+      );
+      res.json({items, unreadCount:items.filter(item=>!item.readAt).length});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
+  });
+  router.post('/notifications/read-all', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required'}); next(e); }
+  });
+  router.post('/notifications/:id/read', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_notification_id'});
+    try {
+      const [result]=await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND member_id=?',[id,req.session.memberId]);
+      if(!result.affectedRows)return res.status(404).json({error:'notification_not_found'});
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required'}); next(e); }
+  });
+
+  const requireSuperAdmin = async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin||String(admin.role)!=='super_admin')return res.status(403).json({error:'super_admin_required',message:'Only the Monarch Codex Super Admin can perform this action.'});
+      req.platformSuperAdmin=true; next();
+    } catch(e) { next(e); }
+  };
+  const notifyActiveAdmins = async ({type,title,body,targetUrl,dedupePrefix}) => {
+    const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+    for(const admin of admins){
+      await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
+        [admin.member_id,type,title,body,targetUrl||'/admin',dedupePrefix+'_'+admin.member_id]);
+    }
+  };
+  const auditPlatformAction = async (actor,action,targetType,targetId,details={}) => {
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',
+      [actor,action,targetType||null,targetId==null?null:String(targetId),JSON.stringify(details)]);
+  };
+
+  // Online Cooperative is manually verified with the cooperative administrator; no external account credentials are requested.
+  router.get('/cooperative/status', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [items]=await pool.execute('SELECT id,registered_name AS registeredName,registered_email AS registeredEmail,status,review_note AS reviewNote,created_at AS createdAt,reviewed_at AS reviewedAt FROM online_cooperative_connections WHERE member_id=? ORDER BY created_at DESC LIMIT 10',[req.session.memberId]);
+      res.json({registrationUrl:'https://airdrop.myturntech.com/register?ref=53',items,connection:items.find(x=>x.status==='approved')||null});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
+  });
+  router.post('/cooperative/connections', noStore, apiAuth, async (req,res,next) => {
+    const registeredName=String(req.body.registeredName||'').trim().replace(/\\s+/g,' ').slice(0,160);
+    const registeredEmail=String(req.body.registeredEmail||'').trim().toLowerCase();
+    if(registeredName.length<2||registeredEmail.length>254||!validEmail(registeredEmail))return res.status(400).json({error:'invalid_registration_details',message:'Enter the name and valid email used for Online Cooperative registration.'});
+    try {
+      const [[existing]]=await pool.execute("SELECT id,status FROM online_cooperative_connections WHERE member_id=? AND status IN ('pending','approved') ORDER BY created_at DESC LIMIT 1",[req.session.memberId]);
+      if(existing&&existing.status==='approved')return res.status(409).json({error:'already_connected',message:'Your Online Cooperative connection is already approved.'});
+      if(existing&&existing.status==='pending')return res.status(409).json({error:'request_pending',message:'Your registration details are already waiting for verification.'});
+      const [result]=await pool.execute("INSERT INTO online_cooperative_connections (member_id,registered_name,registered_email,status) VALUES (?,?,?,'pending')",[req.session.memberId,registeredName,registeredEmail]);
+      await auditPlatformAction(req.session.memberId,'cooperative.connection_submitted','cooperative_connection',result.insertId,{status:'pending'});
+      await notifyActiveAdmins({type:'cooperative_review',title:'Online Cooperative verification required',body:'A member submitted registration details for manual verification.',targetUrl:'/admin/cooperative',dedupePrefix:'cooperative_review_needed_'+result.insertId});
+      res.status(201).json({ok:true,id:result.insertId,status:'pending',message:'Submitted for manual verification. Do not send your Online Cooperative password or OTP.'});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
+  });
+  router.get('/admin/cooperative/connections', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    try {
+      const [items]=await pool.query("SELECT c.id,c.member_id AS memberId,c.registered_name AS registeredName,c.registered_email AS registeredEmail,c.status,c.review_note AS reviewNote,c.created_at AS createdAt,m.full_name AS memberName,m.username,m.email AS memberEmail,m.monarch_uid AS uid FROM online_cooperative_connections c JOIN members m ON m.id=c.member_id WHERE c.status='pending' ORDER BY c.created_at ASC LIMIT 200");
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
+  });
+  router.post('/admin/cooperative/connections/:id/review', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const id=Number(req.params.id), decision=String(req.body.decision||'');
+    const note=String(req.body.note||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||!['approve','reject'].includes(decision))return res.status(400).json({error:'invalid_review'});
+    if(decision==='reject'&&!note)return res.status(400).json({error:'rejection_reason_required',message:'Provide a reason before rejecting the connection.'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[item]]=await conn.execute("SELECT id,member_id,status FROM online_cooperative_connections WHERE id=? FOR UPDATE",[id]);
+      if(!item||item.status!=='pending'){await conn.rollback();return res.status(409).json({error:'request_not_pending'});}
+      const status=decision==='approve'?'approved':'rejected';
+      await conn.execute('UPDATE online_cooperative_connections SET status=?,reviewer_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
+      const title=status==='approved'?'Online Cooperative connected':'Online Cooperative connection rejected';
+      const body=status==='approved'?'Your Online Cooperative registration has been manually verified and connected to Monarch Codex.':'Your Online Cooperative connection request was rejected. Reason: '+note;
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[item.member_id,'cooperative_review',title,body,'/online-cooperative','cooperative_review_'+id+'_'+status]);
+      await conn.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'cooperative.connection_'+status,'cooperative_connection',String(id),JSON.stringify({memberId:item.member_id,note})]);
+      await conn.commit();
+      res.json({ok:true,status});
+    } catch(e) { await conn.rollback(); if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
+    finally { conn.release(); }
+  });
+
+  // Text-first community feed. Partner campaigns and Sovereign Desk signals require review before publication.
+  router.get('/community/posts', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
+  });
+  router.post('/community/posts', noStore, apiAuth, async (req,res,next) => {
+    const body=String(req.body.body||'').trim();
+    const type=String(req.body.type||'post');
+    if(body.length<1||body.length>5000)return res.status(400).json({error:'invalid_post',message:'Posts must contain 1 to 5000 characters.'});
+    if(!['post','partner_campaign','sovereign_signal'].includes(type))return res.status(400).json({error:'invalid_post_type'});
+    try {
+      if(type==='partner_campaign'){
+        const [[partner]]=await pool.execute("SELECT id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key='partner' LIMIT 1",[req.session.memberId]);
+        if(!partner)return res.status(403).json({error:'partner_role_required'});
+      }
+      const status=type==='post'?'published':'pending';
+      const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,type,status]);
+      await auditPlatformAction(req.session.memberId,'community.post_created','community_post',result.insertId,{type,status});
+      if(status==='pending')await notifyActiveAdmins({type:'community_review',title:'Community item awaiting approval',body:'A partner campaign or Sovereign Desk signal is awaiting review.',targetUrl:'/admin/community',dedupePrefix:'community_review_needed_'+result.insertId});
+      res.status(201).json({ok:true,id:result.insertId,status,message:status==='pending'?'Submitted for admin approval before publication.':'Your post is now published.'});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.get('/community/posts/:id/comments', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id); if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_post_id'});
+    try {
+      const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+      if(!post)return res.status(404).json({error:'post_not_found'});
+      const [items]=await pool.execute("SELECT c.id,c.body,c.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername FROM community_comments c JOIN members m ON m.id=c.member_id WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 200",[id]);
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.post('/community/posts/:id/comments', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id), body=String(req.body.body||'').trim();
+    if(!Number.isSafeInteger(id)||id<1||body.length<1||body.length>2000)return res.status(400).json({error:'invalid_comment'});
+    try {
+      const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+      if(!post)return res.status(404).json({error:'post_not_found'});
+      const [result]=await pool.execute("INSERT INTO community_comments (post_id,member_id,body) VALUES (?,?,?)",[id,req.session.memberId,body]);
+      res.status(201).json({ok:true,id:result.insertId});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.post('/community/posts/:id/report', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id), reason=String(req.body.reason||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||reason.length<3)return res.status(400).json({error:'invalid_report'});
+    try {
+      const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+      if(!post)return res.status(404).json({error:'post_not_found'});
+      await pool.execute('INSERT INTO community_reports (post_id,reporter_member_id,reason) VALUES (?,?,?)',[id,req.session.memberId,reason]);
+      await notifyActiveAdmins({type:'community_report',title:'Community post reported',body:'A member submitted a community content report for moderation.',targetUrl:'/admin/community',dedupePrefix:'community_report_needed_'+id+'_'+req.session.memberId});
+      res.status(201).json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.get('/admin/community/review-queue', noStore, apiAuth, requireCategoryAccess('community_moderation','view'), async (req,res,next) => {
+    try {
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.status,p.created_at AS createdAt,m.full_name AS authorName,m.email FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='pending' ORDER BY p.created_at ASC LIMIT 200");
+      const [reports]=await pool.query("SELECT r.id,r.post_id AS postId,r.reason,r.created_at AS createdAt,m.full_name AS reporterName FROM community_reports r JOIN members m ON m.id=r.reporter_member_id WHERE r.status='pending' ORDER BY r.created_at ASC LIMIT 200");
+      res.json({items,reports});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.post('/admin/community/posts/:id/review', noStore, apiAuth, requireCategoryAccess('community_moderation',req=>req.body.decision==='approve'?'approve':req.body.decision==='hide'?'moderate':'reject'), async (req,res,next) => {
+    const id=Number(req.params.id), decision=String(req.body.decision||''), note=String(req.body.note||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||!['approve','reject','hide'].includes(decision))return res.status(400).json({error:'invalid_review'});
+    if(decision!=='approve'&&!note)return res.status(400).json({error:'review_reason_required'});
+    try {
+      const status=decision==='approve'?'published':decision==='hide'?'hidden':'rejected';
+      const [result]=await pool.execute("UPDATE community_posts SET status=?,reviewed_by_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('pending','published')",[status,req.session.memberId,note||null,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'post_not_found_or_already_reviewed'});
+      await auditPlatformAction(req.session.memberId,'community.post_'+status,'community_post',id,{note});
+      res.json({ok:true,status});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+
+  const socialLinkDefaults = [
+    ['whatsapp','WhatsApp','https://chat.whatsapp.com/FA3x382Snhf6o68YYbsPdm',1],
+    ['telegram','Telegram','https://t.me/TheMonarchCodex',1],
+    ['facebook','Facebook',null,0],['instagram','Instagram',null,0],
+    ['youtube','YouTube','https://youtube.com/@monarchcodexonline?si=AqczxpbI9KgzMmQdQ',1],
+    ['tiktok','TikTok',null,0],['x','X',null,0],['other','Other',null,0]
+  ];
+  router.get('/social-links', noStore, async (_req,res,next) => {
+    try {
+      const [items]=await pool.query('SELECT link_key AS key_name,label,url,is_active AS active FROM platform_social_links ORDER BY id');
+      res.json({items:items.filter(x=>x.active&&x.url&&/^https:\/\//i.test(x.url))});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
+  });
+  router.get('/admin/social-links', noStore, apiAuth, requireSuperAdmin, async (_req,res,next) => {
+    try {
+      const [items]=await pool.query('SELECT link_key AS key_name,label,url,is_active AS active FROM platform_social_links ORDER BY id');
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
+  });
+  router.post('/admin/social-links', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const key=String(req.body.key||''), label=String(req.body.label||'').trim().slice(0,80);
+    const rawUrl=String(req.body.url||'').trim(), active=Boolean(req.body.active);
+    if(!/^(whatsapp|telegram|facebook|instagram|youtube|tiktok|x|other)$/.test(key)||!label)return res.status(400).json({error:'invalid_social_link'});
+    let url=null;
+    if(rawUrl){try{const parsed=new URL(rawUrl);if(parsed.protocol!=='https:'||!parsed.hostname||parsed.username||parsed.password)return res.status(400).json({error:'unsafe_social_url',message:'Use a valid HTTPS link without embedded credentials.'});url=parsed.toString();}catch(_){return res.status(400).json({error:'invalid_social_url'});}}
+    if(active&&!url)return res.status(400).json({error:'active_link_requires_url'});
+    try {
+      await pool.execute('INSERT INTO platform_social_links (link_key,label,url,is_active,updated_by_member_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),url=VALUES(url),is_active=VALUES(is_active),updated_by_member_id=VALUES(updated_by_member_id)',[key,label,url,active?1:0,req.session.memberId]);
+      await auditPlatformAction(req.session.memberId,'social_link.updated','social_link',key,{active,urlPresent:Boolean(url)});
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
+  });
+
+  const permissionCategories = ['members_roles','online_cooperative','partner_campaigns','community_moderation','invest_market','sovereign_desk','financial_operations','notifications','social_links','security_audit'];
+  router.get('/admin/permissions', noStore, apiAuth, requireSuperAdmin, async (_req,res,next) => {
+    try {
+      const [admins]=await pool.query("SELECT a.member_id AS memberId,a.role,m.full_name AS fullName,m.email FROM admin_users a JOIN members m ON m.id=a.member_id WHERE a.is_active=1 ORDER BY a.role,m.full_name");
+      const [permissions]=await pool.query('SELECT admin_member_id AS adminMemberId,category_key AS category,access_level AS level,allowed_actions AS allowedActions,updated_at AS updatedAt FROM platform_admin_permissions');
+      res.json({categories:permissionCategories,levels:['green','gold','red'],admins,permissions});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required'}); next(e); }
+  });
+  router.post('/admin/permissions', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const adminMemberId=Number(req.body.adminMemberId), category=String(req.body.category||''), level=String(req.body.level||''), actions=req.body.allowedActions;
+    if(!Number.isSafeInteger(adminMemberId)||adminMemberId<1||!permissionCategories.includes(category)||!['green','gold','red'].includes(level))return res.status(400).json({error:'invalid_permission'});
+    if(level==='gold'&&(!Array.isArray(actions)||actions.length<1||actions.some(x=>typeof x!=='string'||x.length>80)))return res.status(400).json({error:'partial_actions_required',message:'Gold access must name each allowed action.'});
+    if(level!=='gold'&&actions!==undefined&&actions!==null&&!Array.isArray(actions))return res.status(400).json({error:'invalid_actions'});
+    try {
+      const [[target]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[adminMemberId]);
+      if(!target)return res.status(404).json({error:'active_admin_not_found'});
+      if(adminMemberId===req.session.memberId)return res.status(403).json({error:'cannot_change_own_permissions'});
+      await pool.execute('INSERT INTO platform_admin_permissions (admin_member_id,category_key,access_level,allowed_actions,updated_by_member_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE access_level=VALUES(access_level),allowed_actions=VALUES(allowed_actions),updated_by_member_id=VALUES(updated_by_member_id)',[adminMemberId,category,level,level==='gold'?JSON.stringify([...new Set(actions)]):null,req.session.memberId]);
+      await auditPlatformAction(req.session.memberId,'admin.permission_updated','admin_permission',adminMemberId,{category,level,allowedActions:level==='gold'?[...new Set(actions)]:[]});
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required'}); next(e); }
   });
 
   return router;
