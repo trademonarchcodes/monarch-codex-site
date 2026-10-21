@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('node:crypto');
 
-function createRoleManagementRouter({ pool }) {
+function createRoleManagementRouter({ pool, requireWebCategoryAccess }) {
   const router = express.Router();
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const keyFor = value => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
@@ -60,7 +60,7 @@ function createRoleManagementRouter({ pool }) {
       res.redirect('/roles?notice=requested');
     } catch (e) { if (e.code === 'ROLE_MIGRATION_REQUIRED') return res.status(503).send('Role management is not configured yet.'); next(e); }
   });
-  router.get('/admin/roles', adminAuth, async (req, res, next) => {
+  router.get('/admin/roles', adminAuth, requireWebCategoryAccess ? requireWebCategoryAccess('members_roles','view') : (_req,_res,next)=>next(), async (req, res, next) => {
     try {
       await ensureReady();
       const [roles] = await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,r.is_active,COUNT(a.id) AS assigned_count FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id GROUP BY r.id ORDER BY r.role_name');
@@ -73,7 +73,7 @@ function createRoleManagementRouter({ pool }) {
       res.send(shell('Role management', content, true));
     } catch (e) { if (e.code === 'ROLE_MIGRATION_REQUIRED') return res.status(503).send(shell('Roles not configured', '<section class="hero"><h1>Role management is being prepared</h1><p>' + esc(e.message) + '</p></section>', true)); next(e); }
   });
-  router.post('/admin/roles/catalog', adminAuth, csrf, async (req, res, next) => {
+  router.post('/admin/roles/catalog', adminAuth, csrf, requireWebCategoryAccess ? requireWebCategoryAccess('members_roles','manage') : (_req,_res,next)=>next(), async (req, res, next) => {
     try {
       await ensureReady();
       const id = Number(req.body.roleId || 0), name = String(req.body.roleName || '').trim(), description = String(req.body.description || '').trim().slice(0,500), active = req.body.isActive === undefined && id ? 0 : (req.body.isActive === '1' ? 1 : 0);
@@ -85,7 +85,7 @@ function createRoleManagementRouter({ pool }) {
       res.redirect('/admin/roles');
     } catch (e) { if (e.code === 'ER_DUP_ENTRY') return res.status(409).send(shell('Duplicate role', '<section class="hero"><h1>That role already exists</h1><p>Role names and role keys must be unique. No duplicate was added.</p><a class="btn" href="/admin/roles">Back to roles</a></section>', true)); next(e); }
   });
-  router.post('/admin/roles/requests/:requestId', adminAuth, csrf, async (req, res, next) => {
+  router.post('/admin/roles/requests/:requestId', adminAuth, csrf, requireWebCategoryAccess ? requireWebCategoryAccess('members_roles',req=>req.body.decision==='approve'?'approve':'reject') : (_req,_res,next)=>next(), async (req, res, next) => {
     try {
       await ensureReady();
       const id = Number(req.params.requestId), decision = String(req.body.decision || '');
@@ -103,7 +103,7 @@ function createRoleManagementRouter({ pool }) {
       res.redirect('/admin/roles');
     } catch (e) { next(e); }
   });
-  router.post('/admin/roles/assign', adminAuth, csrf, async (req, res, next) => {
+  router.post('/admin/roles/assign', adminAuth, csrf, requireWebCategoryAccess ? requireWebCategoryAccess('members_roles','manage') : (_req,_res,next)=>next(), async (req, res, next) => {
     try {
       await ensureReady();
       const memberId = Number(req.body.memberId), roleId = Number(req.body.roleId), action = String(req.body.action || 'assign');
