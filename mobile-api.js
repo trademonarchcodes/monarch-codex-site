@@ -952,13 +952,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.json({items:items.filter(x=>x.active&&x.url&&/^https:\/\//i.test(x.url))});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
   });
-  router.get('/admin/social-links', noStore, apiAuth, requireSuperAdmin, async (_req,res,next) => {
+  router.get('/admin/social-links', noStore, apiAuth, requireCategoryAccess('social_links','view'), async (_req,res,next) => {
     try {
       const [items]=await pool.query('SELECT link_key AS key_name,label,url,is_active AS active FROM platform_social_links ORDER BY id');
       res.json({items});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
   });
-  router.post('/admin/social-links', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+  router.post('/admin/social-links', noStore, apiAuth, requireCategoryAccess('social_links','manage'), async (req,res,next) => {
     const key=String(req.body.key||''), label=String(req.body.label||'').trim().slice(0,80);
     const rawUrl=String(req.body.url||'').trim(), active=Boolean(req.body.active);
     if(!/^(whatsapp|telegram|facebook|instagram|youtube|tiktok|x|other)$/.test(key)||!label)return res.status(400).json({error:'invalid_social_link'});
