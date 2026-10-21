@@ -705,7 +705,8 @@ function adminControlPage(title, active, content, req) {
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
-    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/cooperative-connections','Online Cooperative','♙'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Community & platform links',links:[['/admin/community-moderation','Community moderation','◉'],['/admin/social-links','Official social links','↗']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
@@ -2613,6 +2614,72 @@ app.post('/online-cooperative/connection', requireAuth, requireApprovedKyc, expr
     for(const admin of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[admin.member_id,'cooperative_review','Online Cooperative verification required','A member submitted registration details for manual verification.','/admin/cooperative-connections','web_cooperative_review_'+result.insertId+'_'+admin.member_id]);
     res.redirect('/online-cooperative?connection=pending');
   }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p>Connection verification setup is not complete yet. Please try again later.</p>',req));next(e);}
+});
+
+
+function requireWebCategoryAccess(category, action) {
+  return async(req,res,next)=>{
+    try{
+      if(req.adminRole==='super_admin')return next();
+      const [[permission]]=await pool.execute('SELECT access_level,allowed_actions FROM platform_admin_permissions WHERE admin_member_id=? AND category_key=? LIMIT 1',[req.session.memberId,category]);
+      if(!permission||permission.access_level==='red')return res.status(403).send(page('Access denied','<main><h1>Access denied</h1><p>Your administrator permission does not allow this category.</p><a href="/admin">Return to Admin</a></main>'));
+      if(permission.access_level==='green')return next();
+      let actions=[];try{actions=Array.isArray(permission.allowed_actions)?permission.allowed_actions:JSON.parse(permission.allowed_actions||'[]');}catch(_){}
+      if(!actions.includes(typeof action==='function'?action(req):action))return res.status(403).send(page('Action not permitted','<main><h1>Action not permitted</h1><p>This action is not included in your partial-access permissions.</p><a href="/admin">Return to Admin</a></main>'));
+      return next();
+    }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Permission setup required','<main><h1>Permission setup required</h1><p>Apply migrations/021_platform_completion_foundation.sql after a verified backup.</p></main>'));next(e);}
+  };
+}
+
+app.get('/admin/community-moderation', requireAdmin, requireWebCategoryAccess('community_moderation','view'), async(req,res,next)=>{
+  try{
+    const [posts]=await pool.query("SELECT p.id,p.member_id,p.body,p.post_type,p.created_at,m.full_name,m.username FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='pending' ORDER BY p.created_at ASC LIMIT 200");
+    const [reports]=await pool.query("SELECT r.id,r.post_id,r.reporter_member_id,r.reason,r.created_at,m.full_name FROM community_reports r JOIN members m ON m.id=r.reporter_member_id WHERE r.status='pending' ORDER BY r.created_at ASC LIMIT 200");
+    const postCards=posts.map(p=>'<article class="ac-panel" style="margin:12px 0;padding:16px"><p class="muted">'+esc(p.full_name||p.username||'Member')+' · '+esc(p.post_type)+' · '+esc(p.created_at)+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(p.body)+'</p><form method="post" action="/admin/community-moderation/'+Number(p.id)+'/review" style="display:grid;gap:10px">'+csrfField(req)+'<label>Review note <textarea name="note" maxlength="1000" rows="2"></textarea></label><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" name="decision" value="approve">Approve & publish</button><button class="btn" name="decision" value="reject">Reject</button><button class="btn" name="decision" value="hide">Hide post</button></div></form></article>').join('');
+    const reportCards=reports.map(r=>'<article class="ac-panel" style="margin:12px 0;padding:16px"><p>Report #'+Number(r.id)+' on post #'+Number(r.post_id)+' · '+esc(r.full_name||'Member')+'</p><p>'+esc(r.reason)+'</p><form method="post" action="/admin/community-moderation/reports/'+Number(r.id)+'/review">'+csrfField(req)+'<button class="btn" name="decision" value="reviewed">Mark reviewed</button> <button class="btn" name="decision" value="dismissed">Dismiss report</button></form></article>').join('');
+    res.send(adminControlPage('Community moderation','/admin/community-moderation','<section class="ac-panel"><h2>Pending posts and campaigns</h2><p class="muted">Partner campaigns and Sovereign Desk signals remain hidden until approved. Every review is audited.</p>'+(postCards||'<p>No pending posts.</p>')+'</section><section class="ac-panel" style="margin-top:18px"><h2>Community reports</h2>'+(reportCards||'<p>No pending reports.</p>')+'</section>',req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(adminControlPage('Community moderation','/admin/community-moderation','<p>Apply migrations/021_platform_completion_foundation.sql after a verified database backup.</p>',req));next(e);}
+});
+app.post('/admin/community-moderation/:id/review', requireAdmin, requireWebCategoryAccess('community_moderation',req=>req.body.decision==='approve'?'approve':req.body.decision==='hide'?'moderate':'reject'), express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000);
+  if(!Number.isSafeInteger(id)||id<1||!['approve','reject','hide'].includes(decision))return res.status(400).send(page('Invalid review','<main><h1>Invalid review</h1></main>'));
+  if(decision!=='approve'&&!note)return res.status(400).send(page('Review note required','<main><h1>Add a review note before rejecting or hiding content.</h1><a href="/admin/community-moderation">Return to moderation</a></main>'));
+  try{
+    const status=decision==='approve'?'published':decision==='hide'?'hidden':'rejected';
+    const [result]=await pool.execute("UPDATE community_posts SET status=?,reviewed_by_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('pending','published')",[status,req.session.memberId,note||null,id]);
+    if(!result.affectedRows)return res.status(404).send(page('Post unavailable','<main><h1>Post not found or already reviewed.</h1></main>'));
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.post_'+status,'community_post',String(id),JSON.stringify({note})]);
+    res.redirect('/admin/community-moderation?review='+status);
+  }catch(e){next(e);}
+});
+app.post('/admin/community-moderation/reports/:id/review', requireAdmin, requireWebCategoryAccess('community_moderation','moderate'), express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),decision=String(req.body.decision||'');
+  if(!Number.isSafeInteger(id)||id<1||!['reviewed','dismissed'].includes(decision))return res.status(400).send(page('Invalid report','<main><h1>Invalid report action.</h1></main>'));
+  try{
+    const [result]=await pool.execute('UPDATE community_reports SET status=?,reviewed_by_member_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status=\'pending\'',[decision,req.session.memberId,id]);
+    if(!result.affectedRows)return res.status(404).send(page('Report unavailable','<main><h1>Report not found or already reviewed.</h1></main>'));
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.report_'+decision,'community_report',String(id),JSON.stringify({decision})]);
+    res.redirect('/admin/community-moderation?report='+decision);
+  }catch(e){next(e);}
+});
+
+app.get('/admin/social-links', requireAdmin, requireWebCategoryAccess('social_links','view'), async(req,res,next)=>{
+  try{
+    const [items]=await pool.query('SELECT link_key,label,url,is_active FROM platform_social_links ORDER BY id');
+    const forms=items.map(x=>'<form method="post" action="/admin/social-links" class="ac-panel" style="padding:16px;margin:12px 0;display:grid;gap:10px">'+csrfField(req)+'<input type="hidden" name="key" value="'+esc(x.link_key)+'"><label>Platform<input name="label" value="'+esc(x.label)+'" maxlength="80" required></label><label>HTTPS URL<input name="url" type="url" value="'+esc(x.url||'')+'" maxlength="1000" placeholder="https://…"></label><label><input type="checkbox" name="active" value="1" '+(Number(x.is_active)?'checked':'')+'> Visible to members</label><button class="btn" type="submit">Save '+esc(x.label)+'</button></form>').join('');
+    res.send(adminControlPage('Official social links','/admin/social-links','<section class="ac-panel"><h2>Official social links</h2><p class="muted">Only HTTPS links are allowed. Personal Founder contacts must not be entered here unless intentionally public as official platform links.</p>'+forms+'</section>',req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(adminControlPage('Official social links','/admin/social-links','<p>Apply migrations/021_platform_completion_foundation.sql after a verified database backup.</p>',req));next(e);}
+});
+app.post('/admin/social-links', requireAdmin, requireWebCategoryAccess('social_links','manage'), express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const key=String(req.body.key||''),label=String(req.body.label||'').trim().slice(0,80),raw=String(req.body.url||'').trim(),active=req.body.active==='1';
+  if(!/^(whatsapp|telegram|facebook|instagram|youtube|tiktok|x|other)$/.test(key)||!label)return res.status(400).send(page('Invalid social link','<main><h1>Invalid platform or label.</h1></main>'));
+  let url=null;if(raw){try{const u=new URL(raw);if(u.protocol!=='https:'||!u.hostname||u.username||u.password)throw new Error();url=u.toString();}catch(_){return res.status(400).send(page('Unsafe social link','<main><h1>Use a valid HTTPS URL without embedded credentials.</h1><a href="/admin/social-links">Return to social links</a></main>'));}}
+  if(active&&!url)return res.status(400).send(page('URL required','<main><h1>An active link must have a URL.</h1><a href="/admin/social-links">Return to social links</a></main>'));
+  try{
+    await pool.execute('INSERT INTO platform_social_links (link_key,label,url,is_active,updated_by_member_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),url=VALUES(url),is_active=VALUES(is_active),updated_by_member_id=VALUES(updated_by_member_id)',[key,label,url,active?1:0,req.session.memberId]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'social_link.updated','social_link',key,JSON.stringify({active,urlPresent:Boolean(url)})]);
+    res.redirect('/admin/social-links?saved=1');
+  }catch(e){next(e);}
 });
 
 app.get('/admin/cooperative-connections', requireAdmin, async(req,res,next)=>{
