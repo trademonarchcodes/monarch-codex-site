@@ -303,6 +303,29 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
   };
 
+
+  const requireCategoryAccess = (categoryValue, actionValue) => async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin)return res.status(403).json({error:'admin_required',message:'Administrator access is required.'});
+      req.mobileAdminRole=admin.role;
+      if(String(admin.role)==='super_admin')return next();
+      const category=typeof categoryValue==='function'?categoryValue(req):categoryValue;
+      const action=typeof actionValue==='function'?actionValue(req):actionValue;
+      const [[permission]]=await pool.execute('SELECT access_level,allowed_actions FROM platform_admin_permissions WHERE admin_member_id=? AND category_key=? LIMIT 1',[req.session.memberId,category]);
+      if(!permission)return res.status(403).json({error:'category_access_denied',category,action,message:'The Super Admin has not granted access to this category.'});
+      if(permission.access_level==='green')return next();
+      if(permission.access_level==='red')return res.status(403).json({error:'category_access_denied',category,action,message:'Your permission level does not allow this action.'});
+      let allowed=[];
+      try{allowed=Array.isArray(permission.allowed_actions)?permission.allowed_actions:JSON.parse(permission.allowed_actions||'[]');}catch(_){}
+      if(!allowed.includes(action))return res.status(403).json({error:'action_access_denied',category,action,message:'This action is not included in your partial-access permissions.'});
+      return next();
+    }catch(error){
+      if(error&&error.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required',message:'Administrator permissions are not configured yet.'});
+      return next(error);
+    }
+  };
+
   router.get('/transactions', noStore, apiAuth, async (req, res, next) => {
     try {
       const [transactions] = await pool.execute(
@@ -461,7 +484,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     [actor,action,targetType,String(targetId),JSON.stringify(details||{}),ip||null]
   );
 
-  router.get('/admin/reviews/:type', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/reviews/:type', noStore, apiAuth, requireCategoryAccess(req=>req.params.type==='kyc'?'members_roles':'financial_operations','view'), async (req,res,next) => {
     const type=String(req.params.type||'');
     if(!['kyc','deposits','withdrawals'].includes(type))return res.status(400).json({error:'invalid_review_queue'});
     if(type!=='kyc' && !['super_admin','main_admin'].includes(String(req.mobileAdminRole)))return res.status(403).json({error:'finance_admin_required',message:'Only Super Admin or Main Admin can review financial requests.'});
@@ -479,7 +502,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'review_setup_required',message:'The review queue database is not configured.'}); next(e); }
   });
 
-  router.post('/admin/reviews/kyc/:id', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.post('/admin/reviews/kyc/:id', noStore, apiAuth, requireCategoryAccess('members_roles',req=>req.body.status==='approved'?'approve':'reject'), async (req,res,next) => {
     const id=String(req.params.id||''), status=String(req.body.status||''), note=String(req.body.note||'').trim().slice(0,1000);
     if(!/^\d{1,20}$/.test(id)||!['approved','rejected','needs_resubmission'].includes(status))return res.status(400).json({error:'invalid_review',message:'Choose a valid KYC decision.'});
     if(status!=='approved'&&!note)return res.status(400).json({error:'review_note_required',message:'Add a reason or instructions for this decision.'});
@@ -499,7 +522,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     finally {conn.release();}
   });
 
-  router.post('/admin/reviews/deposits/:id', noStore, apiAuth, requireMobileFinanceAdmin, async (req,res,next) => {
+  router.post('/admin/reviews/deposits/:id', noStore, apiAuth, requireCategoryAccess('financial_operations',req=>req.body.decision==='approved'?'approve':'reject'), async (req,res,next) => {
     const id=String(req.params.id||''), decision=String(req.body.decision||''), note=String(req.body.note||'').trim().slice(0,1000);
     if(!/^\d{1,20}$/.test(id)||!['approved','rejected'].includes(decision))return res.status(400).json({error:'invalid_review',message:'Choose approve or reject.'});
     if(req.body.confirmed!==true)return res.status(400).json({error:'confirmation_required',message:'A second confirmation is required for financial actions.'});
@@ -523,7 +546,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     finally{conn.release();}
   });
 
-  router.post('/admin/reviews/withdrawals/:id', noStore, apiAuth, requireMobileFinanceAdmin, async (req,res,next) => {
+  router.post('/admin/reviews/withdrawals/:id', noStore, apiAuth, requireCategoryAccess('financial_operations',req=>req.body.decision==='paid'?'manage':req.body.decision==='approved'?'approve':'reject'), async (req,res,next) => {
     const id=String(req.params.id||''),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000),reference=String(req.body.paymentReference||'').trim().slice(0,190);
     if(!/^\d{1,20}$/.test(id)||!['approved','rejected','paid'].includes(decision))return res.status(400).json({error:'invalid_review',message:'Choose a valid withdrawal decision.'});
     if(req.body.confirmed!==true)return res.status(400).json({error:'confirmation_required',message:'A second confirmation is required for financial actions.'});
@@ -556,13 +579,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     finally{conn.release();}
   });
 
-  router.get('/admin/audit-events', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/audit-events', noStore, apiAuth, requireCategoryAccess('security_audit','view'), async (req,res,next) => {
     try {
       const [rows]=await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 200');
       return res.json({events:rows});
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'audit_setup_required',message:'Audit logging is not configured.'});next(e);}
   });
-  router.get('/admin/analytics', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/analytics', noStore, apiAuth, requireCategoryAccess('invest_market','view'), async (req,res,next) => {
     try {
       const [[members]]=await pool.query('SELECT COUNT(*) AS total FROM members');
       const [[kyc]]=await pool.query("SELECT COUNT(*) AS total,SUM(status='pending') AS pending,SUM(status='approved') AS approved,SUM(status='rejected') AS rejected FROM kyc_submissions");
@@ -571,7 +594,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       return res.json({members:Number(members.total)||0,kyc:{total:Number(kyc.total)||0,pending:Number(kyc.pending)||0,approved:Number(kyc.approved)||0,rejected:Number(kyc.rejected)||0},deposits:{total:Number(deposits.total)||0,pending:Number(deposits.pending)||0,approvedAmount:String(deposits.approvedAmount||0)},withdrawals:{total:Number(withdrawals.total)||0,pending:Number(withdrawals.pending)||0,approved:Number(withdrawals.approved)||0,paidAmount:String(withdrawals.paidAmount||0)}});
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'analytics_setup_required',message:'Analytics data tables are not configured.'});next(e);}
   });
-  router.get('/admin/security', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/security', noStore, apiAuth, requireCategoryAccess('security_audit','view'), async (req,res,next) => {
     try {
       const [admins]=await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
       const [events]=await pool.query("SELECT action,target_type,target_id,ip_address,created_at FROM admin_audit_log WHERE action LIKE '%login%' OR action LIKE '%security%' OR action LIKE '%session%' ORDER BY created_at DESC LIMIT 100");
@@ -579,7 +602,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'security_setup_required',message:'Security records are not configured.'});next(e);}
   });
 
-  router.get('/admin/overview', noStore, apiAuth, requireMobileAdmin, async (req, res, next) => {
+  router.get('/admin/overview', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req, res, next) => {
     try {
       const [[members]] = await pool.query('SELECT COUNT(*) AS total FROM members');
       const [[pendingKyc]] = await pool.query("SELECT COUNT(*) AS total FROM kyc_submissions WHERE status='pending'");
@@ -896,14 +919,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.status(201).json({ok:true});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
-  router.get('/admin/community/review-queue', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.get('/admin/community/review-queue', noStore, apiAuth, requireCategoryAccess('community_moderation','view'), async (req,res,next) => {
     try {
       const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.status,p.created_at AS createdAt,m.full_name AS authorName,m.email FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='pending' ORDER BY p.created_at ASC LIMIT 200");
       const [reports]=await pool.query("SELECT r.id,r.post_id AS postId,r.reason,r.created_at AS createdAt,m.full_name AS reporterName FROM community_reports r JOIN members m ON m.id=r.reporter_member_id WHERE r.status='pending' ORDER BY r.created_at ASC LIMIT 200");
       res.json({items,reports});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
-  router.post('/admin/community/posts/:id/review', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+  router.post('/admin/community/posts/:id/review', noStore, apiAuth, requireCategoryAccess('community_moderation',req=>req.body.decision==='approve'?'approve':req.body.decision==='hide'?'moderate':'reject'), async (req,res,next) => {
     const id=Number(req.params.id), decision=String(req.body.decision||''), note=String(req.body.note||'').trim().slice(0,1000);
     if(!Number.isSafeInteger(id)||id<1||!['approve','reject','hide'].includes(decision))return res.status(400).json({error:'invalid_review'});
     if(decision!=='approve'&&!note)return res.status(400).json({error:'review_reason_required'});
