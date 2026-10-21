@@ -655,7 +655,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/roles', noStore, apiAuth, async (req,res,next) => {
     try {
       await requireRoleTables();
-      const [roles]=await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 AND LOWER(r.role_key)<>'founder' AND LOWER(r.role_name)<>'founder' ORDER BY r.role_name',[req.session.memberId]);
+      const [roles]=await pool.query("SELECT r.id,r.role_key,r.role_name,r.description,a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 AND LOWER(r.role_key)<>'founder' AND LOWER(r.role_name)<>'founder' ORDER BY r.role_name",[req.session.memberId]);
       const [requests]=await pool.execute('SELECT q.id,q.role_id,q.status,q.message,q.created_at,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.member_id=? ORDER BY q.created_at DESC LIMIT 30',[req.session.memberId]);
       res.json({roles:roles.map(r=>({...r,assigned:Boolean(r.assignment_id)})),requests});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
@@ -665,7 +665,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await requireRoleTables();
       const roleId=Number(req.body.roleId), message=String(req.body.message||'').trim().slice(0,1000);
       if(!Number.isSafeInteger(roleId)||roleId<1)return res.status(400).json({error:'invalid_role'});
-      const [[role]]=await pool.execute('SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 AND LOWER(role_key)<>'founder' AND LOWER(role_name)<>'founder' LIMIT 1',[roleId]);
+      const [[role]]=await pool.execute("SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 AND LOWER(role_key)<>'founder' AND LOWER(role_name)<>'founder' LIMIT 1",[roleId]);
       if(!role)return res.status(404).json({error:'role_unavailable'});
       const [[assigned]]=await pool.execute('SELECT id FROM member_role_assignments WHERE member_id=? AND role_id=? LIMIT 1',[req.session.memberId,roleId]);
       if(assigned)return res.status(409).json({error:'already_assigned',message:'This role is already assigned.'});
