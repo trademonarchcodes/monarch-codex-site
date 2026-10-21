@@ -17,7 +17,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check server syntax
-        run: node --check server.js
+      - name: Check server and mobile API syntax
+        run: |
+          node --check server.js
+          node --check mobile-api.js
       - name: Run test suite
         run: npm test
