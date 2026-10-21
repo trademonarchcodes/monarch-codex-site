@@ -552,10 +552,10 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.post('/sovereign/roles/partner-request', noStore, apiAuth, async (req,res,next) => {
     try {
       const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
-      if(!admin||admin.role!=='sovereign_desk_admin')return res.status(403).json({error:'forbidden',message:'Only the Sovereign Desk administrator can submit a company Founder Partner request.'});
+      if(!admin||admin.role!=='sovereign_desk_admin')return res.status(403).json({error:'forbidden',message:'Only the Sovereign Desk administrator can submit a company Partner request.'});
       await requireRoleTables();
-      const [[role]]=await pool.execute("SELECT id FROM member_role_catalog WHERE role_key='founder_partner' AND is_active=1 LIMIT 1");
-      if(!role)return res.status(409).json({error:'founder_partner_unavailable'});
+      const [[role]]=await pool.execute("SELECT id FROM member_role_catalog WHERE role_key='partner' AND is_active=1 LIMIT 1");
+      if(!role)return res.status(409).json({error:'partner_role_unavailable'});
       const companyName=String(req.body.companyName||'Sovereign Desk').trim().slice(0,160), message=String(req.body.message||'Company role request').trim().slice(0,1000);
       const [[pending]]=await pool.execute("SELECT id FROM member_role_requests WHERE member_id=? AND role_id=? AND status='pending' AND request_source='sovereign_desk' LIMIT 1",[req.session.memberId,role.id]);
       if(!pending)await pool.execute("INSERT INTO member_role_requests (member_id,role_id,request_source,company_name,message,status) VALUES (?,?, 'sovereign_desk',?,?,'pending')",[req.session.memberId,role.id,companyName,message]);
