@@ -2,6 +2,8 @@
 
 const express = require('express');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const rateLimit = require('express-rate-limit');
 
 function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, depositProofUpload, decryptProfileValue, loginLimiter: sharedLoginLimiter, registrationLimiter: sharedRegistrationLimiter }) {
@@ -403,6 +405,153 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'admin_dashboard_setup_required', message: 'An administrator dashboard data source is not configured.' });
       return next(error);
     }
+  });
+
+
+  const requireRoleTables = async () => {
+    const [tables] = await pool.query("SHOW TABLES LIKE 'member_role_catalog'");
+    if (!tables.length) { const e = new Error('Apply migrations/018_member_role_management.sql before using role management.'); e.code = 'ROLE_MIGRATION_REQUIRED'; throw e; }
+  };
+  const roleAdmin = async (req, res, next) => {
+    try {
+      const [[admin]] = await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1', [req.session.memberId]);
+      if (!admin || !['super_admin','main_admin'].includes(String(admin.role))) return res.status(403).json({ error:'forbidden', message:'Only authorised Monarch Codex administrators can manage member roles.' });
+      req.adminRole = admin.role; next();
+    } catch (e) { next(e); }
+  };
+  const roleKey = value => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0,80);
+
+  router.get('/profile', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [rows] = await pool.execute('SELECT id,monarch_uid,full_name,email,phone,username,email_verified_at FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+      if (!rows.length) return res.status(404).json({error:'member_not_found'});
+      let profile = {};
+      try { const [p] = await pool.execute('SELECT phone_number,avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]); profile = p[0] || {}; }
+      catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; }
+      res.json({ member: { ...publicMember(rows[0]), phone: profile.phone_number || rows[0].phone || '', profilePhotoUrl:'/member-avatar-current' } });
+    } catch (e) { next(e); }
+  });
+
+  router.put('/profile', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const fullName=String(req.body.fullName||'').trim(), username=String(req.body.username||'').trim(), email=String(req.body.email||'').trim().toLowerCase(), phone=String(req.body.phone||'').trim();
+      if (!fullName || fullName.length>160 || !/^[A-Za-z0-9_]{3,30}$/.test(username) || !validEmail(email) || phone.length>32) return res.status(400).json({error:'invalid_profile',message:'Check your name, username, email and phone number.'});
+      const [[kyc]] = await pool.execute("SELECT EXISTS(SELECT 1 FROM kyc_submissions WHERE member_id=? AND status IN ('pending','approved')) AS locked",[req.session.memberId]).catch(e=>{if(e.code==='ER_NO_SUCH_TABLE')return [[{locked:0}]];throw e;});
+      const [[current]] = await pool.execute('SELECT full_name FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+      if (Number(kyc.locked)>0 && current.full_name!==fullName) return res.status(400).json({error:'name_locked',message:'Your legal name is locked while KYC is pending or approved.'});
+      const [[dupe]] = await pool.execute('SELECT SUM(LOWER(username)=LOWER(?)) AS username_used,SUM(LOWER(email)=LOWER(?)) AS email_used FROM members WHERE id<>?',[username,email,req.session.memberId]);
+      if (Number(dupe.username_used)>0 || Number(dupe.email_used)>0) return res.status(409).json({error:'profile_conflict',message:'That username or email is already in use.'});
+      await pool.execute('UPDATE members SET full_name=?,username=?,email=? WHERE id=?',[fullName,username,email,req.session.memberId]);
+      await pool.execute('INSERT INTO member_profiles (member_id,phone_number) VALUES (?,?) ON DUPLICATE KEY UPDATE phone_number=VALUES(phone_number)',[req.session.memberId,phone||null]);
+      const [[updated]] = await pool.execute('SELECT id,monarch_uid,full_name,email,phone,username,email_verified_at FROM members WHERE id=? LIMIT 1',[req.session.memberId]);
+      res.json({ok:true,member:{...publicMember(updated),phone:phone,profilePhotoUrl:'/member-avatar-current'}});
+    } catch (e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'database_setup_required',message:'Profile storage is not configured yet.'}); next(e); }
+  });
+
+  router.post('/profile/photo', noStore, apiAuth, async (req,res,next) => {
+    let newPath = null;
+    try {
+      const mime=String(req.body.mimeType||''), encoded=String(req.body.imageBase64||'');
+      if (!['image/jpeg','image/png','image/webp'].includes(mime) || !encoded || encoded.length>4*1024*1024) return res.status(400).json({error:'invalid_image',message:'Choose a JPG, PNG or WebP image under 3 MB.'});
+      const buf=Buffer.from(encoded.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/,''),'base64');
+      if (!buf.length || buf.length>3*1024*1024) return res.status(400).json({error:'invalid_image',message:'Choose a JPG, PNG or WebP image under 3 MB.'});
+      const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+      if (!valid) return res.status(400).json({error:'invalid_image',message:'That file is not a valid supported image.'});
+      const dir=process.env.PROFILE_UPLOAD_DIR;
+      if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).json({error:'uploads_unavailable',message:'Private profile photo storage is not configured.'});
+      fs.mkdirSync(dir,{recursive:true,mode:0o700});
+      const ext={'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime], key=crypto.randomBytes(24).toString('hex')+ext;
+      newPath=path.join(dir,key); fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+      const [oldRows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[req.session.memberId]);
+      const old=oldRows[0]&&String(oldRows[0].avatar_key||'');
+      await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[req.session.memberId,key]);
+      if(old&&old!==key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(old)){try{fs.unlinkSync(path.join(dir,old));}catch(e){if(e.code!=='ENOENT')console.error('[mobile profile photo cleanup] failed');}}
+      res.set('Cache-Control','no-store, private').json({ok:true,profilePhotoUrl:'/member-avatar-current',version:Date.now()});
+    } catch(e) { if(newPath){try{fs.unlinkSync(newPath);}catch(_){}} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'database_setup_required',message:'Profile photo storage is not configured yet.'}); next(e); }
+  });
+
+  router.get('/roles', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await requireRoleTables();
+      const [roles]=await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,a.id AS assignment_id FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id AND a.member_id=? WHERE r.is_active=1 ORDER BY r.role_name',[req.session.memberId]);
+      const [requests]=await pool.execute('SELECT q.id,q.role_id,q.status,q.message,q.created_at,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.member_id=? ORDER BY q.created_at DESC LIMIT 30',[req.session.memberId]);
+      res.json({roles:roles.map(r=>({...r,assigned:Boolean(r.assignment_id)})),requests});
+    } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+  router.post('/roles/request', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await requireRoleTables();
+      const roleId=Number(req.body.roleId), message=String(req.body.message||'').trim().slice(0,1000);
+      if(!Number.isSafeInteger(roleId)||roleId<1)return res.status(400).json({error:'invalid_role'});
+      const [[role]]=await pool.execute('SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 LIMIT 1',[roleId]);
+      if(!role)return res.status(404).json({error:'role_unavailable'});
+      const [[assigned]]=await pool.execute('SELECT id FROM member_role_assignments WHERE member_id=? AND role_id=? LIMIT 1',[req.session.memberId,roleId]);
+      if(assigned)return res.status(409).json({error:'already_assigned',message:'This role is already assigned.'});
+      const [[pending]]=await pool.execute("SELECT id FROM member_role_requests WHERE member_id=? AND role_id=? AND status='pending' LIMIT 1",[req.session.memberId,roleId]);
+      if(pending)return res.status(409).json({error:'request_pending',message:'A request for this role is already pending.'});
+      const [result]=await pool.execute("INSERT INTO member_role_requests (member_id,role_id,request_source,message,status) VALUES (?,?,'member',?,'pending')",[req.session.memberId,roleId,message||null]);
+      res.status(201).json({ok:true,requestId:result.insertId,status:'pending'});
+    } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+
+  router.get('/admin/roles', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+    try {
+      await requireRoleTables();
+      const [roles]=await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,r.is_active,COUNT(a.id) AS assigned_count FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id GROUP BY r.id ORDER BY r.role_name');
+      const [requests]=await pool.query("SELECT q.id,q.member_id,q.request_source,q.company_name,q.message,q.created_at,r.role_name,m.full_name,m.email,m.monarch_uid FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id JOIN members m ON m.id=q.member_id WHERE q.status='pending' ORDER BY q.created_at ASC LIMIT 200");
+      const [members]=await pool.query('SELECT id,full_name,email,monarch_uid FROM members ORDER BY id DESC LIMIT 200');
+      res.json({roles,requests,members});
+    } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+  router.post('/admin/roles/catalog', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+    try {
+      await requireRoleTables();
+      const id=Number(req.body.roleId||0), name=String(req.body.roleName||'').trim(), description=String(req.body.description||'').trim().slice(0,500), key=roleKey(name), active=req.body.isActive===false?0:1;
+      if(!name||name.length>100||!key)return res.status(400).json({error:'invalid_role_name'});
+      if(id) await pool.execute('UPDATE member_role_catalog SET role_key=?,role_name=?,description=?,is_active=? WHERE id=?',[key,name,description||null,active,id]);
+      else await pool.execute('INSERT INTO member_role_catalog (role_key,role_name,description,is_active,created_by_member_id) VALUES (?,?,?,1,?)',[key,name,description||null,req.session.memberId]);
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'duplicate_role',message:'Role names and keys must be unique.'}); if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+  router.post('/admin/roles/requests/:requestId', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+    try {
+      await requireRoleTables();
+      const id=Number(req.params.requestId), decision=String(req.body.decision||'');
+      if(!Number.isSafeInteger(id)||id<1||!['approve','reject'].includes(decision))return res.status(400).json({error:'invalid_decision'});
+      const connection=await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [[request]]=await connection.execute("SELECT id,member_id,role_id,status FROM member_role_requests WHERE id=? FOR UPDATE",[id]);
+        if(!request||request.status!=='pending'){await connection.rollback();return res.status(409).json({error:'already_reviewed'});}
+        if(decision==='approve')await connection.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)',[request.member_id,request.role_id,req.session.memberId]);
+        await connection.execute('UPDATE member_role_requests SET status=?,reviewed_by_member_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision==='approve'?'approved':'rejected',req.session.memberId,id]);
+        await connection.commit();
+      } catch(e) { await connection.rollback(); throw e; } finally { connection.release(); }
+      res.json({ok:true,status:decision==='approve'?'approved':'rejected'});
+    } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+  router.post('/admin/roles/assign', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+    try {
+      await requireRoleTables();
+      const memberId=Number(req.body.memberId), roleId=Number(req.body.roleId), action=String(req.body.action||'assign');
+      if(!Number.isSafeInteger(memberId)||memberId<1||!Number.isSafeInteger(roleId)||roleId<1||!['assign','remove'].includes(action))return res.status(400).json({error:'invalid_assignment'});
+      if(action==='assign')await pool.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)',[memberId,roleId,req.session.memberId]);
+      else await pool.execute('DELETE FROM member_role_assignments WHERE member_id=? AND role_id=?',[memberId,roleId]);
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
+  });
+  router.post('/sovereign/roles/partner-request', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin||admin.role!=='sovereign_desk_admin')return res.status(403).json({error:'forbidden',message:'Only the Sovereign Desk administrator can submit a company Founder Partner request.'});
+      await requireRoleTables();
+      const [[role]]=await pool.execute("SELECT id FROM member_role_catalog WHERE role_key='founder_partner' AND is_active=1 LIMIT 1");
+      if(!role)return res.status(409).json({error:'founder_partner_unavailable'});
+      const companyName=String(req.body.companyName||'Sovereign Desk').trim().slice(0,160), message=String(req.body.message||'Company role request').trim().slice(0,1000);
+      const [[pending]]=await pool.execute("SELECT id FROM member_role_requests WHERE member_id=? AND role_id=? AND status='pending' AND request_source='sovereign_desk' LIMIT 1",[req.session.memberId,role.id]);
+      if(!pending)await pool.execute("INSERT INTO member_role_requests (member_id,role_id,request_source,company_name,message,status) VALUES (?,?, 'sovereign_desk',?,?,'pending')",[req.session.memberId,role.id,companyName,message]);
+      res.status(201).json({ok:true,status:'pending'});
+    } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
 
   return router;
