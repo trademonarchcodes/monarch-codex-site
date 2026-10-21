@@ -119,6 +119,17 @@ test('admin control centre has grouped navigation, responsive shell, and role-aw
   assert.match(server, /Protected workspace/);
 });
 
+test('deposit review is transactional, diagnoses missing schema, and exposes failed live alerts', () => {
+  assert.match(server, /app\.post\('\/admin\/deposits\/:id\/review'/);
+  assert.match(server, /SELECT \* FROM deposit_requests WHERE id=\? FOR UPDATE/);
+  assert.match(server, /INSERT INTO financial_transactions \(member_id,deposit_request_id,transaction_type,currency,amount,reference\)/);
+  assert.match(server, /Deposit review support tables are missing/);
+  assert.match(server, /Deposit database schema is out of date/);
+  assert.match(server, /Deposit alert needs attention/);
+  assert.match(server, /Pending deposit count unavailable; open deposits to check manually/);
+  assert.match(server, /ORDER BY \(d\.status='pending'\) DESC,d\.created_at DESC LIMIT 150/);
+});
+
 test('admin overview uses live database metrics and clearly labels unconnected financial workflows', () => {
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM members/);
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM admin_users WHERE is_active = 1/);
