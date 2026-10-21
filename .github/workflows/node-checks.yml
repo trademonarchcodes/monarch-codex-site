@@ -1,25 +1,22 @@
-name: Node checks
-
+name: Website backend checks
 on:
-  pull_request:
   push:
-    branches:
-      - main
-      - feature/admin-sovereign-desk
-
+    branches: [main, "codex/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  test:
+  node:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check server and mobile API syntax
-        run: |
-          node --check server.js
-          node --check mobile-api.js
-      - name: Run test suite
-        run: npm test
+      - run: npm install --ignore-scripts
+      - run: node --check server.js
+      - run: node --check mobile-api.js
+      - run: node --check role-management.js
+      - run: npm test
