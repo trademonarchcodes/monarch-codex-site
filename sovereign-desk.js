@@ -24,7 +24,8 @@ function createSovereignDeskRouter(deps) {
       ['sovereign_announcements', '010_sovereign_desk_announcements.sql'],
       ['sovereign_chat_messages', '012_sovereign_desk_validation_and_chat.sql'],
       ['sovereign_signal_access', '013_sovereign_signal_access.sql'],
-      ['sovereign_signal_event_slots', '013_sovereign_signal_access.sql']
+      ['sovereign_signal_event_slots', '013_sovereign_signal_access.sql'],
+      ['sovereign_governance_items', '016_sovereign_governance.sql']
     ];
     let present = new Set(), roleType = '', checkFailed = false;
     try {
@@ -58,6 +59,7 @@ function createSovereignDeskRouter(deps) {
       ['/sovereign-admin/chat', 'Member chat', '◉'],
       ['/sovereign-admin/announcements', 'Announcements', '▤'],
       ['/sovereign-admin/events', 'Homepage events', '◷'],
+      ['/sovereign-admin/governance', 'Governance & oversight', '⚖'],
       ['/sovereign-admin/activity', 'Workspace activity', '◷'],
       ['/admin/profile', 'My admin profile', '◎']
     ];
@@ -120,7 +122,7 @@ function createSovereignDeskRouter(deps) {
         '<div class="ac-stats">' +
         [['Published signals',signals.published || 0,'of '+Number(signals.total || 0)+' saved'],['Published mentorship',guidance.published || 0,'of '+Number(guidance.total || 0)+' saved'],['Active access grants',access.active || 0,'approved and not expired'],['Pending access requests',requests.pending || 0,'awaiting review']].map(x=>'<article class="ac-stat"><span>'+x[0]+'</span><strong>'+Number(x[1])+'</strong><small>'+x[2]+'</small></article>').join('') +
         '</div><div class="ac-section-head"><div><h2>Workspace operations</h2><p>Manage each workflow from its dedicated screen.</p></div></div><div class="ac-tiles">' +
-        [['/sovereign-admin/signals','Signals','Draft, publish, close and archive analysis.'],['/sovereign-admin/watchlist','Weekly trade watchlist','Log this week’s trades for members to view.'],['/sovereign-admin/mentorship','Mentorship','Publish learning and mentorship resources.'],['/sovereign-admin/access','Members & access','Review requests, grant access and revoke expired or inappropriate access.'],['/sovereign-admin/signal-access','Signals subscriptions','Review $10 / 14-day access requests and manage signal access.'],['/sovereign-admin/chat','Member chat','Reply to members in private conversations with sent and seen receipts.'],['/sovereign-admin/announcements','Announcements','Publish updates and notify desk members.'],['/sovereign-admin/activity','Workspace activity','Recent signals, content and access decisions.']].map(x=>'<a class="ac-tile" href="'+x[0]+'"><span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></span></a>').join('') +
+        [['/sovereign-admin/signals','Signals','Draft, publish, close and archive analysis.'],['/sovereign-admin/watchlist','Weekly trade watchlist','Log this week’s trades for members to view.'],['/sovereign-admin/mentorship','Mentorship','Publish learning and mentorship resources.'],['/sovereign-admin/access','Members & access','Review requests, grant access and revoke expired or inappropriate access.'],['/sovereign-admin/signal-access','Signals subscriptions','Review $10 / 14-day access requests and manage signal access.'],['/sovereign-admin/chat','Member chat','Reply to members in private conversations with sent and seen receipts.'],['/sovereign-admin/announcements','Announcements','Publish updates and notify desk members.'],['/sovereign-admin/governance','Governance & oversight','Submit concerns, request access reviews and record decisions.'],['/sovereign-admin/activity','Workspace activity','Recent signals, content and access decisions.']].map(x=>'<a class="ac-tile" href="'+x[0]+'"><span><strong>'+x[1]+'</strong><small>'+x[2]+'</small></span></a>').join('') +
         '</div><section class="ac-panel"><h2>Announcement status</h2><p>'+Number(announcements.published || 0)+' published announcements out of '+Number(announcements.total || 0)+' saved. Announcements are delivered to signed-in members who have active Sovereign Desk access.</p></section>';
       deskAdminPage(req,res,'The Sovereign Desk · Overview','/sovereign-admin',content);
     } catch (e) { dbUnavailable(res,next,e,'Sovereign Desk setup required'); }
@@ -786,6 +788,90 @@ function createSovereignDeskRouter(deps) {
       await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'member',?,?)",[req.session.memberId,req.session.memberId,body]);
       res.redirect('/sovereign-desk/chat?sent=1');
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Sovereign Desk chat is being configured. Please try again later.');next(e);}
+  });
+
+  // Governance and oversight workspace. These actions never approve financial transactions.
+  router.get('/sovereign-admin/governance', requireAdmin, adminOnly, async (req, res, next) => {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT g.id,g.item_type,g.status,g.title,g.details,g.subject_member_id,g.decision_text,g.created_at,g.updated_at,g.decided_at,creator.username AS creator_username,subject.username AS subject_username,decider.username AS decider_username FROM sovereign_governance_items g JOIN members creator ON creator.id=g.created_by LEFT JOIN members subject ON subject.id=g.subject_member_id LEFT JOIN members decider ON decider.id=g.decided_by ORDER BY g.created_at DESC LIMIT 150'
+      );
+      const items = rows.map(item => {
+        const decision = item.decision_text ? '<p><strong>Decision / outcome:</strong> ' + esc(item.decision_text) + '</p>' : '';
+        const subject = item.subject_member_id ? esc(item.subject_username || ('Member #' + item.subject_member_id)) : 'Not specified';
+        const statusOptions = ['open','in_review','resolved','rejected','recorded'].map(status => '<option value="' + status + '"' + (item.status === status ? ' selected' : '') + '>' + statusLabel(status) + '</option>').join('');
+        const update = '<form method="post" action="/sovereign-admin/governance/' + Number(item.id) + '/status" class="sd-governance-update">' + csrfField(req) + '<label>Status<select name="status" required>' + statusOptions + '</select></label><label>Decision / review note<textarea name="decision_text" rows="2" maxlength="12000" placeholder="Required when resolving, rejecting, or recording a decision">' + esc(item.decision_text || '') + '</textarea></label><button class="btn" type="submit">Save governance record</button></form>';
+        return '<article class="sd-governance-item"><div class="sd-governance-head"><div><span class="sd-governance-type">' + statusLabel(item.item_type) + '</span><h3>#' + Number(item.id) + ' · ' + esc(item.title) + '</h3></div><span class="sd-governance-status">' + statusLabel(item.status) + '</span></div><p>' + esc(item.details) + '</p><p class="muted small">Subject: ' + subject + ' · Submitted by @' + esc(item.creator_username) + ' · ' + dateLabel(item.created_at) + (item.decided_at ? ' · Recorded ' + dateLabel(item.decided_at) + ' by @' + esc(item.decider_username || 'administrator') : '') + '</p>' + decision + update + '</article>';
+      }).join('');
+      const form = '<section class="ac-panel"><h2>Governance & oversight</h2><p class="muted">Record governance concerns, request member-access reviews, and preserve decisions with an audit trail. These controls do not approve deposits, withdrawals, wallet changes, or financial transactions.</p><form method="post" action="/sovereign-admin/governance" class="sd-governance-form">' + csrfField(req) + '<label>Record type<select name="item_type" required><option value="concern">Flag / submit a governance concern</option><option value="access_review">Request an access review</option><option value="decision">Record a governance decision</option></select></label><label>Title<input name="title" required maxlength="180" placeholder="Short summary"></label><label>Details<textarea name="details" required rows="4" maxlength="12000" placeholder="Describe the concern, requested review, or decision context"></textarea></label><label>Related member ID (optional)<input name="subject_member_id" inputmode="numeric" pattern="[0-9]*" maxlength="20" placeholder="Member ID if applicable"></label><label>Decision / outcome (required for a decision)<textarea name="decision_text" rows="3" maxlength="12000" placeholder="Required when recording a governance decision"></textarea></label><button class="btn" type="submit">Save governance record</button></form></section>';
+      const list = '<section class="ac-panel"><h2>Governance register</h2><p class="muted">Latest 150 governance records. Status changes and recorded outcomes are retained with the record.</p>' + (items || '<p>No governance records have been submitted yet.</p>') + '</section>';
+      const styles = '<style>.sd-governance-form,.sd-governance-update{display:grid;gap:12px}.sd-governance-form label,.sd-governance-update label{display:grid;gap:6px;font-size:13px;font-weight:750}.sd-governance-form input,.sd-governance-form textarea,.sd-governance-form select,.sd-governance-update textarea,.sd-governance-update select{width:100%;box-sizing:border-box;padding:11px;border:1px solid #45414a;border-radius:10px;background:#0d0d10;color:#f7f5ef;font:inherit}.sd-governance-form textarea,.sd-governance-update textarea{resize:vertical}.sd-governance-item{padding:17px 0;border-top:1px solid #39352a}.sd-governance-head{display:flex;justify-content:space-between;gap:12px;align-items:start;flex-wrap:wrap}.sd-governance-head h3{margin:6px 0;font-size:17px}.sd-governance-type,.sd-governance-status{display:inline-block;padding:4px 9px;border:1px solid #625222;border-radius:99px;color:#f3cf3c;font-size:11px;font-weight:850}.sd-governance-update{margin-top:14px;padding:13px;border:1px solid #39352a;border-radius:12px;background:#111114}@media(min-width:720px){.sd-governance-form{grid-template-columns:repeat(2,minmax(0,1fr))}.sd-governance-form label:nth-child(4),.sd-governance-form label:nth-child(5){grid-column:1/-1}.sd-governance-form button{justify-self:start}}</style>';
+      deskAdminPage(req, res, 'Governance & oversight', '/sovereign-admin/governance', styles + form + list);
+    } catch (error) { dbUnavailable(res, next, error, 'Governance setup required'); }
+  });
+
+  router.post('/sovereign-admin/governance', requireAdmin, adminOnly, urlencoded, csrfCheck, async (req, res, next) => {
+    const kind = clean(req.body.item_type, 30);
+    const title = clean(req.body.title, 180);
+    const details = clean(req.body.details, 12000);
+    const decisionText = clean(req.body.decision_text, 12000);
+    const subjectRaw = clean(req.body.subject_member_id, 20);
+    const subjectId = subjectRaw ? Number(subjectRaw) : null;
+    if (!['concern','access_review','decision'].includes(kind) || !title || !details || (subjectRaw && (!idOk(subjectRaw) || !Number.isSafeInteger(subjectId) || subjectId < 1)) || (kind === 'decision' && !decisionText)) {
+      return res.status(400).send(page('Check governance details', '<h1>Check governance details</h1><p class="muted">Provide a valid record type, title and details. A governance decision also requires its decision or outcome text.</p><a class="btn" href="/sovereign-admin/governance">Return to governance</a>'));
+    }
+    let conn;
+    try {
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+      if (subjectId) {
+        const [subject] = await conn.execute('SELECT id FROM members WHERE id=? LIMIT 1', [subjectId]);
+        if (!subject.length) { await conn.rollback(); return res.status(400).send(page('Member not found', '<h1>The related member ID does not exist</h1><a class="btn" href="/sovereign-admin/governance">Return to governance</a>')); }
+      }
+      const status = kind === 'decision' ? 'recorded' : 'open';
+      const [result] = await conn.execute(
+        'INSERT INTO sovereign_governance_items (item_type,status,title,details,subject_member_id,created_by,decision_text,decided_by,decided_at) VALUES (?,?,?,?,?,?,?,?,?)',
+        [kind, status, title, details, subjectId, Number(req.session.memberId), decisionText || null, kind === 'decision' ? Number(req.session.memberId) : null, kind === 'decision' ? new Date() : null]
+      );
+      await conn.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)', [
+        Number(req.session.memberId), 'sovereign.governance.created', 'sovereign_governance_items', String(result.insertId),
+        JSON.stringify({ item_type: kind, title, subject_member_id: subjectId }), req.ip || null
+      ]);
+      await conn.commit();
+      return res.redirect('/sovereign-admin/governance?notice=created');
+    } catch (error) {
+      if (conn) { try { await conn.rollback(); } catch (_) {} }
+      if (error.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Governance setup required', '<h1>Governance setup required</h1><p class="muted">No governance record was saved. Apply migration 016_sovereign_governance.sql and confirm the admin audit table exists.</p><a class="btn" href="/sovereign-admin/governance">Return to governance</a>'));
+      next(error);
+    } finally { if (conn) conn.release(); }
+  });
+
+  router.post('/sovereign-admin/governance/:id/status', requireAdmin, adminOnly, urlencoded, csrfCheck, async (req, res, next) => {
+    const id = clean(req.params.id, 20);
+    const status = clean(req.body.status, 20);
+    const decisionText = clean(req.body.decision_text, 12000);
+    if (!idOk(id) || !['open','in_review','resolved','rejected','recorded'].includes(status)) return res.status(400).send(page('Invalid governance update', '<h1>Choose a valid governance status</h1><a class="btn" href="/sovereign-admin/governance">Return to governance</a>'));
+    if (['resolved','rejected','recorded'].includes(status) && !decisionText) return res.status(400).send(page('Decision note required', '<h1>Add a decision or review note before closing this record</h1><a class="btn" href="/sovereign-admin/governance">Return to governance</a>'));
+    let conn;
+    try {
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+      const [result] = await conn.execute(
+        'UPDATE sovereign_governance_items SET status=?,decision_text=CASE WHEN ? IN (\'resolved\',\'rejected\',\'recorded\') THEN ? ELSE decision_text END,decided_by=CASE WHEN ? IN (\'resolved\',\'rejected\',\'recorded\') THEN ? ELSE decided_by END,decided_at=CASE WHEN ? IN (\'resolved\',\'rejected\',\'recorded\') THEN NOW() ELSE decided_at END WHERE id=?',
+        [status, status, decisionText || null, status, Number(req.session.memberId), status, Number(id)]
+      );
+      if (!result.affectedRows) { await conn.rollback(); return res.status(404).send(page('Governance record not found', '<h1>Governance record not found</h1><a class="btn" href="/sovereign-admin/governance">Return to governance</a>')); }
+      await conn.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)', [
+        Number(req.session.memberId), 'sovereign.governance.updated', 'sovereign_governance_items', String(id),
+        JSON.stringify({ status, decision_text: decisionText || null }), req.ip || null
+      ]);
+      await conn.commit();
+      return res.redirect('/sovereign-admin/governance?notice=updated');
+    } catch (error) {
+      if (conn) { try { await conn.rollback(); } catch (_) {} }
+      if (error.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(page('Governance setup required', '<h1>Governance setup required</h1><p class="muted">No governance update was saved. Apply migration 016_sovereign_governance.sql.</p><a class="btn" href="/sovereign-admin/governance">Return to governance</a>'));
+      next(error);
+    } finally { if (conn) conn.release(); }
   });
 
   return router;
