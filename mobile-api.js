@@ -387,6 +387,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         'INSERT INTO deposit_requests (member_id,currency,amount,fee_usd,fee_amount,base_usd_ngn_rate,effective_usd_ngn_rate,total_due,payment_method_id,payment_reference,proof_storage_key,proof_mime_type,proof_original_name,member_note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [req.session.memberId,currency,amount,feeUsd,fee,base,rate,total,methodId,reference,req.file.filename,req.file.mimetype,require('node:path').basename(req.file.originalname).slice(0,255),note || null]
       );
+      await notifyActiveAdmins({type:'deposit_pending',title:'Deposit awaiting review',body:'A member submitted a deposit receipt for administrator review.',targetUrl:'/admin/deposits',dedupePrefix:'deposit_pending_'+result.insertId});
       return res.status(201).json({ ok: true, requestId: result.insertId, status: 'pending', message: 'Deposit receipt submitted. Your balance will change only after an administrator verifies the payment.' });
     } catch (error) {
       if (req.file && req.file.path) require('node:fs').unlink(req.file.path, () => {});
@@ -438,6 +439,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if (amount > available + 1e-8) { await connection.rollback(); return res.status(400).json({ error: 'insufficient_available_balance', message: 'The amount exceeds your available balance after pending withdrawal reservations.' }); }
       const [created] = await connection.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')", [req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,note || null]);
       await connection.commit();
+      await notifyActiveAdmins({type:'withdrawal_pending',title:'Withdrawal awaiting review',body:'A member submitted a withdrawal request for review.',targetUrl:'/admin/withdrawals',dedupePrefix:'withdrawal_pending_'+created.insertId});
       return res.status(201).json({ ok: true, requestId: created.insertId, status: 'pending', message: 'Withdrawal request submitted for review. This is not an automatic payout.' });
     } catch (error) {
       if (connection) { try { await connection.rollback(); } catch (_) {} }
@@ -484,11 +486,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     const conn=await pool.getConnection();
     try {
       await conn.beginTransaction();
-      const [[row]]=await conn.execute('SELECT id,status FROM kyc_submissions WHERE id=? FOR UPDATE',[id]);
+      const [[row]]=await conn.execute('SELECT id,member_id,status FROM kyc_submissions WHERE id=? FOR UPDATE',[id]);
       if(!row){await conn.rollback();return res.status(404).json({error:'not_found',message:'KYC submission not found.'});}
       if(row.status==='approved' || row.status===status){await conn.rollback();return res.status(409).json({error:'already_reviewed',message:'This KYC submission is already approved or has this status.'});}
       await conn.execute('UPDATE kyc_submissions SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
       await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note||null]);
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[row.member_id,'kyc_review','Identity verification '+status.replace('_',' '),'Your KYC submission was '+status.replace('_',' ')+(note?' — '+note:''),'/kyc','kyc_'+id+'_'+status]);
       await adminAudit(conn,req.session.memberId,'kyc.'+status,'kyc_submission',id,{status,note},req.ip);
       await conn.commit();
       return res.json({ok:true,id:Number(id),status,message:'KYC review saved.'});
@@ -513,6 +516,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
       await conn.execute('UPDATE deposit_requests SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision,req.session.memberId,note||null,id]);
       await adminAudit(conn,req.session.memberId,'deposit.'+decision,'deposit_request',id,{currency:d.currency,amount:String(d.amount),note,confirmed:true},req.ip);
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[d.member_id,'deposit_review','Deposit '+decision,'Your '+d.currency+' deposit request for '+String(d.amount)+' was '+decision+(note?' — '+note:''),'/transactions','deposit_'+id+'_'+decision]);
       await conn.commit();
       return res.json({ok:true,id:Number(id),status:decision,message:decision==='approved'?'Deposit approved and credited.':'Deposit rejected.'});
     } catch(e) {try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'deposit_setup_required',message:'Deposit workflow tables are not configured.'}); return next(e);}
@@ -545,6 +549,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await conn.execute("UPDATE withdrawal_requests SET status='paid',payment_reference=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP,paid_at=CURRENT_TIMESTAMP WHERE id=?",[reference,req.session.memberId,note||null,id]);
       }
       await adminAudit(conn,req.session.memberId,'withdrawal.'+decision,'withdrawal_request',id,{decision,amount:String(w.amount),currency:w.currency,paymentReference:decision==='paid'?reference:null,confirmed:true},req.ip);
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[w.member_id,'withdrawal_review','Withdrawal '+decision,'Your '+w.currency+' withdrawal request for '+String(w.amount)+' is now '+decision+(note?' — '+note:''),'/transactions','withdrawal_'+id+'_'+decision]);
       await conn.commit();
       return res.json({ok:true,id:Number(id),status:decision,message:decision==='paid'?'Withdrawal marked paid after transfer confirmation.':'Withdrawal review saved.'});
     } catch(e) {try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'withdrawal_setup_required',message:'Withdrawal workflow tables are not configured.'}); if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'duplicate_payment_reference',message:'That transfer reference has already been used.'}); return next(e);}
@@ -751,7 +756,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         [req.session.memberId]
       );
       res.json({items, unreadCount:items.filter(item=>!item.readAt).length});
-    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required',message:'Apply migrations/005_member_dashboard_and_sovereign_desk.sql first.'}); next(e); }
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
   });
   router.post('/notifications/read-all', noStore, apiAuth, async (req,res,next) => {
     try {
