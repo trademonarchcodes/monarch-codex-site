@@ -470,7 +470,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       } else if(type==='deposits') {
         [rows]=await pool.query("SELECT d.id,d.member_id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,m.full_name,m.username,m.email,p.label AS payment_label,p.method_type FROM deposit_requests d JOIN members m ON m.id=d.member_id JOIN deposit_payment_methods p ON p.id=d.payment_method_id ORDER BY (d.status='pending') DESC,d.created_at DESC LIMIT 200");
       } else {
-        [rows]=await pool.query("SELECT w.id,w.member_id,w.currency,w.amount,w.status,w.created_at,w.reviewer_note,w.payment_reference,m.full_name,m.username,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id ORDER BY CASE w.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,w.created_at DESC LIMIT 200");
+        [rows]=await pool.query("SELECT w.id,w.member_id,w.currency,w.amount,w.status,w.created_at,w.reviewer_note,w.payment_reference,w.bank_details_ciphertext,m.full_name,m.username,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id ORDER BY CASE w.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,w.created_at DESC LIMIT 200");
+        rows=rows.map(row=>{let bank={};try{bank=JSON.parse(decryptProfileValue(row.bank_details_ciphertext));}catch(_){} const {bank_details_ciphertext,...safe}=row;return {...safe,payoutDestination:{bankName:String(bank.bankName||'Saved bank account'),accountName:String(bank.bankAccountName||bank.accountName||'Account holder'),accountNumber:String(bank.bankAccountNumber||bank.accountNumber||'Unavailable')}};});
       }
       res.json({type,items:rows});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'review_setup_required',message:'The review queue database is not configured.'}); next(e); }
