@@ -17,6 +17,7 @@ const { renderMemberNavigation } = require('./lib/member-navigation');
 const createMonarchsDirectoryRouter = require('./monarchs-directory');
 const createToolsRouter = require('./tools');
 const createMobileApiRouter = require('./mobile-api');
+const createAdminRoleManagementRouter = require('./admin-role-management');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -702,7 +703,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
-    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Members & verification',links:[['/admin/members','Member management','♙'], ...(['super_admin','main_admin'].includes(req.adminRole) ? [['/admin/roles','Administrator roles','⚑']] : []), ['/admin/kyc','KYC review','◇'],['/admin/monarchs','Homepage profiles','✦']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
@@ -861,7 +862,7 @@ app.get('/admin', requireAdmin, async (req,res,next) => {
     const content = '<section class="ac-overview-hero"><div><p class="ac-hero-kicker">Executive operations · Live account records</p><h2>Your platform, at a glance.</h2><p>Manage member access, identity verification and platform workspaces from one protected control centre. Counts below are read from your database; unavailable workflows are clearly identified rather than filled with estimates.</p></div><span class="ac-hero-mark" aria-hidden="true">✦</span></section>'+
       '<section class="ac-stats">'+stat('Total members',Number(members.total)||0,'All registered member accounts')+stat('New members · 7 days',recentTotal,'Recent registrations')+stat('Active administrators',Number(admins.total)||0,'Explicitly provisioned accounts')+stat('Pending KYC',kycCount===null?'—':kycCount,kycCount===null?'Verification table not configured':'Applications awaiting review')+'</section>'+
       '<div class="ac-section-head"><div><h2>Operational workspaces</h2><p>Jump directly to the area you need to manage.</p></div></div>'+
-      '<section class="ac-tiles">'+tile('/admin/members','Member management','Review member accounts, usernames and access roles.')+tile('/admin/monarchs','Homepage Monarchs','Approve public member profiles and manage homepage visibility.')+tile('/admin/kyc','Identity verification','Review submitted identity details and documents.')+tile('/admin/deposits','Deposit operations','Manage payment destinations and inspect deposit requests.')+tile('/admin/withdrawals','Withdrawal review','Review requests and verify eligibility and real transfers.')+tile('/admin/referrals','Referral monitoring','Inspect referral attribution and eligible activity.')+tile('/admin/academy','Academy & learning','Manage lessons and publishing status.')+tile('/admin/sovereign-desk','Sovereign Desk','Open the separate signals, guidance and access workspace.')+tile('/admin/audit','Security & audit','Review provisioned administrators and recorded admin events.')+tile('/admin/settings','Platform settings','Review supported platform and pricing configuration.')+tile('/admin/profile','My admin profile','Update your administrator profile and profile picture.')+'</section>'+
+      '<section class="ac-tiles">'+tile('/admin/members','Member management','Review member accounts, usernames and access roles.')+(['super_admin','main_admin'].includes(req.adminRole)?tile('/admin/roles','Administrator roles','Assign or remove administrator access with audited role controls.'): '')+tile('/admin/monarchs','Homepage Monarchs','Approve public member profiles and manage homepage visibility.')+tile('/admin/kyc','Identity verification','Review submitted identity details and documents.')+tile('/admin/deposits','Deposit operations','Manage payment destinations and inspect deposit requests.')+tile('/admin/withdrawals','Withdrawal review','Review requests and verify eligibility and real transfers.')+tile('/admin/referrals','Referral monitoring','Inspect referral attribution and eligible activity.')+tile('/admin/academy','Academy & learning','Manage lessons and publishing status.')+tile('/admin/sovereign-desk','Sovereign Desk','Open the separate signals, guidance and access workspace.')+tile('/admin/audit','Security & audit','Review provisioned administrators and recorded admin events.')+tile('/admin/settings','Platform settings','Review supported platform and pricing configuration.')+tile('/admin/profile','My admin profile','Update your administrator profile and profile picture.')+'</section>'+
       '<div class="ac-section-head"><div><h2>Workflow readiness</h2><p>Operational status is explicit so the dashboard never implies an unverified workflow is live.</p></div></div>'+
       '<section class="ac-panel"><div class="ac-readiness-list">'+
         ready('◇','Identity verification',kycCount===null?'KYC records are unavailable until the required database migration is applied.':kycCount+' application(s) currently await review.',kycCount===null?'Setup required':(kycCount?'Review queue':'No pending cases'),kycCount!==null)+
@@ -2742,6 +2743,7 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
 });
 // Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
 app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
+app.use('/admin/roles', createAdminRoleManagementRouter({ pool, requireAdmin, csrfCheck, csrfField, adminControlPage, esc, page }));
 app.use(createMonarchsDirectoryRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
 app.use(createToolsRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, getMemberForPage, esc }));
 
