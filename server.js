@@ -694,7 +694,7 @@ function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin' || String(active || '').startsWith('/sovereign-admin');
   const groups = deskOnly ? [
     {label:'Workspace',links:[['/sovereign-admin','Desk overview','◫']]},
-    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/market-movers.html','Live Markets','⌁']]},
+    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/sovereign-admin/roles/request','Founder Partner request','♜'],['/market-movers.html','Live Markets','⌁']]},
     {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤']]},
     {label:'Governance',links:[['/sovereign-admin/activity','Activity log','◷']]},
     {label:'Your account',links:[['/admin/profile','My admin profile','◎']]}
