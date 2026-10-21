@@ -2527,6 +2527,79 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
 
+
+app.get('/social-links', requireAuth, async(req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [items]=await pool.query('SELECT label,url FROM platform_social_links WHERE is_active=1 AND url IS NOT NULL ORDER BY id');
+    const links=items.filter(x=>{try{const u=new URL(x.url);return u.protocol==='https:'&&!u.username&&!u.password;}catch(_){return false;}});
+    const content='<section style="max-width:800px;margin:auto"><p class="muted">OFFICIAL CHANNELS</p><h2>Connect with Monarch Codex</h2><p>These are the official channels published by the platform. Links open in a new tab.</p>'+(links.length?links.map(x=>'<a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;margin:10px 0;border:1px solid #6b5927;border-radius:13px;background:#111216;color:#f3cf3c;text-decoration:none"><strong>'+esc(x.label)+'</strong><span>Open securely ↗</span></a>').join(''):'<p>No official social links have been published yet.</p>')+'</section>';
+    res.send(memberPage('Social links','/social-links',m,content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Social links','/social-links',await getMemberForPage(req,res),'<p>Social links are being configured. Please check back later.</p>',req));next(e);}
+});
+
+app.get('/community', requireAuth, async(req,res,next)=>{
+  try{
+    const m=await getMemberForPage(req,res);if(!m)return;
+    const [posts]=await pool.query("SELECT p.id,p.member_id,p.body,p.post_type,p.created_at,m.full_name,m.username FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+    const postHtml=await Promise.all(posts.map(async p=>{
+      const [comments]=await pool.execute("SELECT c.body,c.created_at,m.full_name,m.username FROM community_comments c JOIN members m ON m.id=c.member_id WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 50",[p.id]);
+      const commentHtml=comments.map(x=>'<div style="margin:8px 0 0 18px;padding:10px;border-left:2px solid #6b5927"><strong>'+esc(x.full_name||x.username||'Member')+'</strong><p>'+esc(x.body)+'</p><small>'+esc(x.created_at)+'</small></div>').join('');
+      return '<article style="padding:18px;margin:14px 0;border:1px solid #40371f;border-radius:16px;background:#111216"><p style="color:#f3cf3c;font-size:12px"><strong>'+esc(p.full_name||p.username||'Member')+'</strong> · '+esc(String(p.post_type).replace(/_/g,' '))+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(p.body)+'</p><small>'+esc(p.created_at)+'</small>'+commentHtml+'<form method="post" action="/community/posts/'+Number(p.id)+'/comments" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+csrfField(req)+'<input name="body" required maxlength="2000" placeholder="Write a reply" style="flex:1;min-width:180px"><button class="btn" type="submit">Reply</button></form><form method="post" action="/community/posts/'+Number(p.id)+'/report" style="margin-top:8px">'+csrfField(req)+'<input name="reason" required minlength="3" maxlength="1000" placeholder="Report reason" aria-label="Report reason"><button type="submit" class="btn">Report</button></form></article>';
+    }));
+    const content='<section style="max-width:900px;margin:auto"><p class="muted">MEMBER NETWORK</p><h2>Community feed</h2><p>Share updates, ask questions and connect with members. Partner campaigns and Sovereign Desk signals are reviewed before publication.</p><form method="post" action="/community/posts" style="display:grid;gap:10px;padding:18px;border:1px solid #6b5927;border-radius:16px;background:#111216">'+csrfField(req)+'<label>Post type<select name="post_type"><option value="post">Community post</option><option value="partner_campaign">Partner campaign (approval required)</option><option value="sovereign_signal">Sovereign Desk signal (approval required)</option></select></label><label>Message<textarea name="body" required minlength="1" maxlength="5000" rows="4" placeholder="Share with the community"></textarea></label><button class="btn" type="submit">Publish / submit for review</button></form>'+(postHtml.length?postHtml.join(''):'<p style="padding:24px;text-align:center;border:1px solid #40371f;border-radius:16px">No community posts yet. Start the conversation.</p>')+'</section>';
+    res.send(memberPage('Community','/community',m,content,req));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Community','/community',await getMemberForPage(req,res),'<p>Community setup is not complete. Apply the platform migration after a verified backup.</p>',req));next(e);}
+});
+
+app.post('/community/posts', requireAuth, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async(req,res,next)=>{
+  const body=String(req.body.body||'').trim(),type=String(req.body.post_type||'post');
+  if(!body||body.length>5000||!['post','partner_campaign','sovereign_signal'].includes(type))return res.status(400).send(page('Invalid post','<main><h1>Check your post</h1><p>Use a supported post type and keep the message under 5,000 characters.</p><a href="/community">Return to community</a></main>'));
+  try{
+    if(type==='partner_campaign'){
+      const [[role]]=await pool.execute("SELECT r.id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key='partner' LIMIT 1",[req.session.memberId]);
+      if(!role)return res.status(403).send(page('Partner access required','<main><h1>Partner access required</h1><p>Apply for Partner status before submitting a campaign.</p><a href="/community">Return to community</a></main>'));
+    }
+    if(type==='sovereign_signal'){
+      const [[role]]=await pool.execute("SELECT r.id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key IN ('sovereign_desk','mega_partner') LIMIT 1",[req.session.memberId]);
+      if(!role)return res.status(403).send(page('Sovereign Desk access required','<main><h1>Sovereign Desk access required</h1><p>Only authorized Sovereign Desk members can submit signals.</p><a href="/community">Return to community</a></main>'));
+    }
+    const status=type==='post'?'published':'pending';
+    const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,type,status]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.post_created','community_post',String(result.insertId),JSON.stringify({type,status})]);
+    if(status==='pending'){
+      const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+      for(const a of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[a.member_id,'community_review','Community item awaiting approval','A partner campaign or Sovereign Desk signal is awaiting review.','/admin/community-moderation','web_community_review_'+result.insertId+'_'+a.member_id]);
+    }
+    res.redirect('/community?post='+status);
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Community setup required','<main><h1>Apply migrations/021_platform_completion_foundation.sql</h1></main>'));next(e);}
+});
+
+app.post('/community/posts/:id/comments', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),body=String(req.body.body||'').trim();
+  if(!Number.isSafeInteger(id)||id<1||!body||body.length>2000)return res.status(400).send(page('Invalid comment','<main><h1>Check your reply</h1><a href="/community">Return to community</a></main>'));
+  try{
+    const [[post]]=await pool.execute("SELECT id,member_id FROM community_posts WHERE id=? AND status='published'",[id]);
+    if(!post)return res.status(404).send(page('Post unavailable','<main><h1>This post is no longer available.</h1><a href="/community">Return to community</a></main>'));
+    await pool.execute('INSERT INTO community_comments (post_id,member_id,body) VALUES (?,?,?)',[id,req.session.memberId,body]);
+    if(Number(post.member_id)!==Number(req.session.memberId))await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[post.member_id,'community_comment','New community reply','A member replied to your community post.','/community','web_community_comment_'+id+'_'+req.session.memberId+'_'+Date.now()]);
+    res.redirect('/community#post-'+id);
+  }catch(e){next(e);}
+});
+
+app.post('/community/posts/:id/report', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),reason=String(req.body.reason||'').trim().slice(0,1000);
+  if(!Number.isSafeInteger(id)||id<1||reason.length<3)return res.status(400).send(page('Invalid report','<main><h1>Provide a clear report reason.</h1><a href="/community">Return to community</a></main>'));
+  try{
+    const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+    if(!post)return res.status(404).send(page('Post unavailable','<main><h1>This post is no longer available.</h1></main>'));
+    await pool.execute('INSERT INTO community_reports (post_id,reporter_member_id,reason) VALUES (?,?,?)',[id,req.session.memberId,reason]);
+    const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+    for(const a of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[a.member_id,'community_report','Community post reported','A member submitted a content report for moderation.','/admin/community-moderation','web_community_report_'+id+'_'+req.session.memberId+'_'+a.member_id]);
+    res.redirect('/community?report=submitted');
+  }catch(e){next(e);}
+});
+
 app.post('/online-cooperative/connection', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
   const registeredName=String(req.body.registered_name||'').trim().replace(/\\s+/g,' ').slice(0,160);
   const registeredEmail=String(req.body.registered_email||'').trim().toLowerCase();
