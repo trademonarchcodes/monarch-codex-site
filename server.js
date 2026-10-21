@@ -2796,7 +2796,7 @@ app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.
   res.sendFile(path.join(__dirname, path.basename(req.path)));
 });
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
-app.use('/api/mobile', createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl: (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, ''), loginLimiter, registrationLimiter }));
+app.use('/api/mobile', createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl: (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, ''), depositProofUpload, decryptProfileValue, loginLimiter, registrationLimiter }));
 app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
 app.use((err, req, res, _next) => {
   const incidentId = crypto.randomBytes(5).toString('hex').toUpperCase();
