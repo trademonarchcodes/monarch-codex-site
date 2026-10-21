@@ -24,7 +24,9 @@ function createSovereignDeskRouter(deps) {
       ['sovereign_announcements', '010_sovereign_desk_announcements.sql'],
       ['sovereign_chat_messages', '012_sovereign_desk_validation_and_chat.sql'],
       ['sovereign_signal_access', '013_sovereign_signal_access.sql'],
-      ['sovereign_signal_event_slots', '013_sovereign_signal_access.sql']
+      ['sovereign_signal_event_slots', '013_sovereign_signal_access.sql'],
+      ['sovereign_governance_items', '020_sovereign_governance.sql'],
+      ['sovereign_governance_decisions', '020_sovereign_governance.sql']
     ];
     let present = new Set(), roleType = '', checkFailed = false;
     try {
@@ -58,12 +60,13 @@ function createSovereignDeskRouter(deps) {
       ['/sovereign-admin/chat', 'Member chat', '◉'],
       ['/sovereign-admin/announcements', 'Announcements', '▤'],
       ['/sovereign-admin/events', 'Homepage events', '◷'],
+      ['/sovereign-admin/governance', 'Governance & concerns', '⚖'],
       ['/sovereign-admin/activity', 'Workspace activity', '◷'],
       ['/admin/profile', 'My admin profile', '◎']
     ];
     const nav = links.map(([url, label, symbol]) => {
       const isActive = active === url || (url !== '/sovereign-admin' && active.startsWith(url + '/'));
-      return '<a href="' + url + '"' + (isActive ? ' aria-current="page"' : '') + '><span class="nav-icon" aria-hidden="true">' + symbol + '</span><span>' + label + '</span><span class="nav-arrow" aria-hidden="true">↗</span></a>';
+      return '<a href="' + url + '" title="' + esc(label) + '" aria-label="' + esc(label) + '"' + (isActive ? ' aria-current="page"' : '') + '><span class="nav-icon" aria-hidden="true">' + symbol + '</span><span>' + label + '</span><span class="nav-arrow" aria-hidden="true">↗</span></a>';
     }).join('');
     const adminReturn = ['super_admin', 'main_admin'].includes(req.adminRole)
       ? '<a href="/admin"><span class="nav-icon" aria-hidden="true">⌂</span><span>Main Admin Dashboard</span><span class="nav-arrow" aria-hidden="true">↗</span></a>'
@@ -72,7 +75,8 @@ function createSovereignDeskRouter(deps) {
     const replacements = {
       '{{TITLE}}': esc(title),
       '{{ROLE}}': esc(role),
-      '{{NAV}}': adminReturn + nav + '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #514322"><form method="post" action="/logout" style="margin:0">' + csrfField(req) + '<button type="submit" style="width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #70443b;border-radius:11px;background:#241614;color:#f0b3a7;font:inherit;font-weight:800;text-align:left;cursor:pointer">↪ <span>Log out securely</span></button></form></div>',
+      '{{NAV}}': adminReturn + nav + '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #514322"><form method="post" action="/logout" style="margin:0">' + csrfField(req) + '<button type="submit" title="Log out securely" aria-label="Log out securely" style="width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #70443b;border-radius:11px;background:#241614;color:#f0b3a7;font:inherit;font-weight:800;text-align:left;cursor:pointer">↪ <span>Log out securely</span></button></form></div>',
+      '{{BOTTOM_NAV}}': [['/sovereign-admin','Overview','◫'],['/sovereign-admin/signals','Signals','↗'],['/sovereign-admin/mentorship','Guidance','✦'],['/sovereign-admin/chat','Chat','◉']].map(([url,label,symbol]) => '<a href="'+url+'"'+(active===url?' aria-current="page"':'')+'><span aria-hidden="true">'+symbol+'</span><small>'+label+'</small></a>').join('') + '<button type="button" id="deskBottomMore" aria-label="More Sovereign Desk sections"><span aria-hidden="true">☰</span><small>More</small></button>',
       '{{CONTENT}}': content
     };
     let html = template;
@@ -774,6 +778,61 @@ function createSovereignDeskRouter(deps) {
       await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'member',?,?)",[req.session.memberId,req.session.memberId,body]);
       res.redirect('/sovereign-desk/chat?sent=1');
     }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send('Sovereign Desk chat is being configured. Please try again later.');next(e);}
+  });
+
+
+  // Governance workspace: concerns, access-review requests and an auditable decision register.
+  router.get('/sovereign-admin/governance', requireAdmin, adminOnly, async(req,res,next)=>{
+    try {
+      const [items]=await pool.execute("SELECT g.id,g.item_type,g.subject,g.details,g.status,g.created_at,g.reviewed_at,g.resolution_note,m.full_name,m.username,m.monarch_uid,t.full_name target_name FROM sovereign_governance_items g JOIN members m ON m.id=g.submitted_by LEFT JOIN members t ON t.id=g.target_member_id ORDER BY (g.status='open') DESC,g.created_at DESC LIMIT 200");
+      const [members]=await pool.execute("SELECT id,full_name,username,monarch_uid FROM members ORDER BY full_name,username LIMIT 250");
+      const [decisions]=await pool.execute("SELECT d.id,d.decision_title,d.decision_details,d.created_at,d.governance_item_id,m.full_name,m.username FROM sovereign_governance_decisions d JOIN members m ON m.id=d.recorded_by ORDER BY d.created_at DESC LIMIT 100");
+      const memberOptions=members.map(m=>'<option value="'+Number(m.id)+'">'+esc(m.full_name||m.username||m.monarch_uid)+' · '+esc(m.monarch_uid||'')+'</option>').join('');
+      const itemOptions=items.map(g=>'<option value="'+Number(g.id)+'">#'+Number(g.id)+' · '+esc(g.subject)+'</option>').join('');
+      const concernForm=postForm(req,'/sovereign-admin/governance/items','<input type="hidden" name="item_type" value="concern"><label>Concern title</label><input name="subject" maxlength="180" required><label>Concern details</label><textarea name="details" rows="4" maxlength="5000" required></textarea>','Submit governance concern');
+      const reviewForm=postForm(req,'/sovereign-admin/governance/items','<input type="hidden" name="item_type" value="access_review"><label>Member whose access needs review</label><select name="target_member_id" required><option value="">Choose member</option>'+memberOptions+'</select><label>Review request title</label><input name="subject" maxlength="180" required placeholder="Reason for access review"><label>Context / evidence</label><textarea name="details" rows="3" maxlength="5000" required></textarea>','Request access review');
+      const decisionForm=postForm(req,'/sovereign-admin/governance/decisions','<label>Related governance item (optional)</label><select name="governance_item_id"><option value="">Standalone decision</option>'+itemOptions+'</select><label>Decision title</label><input name="decision_title" maxlength="180" required><label>Decision and rationale</label><textarea name="decision_details" rows="4" maxlength="5000" required></textarea><p class="muted">Recording a governance decision creates an audit record; it does not itself approve financial transactions or grant member access.</p>','Record governance decision');
+      const itemRows=items.map(g=>'<tr><td>#'+Number(g.id)+'<br><small>'+dateLabel(g.created_at)+'</small></td><td>'+statusLabel(g.item_type)+(g.target_name?'<br><small>Member: '+esc(g.target_name)+'</small>':'')+'</td><td><strong>'+esc(g.subject)+'</strong><br><small>'+esc(g.details).slice(0,260)+'</small>'+(g.resolution_note?'<br><small>Review note: '+esc(g.resolution_note)+'</small>':'')+'</td><td>'+statusLabel(g.status)+'</td><td>'+postForm(req,'/sovereign-admin/governance/items/'+Number(g.id)+'/status','<select name="status"><option value="open"'+(g.status==='open'?' selected':'')+'>Open</option><option value="under_review"'+(g.status==='under_review'?' selected':'')+'>Under review</option><option value="resolved"'+(g.status==='resolved'?' selected':'')+'>Resolved</option><option value="closed"'+(g.status==='closed'?' selected':'')+'>Closed</option></select><label>Review / resolution note</label><input name="resolution_note" maxlength="2000" value="'+esc(g.resolution_note||'')+'">','Update record')+'</td></tr>').join('');
+      const decisionRows=decisions.map(d=>'<tr><td>#'+Number(d.id)+'<br><small>'+dateLabel(d.created_at)+'</small></td><td><strong>'+esc(d.decision_title)+'</strong><br><small>'+esc(d.decision_details).slice(0,350)+'</small></td><td>'+esc(d.full_name||d.username||'Desk administrator')+'</td><td>'+(d.governance_item_id?'Item #'+Number(d.governance_item_id):'Standalone')+'</td></tr>').join('');
+      const content=notice(req.query.saved?'Governance record saved.':'')+
+        panel('Submit a concern','Create a traceable governance concern for review.',concernForm)+
+        panel('Request an access review','This records a review request only. It does not grant, revoke or change access by itself.',reviewForm)+
+        panel('Record a governance decision','Keep the decision and rationale in the permanent register.',decisionForm)+
+        panel('Governance queue','Review and update concern / access-review status. Access changes must still follow their separate authorised workflow.',table(['ID / submitted','Type','Details','Status','Review'],itemRows,'No governance concerns or access reviews have been submitted.'))+
+        panel('Decision register','Recorded decisions are append-only from this screen.',table(['ID / date','Decision','Recorded by','Related item'],decisionRows,'No governance decisions have been recorded.'));
+      deskAdminPage(req,res,'Governance & oversight','/sovereign-admin/governance',content);
+    } catch(e) { dbUnavailable(res,next,e,'Governance workspace setup required'); }
+  });
+  router.post('/sovereign-admin/governance/items', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
+    const type=clean(req.body.item_type,20),subject=clean(req.body.subject,180),details=clean(req.body.details,5000);
+    const targetRaw=clean(req.body.target_member_id,20),targetId=targetRaw && idOk(targetRaw)?targetRaw:null;
+    if(!['concern','access_review'].includes(type)||!subject||!details||(type==='access_review'&&!targetId))return res.status(400).send('Choose a valid governance item type and complete the required details.');
+    try {
+      if(targetId){const [[target]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[targetId]);if(!target)return res.status(404).send('The selected member was not found.');}
+      await pool.execute('INSERT INTO sovereign_governance_items (item_type,subject,details,target_member_id,submitted_by,status) VALUES (?,?,?,?,?,\'open\')',[type,subject,details,targetId,req.session.memberId]);
+      await pool.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,'sovereign_governance.'+type,'governance_item',targetId||null,JSON.stringify({subject}),req.ip||null]).catch(()=>{});
+      res.redirect('/sovereign-admin/governance?saved=1');
+    } catch(e) { dbUnavailable(res,next,e,'Governance workspace setup required'); }
+  });
+  router.post('/sovereign-admin/governance/items/:id/status', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
+    const id=clean(req.params.id,20),status=clean(req.body.status,20),note=clean(req.body.resolution_note,2000);
+    if(!idOk(id)||!['open','under_review','resolved','closed'].includes(status))return res.status(400).send('Invalid governance record update.');
+    try {
+      const [result]=await pool.execute("UPDATE sovereign_governance_items SET status=?,resolution_note=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?",[status,note||null,req.session.memberId,id]);
+      if(!result.affectedRows)return res.status(404).send('Governance record not found.');
+      await pool.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,'sovereign_governance.status','governance_item',id,JSON.stringify({status,note}),req.ip||null]).catch(()=>{});
+      res.redirect('/sovereign-admin/governance?saved=1');
+    } catch(e) { dbUnavailable(res,next,e,'Governance workspace setup required'); }
+  });
+  router.post('/sovereign-admin/governance/decisions', requireAdmin, adminOnly, urlencoded, csrfCheck, async(req,res,next)=>{
+    const title=clean(req.body.decision_title,180),details=clean(req.body.decision_details,5000),itemRaw=clean(req.body.governance_item_id,20),itemId=itemRaw&&idOk(itemRaw)?itemRaw:null;
+    if(!title||!details||(itemRaw&&!itemId))return res.status(400).send('Enter a valid decision title and rationale.');
+    try {
+      if(itemId){const [[item]]=await pool.execute('SELECT id FROM sovereign_governance_items WHERE id=? LIMIT 1',[itemId]);if(!item)return res.status(404).send('Related governance item not found.');}
+      await pool.execute('INSERT INTO sovereign_governance_decisions (governance_item_id,decision_title,decision_details,recorded_by) VALUES (?,?,?,?)',[itemId,title,details,req.session.memberId]);
+      await pool.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,'sovereign_governance.decision','governance_decision',itemId||null,JSON.stringify({title}),req.ip||null]).catch(()=>{});
+      res.redirect('/sovereign-admin/governance?saved=1');
+    } catch(e) { dbUnavailable(res,next,e,'Governance workspace setup required'); }
   });
 
   return router;
