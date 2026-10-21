@@ -69,6 +69,8 @@ app.use(helmet({
   } }, crossOriginEmbedderPolicy: false
 }));
 app.use(express.urlencoded({ extended: false, limit: '20kb' }));
+// Profile-photo JSON is base64-encoded and can be up to 3 MB; keep the larger limit scoped to this endpoint.
+app.use('/api/mobile/profile/photo', express.json({ limit: '4.5mb' }));
 app.use(express.json({ limit: '20kb' }));
 app.use(session({
   name: 'monarch.sid',
