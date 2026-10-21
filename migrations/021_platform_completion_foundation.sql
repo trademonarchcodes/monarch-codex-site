@@ -1,3 +1,20 @@
+
+CREATE TABLE IF NOT EXISTS member_notifications (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  member_id BIGINT UNSIGNED NOT NULL,
+  notification_type VARCHAR(80) NOT NULL,
+  title VARCHAR(180) NOT NULL,
+  body VARCHAR(2000) NOT NULL,
+  target_url VARCHAR(500) NULL,
+  dedupe_key VARCHAR(200) NULL,
+  read_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_member_notification_dedupe (member_id,dedupe_key),
+  KEY idx_member_notifications_unread (member_id,read_at,created_at),
+  CONSTRAINT fk_member_notifications_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Monarch Codex platform completion foundation.
 -- Additive migration only. Back up the database and review before applying.
 -- Existing members, balances, deposits, withdrawals and KYC records are not altered.
