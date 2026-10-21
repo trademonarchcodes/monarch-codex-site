@@ -2604,7 +2604,7 @@ app.post('/community/posts/:id/report', requireAuth, express.urlencoded({extende
 app.post('/online-cooperative/connection', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
   const registeredName=String(req.body.registered_name||'').trim().replace(/\s+/g,' ').slice(0,160);
   const registeredEmail=String(req.body.registered_email||'').trim().toLowerCase();
-  if(registeredName.length<2||registeredName.length>160||registeredEmail.length>254||!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(registeredEmail))return res.status(400).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p class="error">Enter the name and valid email used for your Cooperative registration.</p><a href="/online-cooperative">Return</a>',req));
+  if(registeredName.length<2||registeredName.length>160||registeredEmail.length>254||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registeredEmail))return res.status(400).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p class="error">Enter the name and valid email used for your Cooperative registration.</p><a href="/online-cooperative">Return</a>',req));
   try{
     const [[existing]]=await pool.execute("SELECT id,status FROM online_cooperative_connections WHERE member_id=? AND status IN ('pending','approved') ORDER BY created_at DESC LIMIT 1",[req.session.memberId]);
     if(existing)return res.redirect('/online-cooperative?connection='+encodeURIComponent(existing.status));
