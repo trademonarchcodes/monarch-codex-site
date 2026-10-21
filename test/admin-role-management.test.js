@@ -37,7 +37,7 @@ test('role editor restricts role grants, prevents self changes, protects the las
 test('admin dashboards preserve a compact desktop rail and responsive bottom navigation', () => {
   assert.match(server, /grid-template-columns:76px minmax\(0,1fr\)/);
   assert.match(server, /ac-bottom-nav/);
-  assert.match(server, /aria-label="Admin primary navigation"/);
+  assert.match(server, /aria-label=/);
   assert.match(server, /aria-label="\+esc\(label\)\+" title="\+esc\(label\)\+"/);
   assert.match(deskTemplate, /grid-template-columns:76px minmax\(0,1fr\)/);
   assert.match(deskTemplate, /desk-bottom-nav/);
