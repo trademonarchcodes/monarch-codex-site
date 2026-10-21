@@ -1096,7 +1096,7 @@ app.get('/admin/deposits', requireFinanceAdmin, async (req,res,next) => {
   try {
     const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
     const [methods] = await pool.query('SELECT * FROM deposit_payment_methods ORDER BY is_active DESC,currency,method_type,id DESC');
-    const [requests] = await pool.query('SELECT d.*,m.username,m.full_name,m.email,p.label AS payment_label,p.method_type FROM deposit_requests d JOIN members m ON m.id=d.member_id JOIN deposit_payment_methods p ON p.id=d.payment_method_id ORDER BY (d.status='pending') DESC,d.created_at DESC LIMIT 150');
+    const [requests] = await pool.query("SELECT d.*,m.username,m.full_name,m.email,p.label AS payment_label,p.method_type FROM deposit_requests d JOIN members m ON m.id=d.member_id JOIN deposit_payment_methods p ON p.id=d.payment_method_id ORDER BY (d.status='pending') DESC,d.created_at DESC LIMIT 150");
     const methodRows = methods.map(m => {
       const details = m.method_type === 'bank'
         ? '<strong>' + esc(m.bank_name || '') + '</strong><br>Account name: ' + esc(m.account_name || '') + '<br>Account number: ' + esc(m.account_number || '') + (m.bank_code ? '<br>Bank code: ' + esc(m.bank_code) : '')
