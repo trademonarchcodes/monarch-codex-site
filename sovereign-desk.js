@@ -63,10 +63,21 @@ function createSovereignDeskRouter(deps) {
     ];
     const nav = links.map(([url, label, symbol]) => {
       const isActive = active === url || (url !== '/sovereign-admin' && active.startsWith(url + '/'));
-      return '<a href="' + url + '"' + (isActive ? ' aria-current="page"' : '') + '><span class="nav-icon" aria-hidden="true">' + symbol + '</span><span>' + label + '</span><span class="nav-arrow" aria-hidden="true">↗</span></a>';
+      return '<a href="' + url + '" aria-label="' + esc(label) + '" title="' + esc(label) + '"' + (isActive ? ' aria-current="page"' : '') + '><span class="nav-icon" aria-hidden="true">' + symbol + '</span><span>' + label + '</span><span class="nav-arrow" aria-hidden="true">↗</span></a>';
+    }).join('');
+    const mobileLinks = [
+      ['/sovereign-admin', 'Overview', '⌂'],
+      ['/sovereign-admin/signals', 'Signals', '↗'],
+      ['/sovereign-admin/mentorship', 'Guidance', '✦'],
+      ['/sovereign-admin/chat', 'Chat', '◉'],
+      ['/sovereign-admin/access', 'More', '☰']
+    ];
+    const mobileNav = mobileLinks.map(([url, label, symbol]) => {
+      const isActive = active === url || (url !== '/sovereign-admin' && active.startsWith(url + '/'));
+      return '<a href="' + url + '" aria-label="' + esc(label) + '" title="' + esc(label) + '"' + (isActive ? ' aria-current="page"' : '') + '><span aria-hidden="true">' + symbol + '</span><small>' + label + '</small></a>';
     }).join('');
     const adminReturn = ['super_admin', 'main_admin'].includes(req.adminRole)
-      ? '<a href="/admin"><span class="nav-icon" aria-hidden="true">⌂</span><span>Main Admin Dashboard</span><span class="nav-arrow" aria-hidden="true">↗</span></a>'
+      ? '<a href="/admin" aria-label="Main Admin Dashboard" title="Main Admin Dashboard"><span class="nav-icon" aria-hidden="true">⌂</span><span>Main Admin Dashboard</span><span class="nav-arrow" aria-hidden="true">↗</span></a>'
       : '';
     const role = String(req.adminRole || 'sovereign_desk_admin').replace(/_/g, ' ').toUpperCase();
     const replacements = {
