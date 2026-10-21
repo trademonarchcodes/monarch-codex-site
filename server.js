@@ -891,7 +891,7 @@ const adminSectionInfo = {
   '/admin/academy': ['Academy management','Manage learning content and eligible access.','The existing Academy management data source has not yet been connected to this control centre.'],
   '/admin/sovereign-desk': ['Sovereign Desk','Manage signals and guidance through the dedicated Desk workspace.','Signal records and publication workflows are not yet connected to this Main Admin section.'],  '/admin/notifications': ['Notifications','Review administrative alerts and delivery status.','A persisted notification centre is not yet connected. No alerts are being presented as delivered.'],  '/admin/settings': ['Platform settings','Review supported administrative configuration.','No safe platform-settings editor is connected. Sensitive configuration remains environment-managed.'],
   '/admin/audit': ['Audit & access','Review provisioned administrator access and audit readiness.','Administrator roles are read from the database. A complete immutable audit stream is not yet connected.']};
-app.get('/admin/transactions', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/transactions', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT f.id,f.member_id,f.transaction_type,f.currency,f.amount,f.reference,f.admin_note,f.created_at,m.full_name,m.username,m.monarch_uid FROM financial_transactions f LEFT JOIN members m ON m.id=f.member_id ORDER BY f.created_at DESC LIMIT 500');
     const money = (currency, amount) => esc(String(currency || '') + ' ' + Number(amount || 0).toLocaleString('en-US',{maximumFractionDigits:8}));
@@ -919,7 +919,7 @@ function requireFinanceAdmin(req,res,next) {
   });
 }
 
-app.get('/admin/earnings', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/earnings', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const [members] = await pool.execute("SELECT id,full_name,username,monarch_uid FROM members ORDER BY full_name ASC,username ASC LIMIT 1000");
     const [rows] = await pool.execute("SELECT f.id,f.member_id,f.transaction_type,f.currency,f.amount,f.reference,f.admin_note,f.created_at,m.full_name,m.username,m.monarch_uid FROM financial_transactions f LEFT JOIN members m ON m.id=f.member_id WHERE f.transaction_type IN ('admin_bonus','investment_profit','loss_adjustment') ORDER BY f.created_at DESC LIMIT 300");
@@ -947,7 +947,7 @@ app.get('/admin/earnings', requireFinanceAdmin, async (req,res,next) => {
   }
 });
 
-app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const memberId=Number(req.body.member_id),operation=String(req.body.operation||''),currency=String(req.body.currency||''),amountText=String(req.body.amount||'').trim(),note=String(req.body.note||'').trim().slice(0,500);
   if(!Number.isSafeInteger(memberId)||memberId<1||!['admin_bonus','investment_profit','loss_adjustment'].includes(operation)||!['NGN','USD'].includes(currency)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText)||!Number.isFinite(Number(amountText))||Number(amountText)<=0||!note) return res.status(400).send(formError('Check adjustment details','Choose a member, valid currency, positive amount and clear reason.','/admin/earnings'));
   let conn;
@@ -981,7 +981,7 @@ app.post('/admin/earnings', requireFinanceAdmin, express.urlencoded({extended:fa
   }
 });
 
-app.get('/admin/investments', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/investments', requireFinanceAdmin, requireWebCategoryAccess('invest_market','view'), async (req,res,next) => {
   try {
     const [packages]=await pool.execute('SELECT id,name,description,currency,price,duration_days,terms,status,created_at,updated_at FROM investment_packages ORDER BY created_at DESC,id DESC');
     const rows=packages.map(p=>{
@@ -1016,7 +1016,7 @@ app.get('/admin/investments', requireFinanceAdmin, async (req,res,next) => {
     next(e);
   }
 });
-app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, requireWebCategoryAccess('invest_market','manage'), async (req,res,next) => {
   const id=String(req.body.id||'').trim(),name=String(req.body.name||'').trim().slice(0,120),description=String(req.body.description||'').trim().slice(0,1000),currency=String(req.body.currency||''),priceText=String(req.body.price||'').trim(),durationText=String(req.body.duration_days||'').trim(),terms=String(req.body.terms||'').trim().slice(0,2000),status=String(req.body.status||'draft');
   if(!name||!['NGN','USD'].includes(currency)||!/^\d{1,12}(?:\.\d{1,8})?$/.test(priceText)||Number(priceText)<=0||!(durationText===''||/^\d{1,5}$/.test(durationText))||!['draft','active','inactive'].includes(status)||!terms) return res.status(400).send(formError('Check package details','Provide a name, valid positive price, currency, optional duration and clear terms.','/admin/investments'));
   try {
@@ -1030,7 +1030,7 @@ app.post('/admin/investments/packages', requireFinanceAdmin, express.urlencoded(
     res.redirect('/admin/investments');
   } catch(e){if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Investment setup required','migrations/011_investment_packages_and_purchases.sql'));next(e);}
 });
-app.get('/admin/withdrawals', requireFinanceAdmin, async (req,res,next)=>{
+app.get('/admin/withdrawals', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next)=>{
   try{
     const [requests]=await pool.query('SELECT w.*,m.username,m.full_name,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id ORDER BY CASE w.status WHEN \'pending\' THEN 0 WHEN \'approved\' THEN 1 ELSE 2 END,w.created_at DESC LIMIT 200');
     const rows=requests.map(w=>{
@@ -1049,7 +1049,7 @@ app.get('/admin/withdrawals', requireFinanceAdmin, async (req,res,next)=>{
     res.send(adminControlPage('Withdrawals','/admin/withdrawals',content,req));
   }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(dbSetupNotice('Withdrawal workflow setup required','migrations/009_withdrawal_requests.sql'));next(e);}
 });
-app.post('/admin/withdrawals/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+app.post('/admin/withdrawals/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations',req=>req.body.decision==='paid'?'manage':req.body.decision==='approved'?'approve':'reject'), async(req,res,next)=>{
   const id=String(req.params.id||''),decision=String(req.body.decision||''),note=String(req.body.reviewer_note||'').trim().slice(0,1000),paymentReference=String(req.body.payment_reference||'').trim().slice(0,190);
   if(!/^\d{1,20}$/.test(id)||!['approved','rejected','paid'].includes(decision))return res.status(400).send(formError('Invalid withdrawal review','Choose a valid request and review decision.','/admin/withdrawals'));
   if(decision==='paid'&&!paymentReference)return res.status(400).send(formError('Transfer reference required','Enter the reference for the actual completed transfer before marking a withdrawal paid.','/admin/withdrawals'));
@@ -1097,7 +1097,7 @@ app.get('/api/admin/pending-deposit-count', requireFinanceAdmin, async (req,res,
   }
 });
 
-app.get('/admin/deposits', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/deposits', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd FROM deposit_pricing_settings WHERE id=1');
     const [methods] = await pool.query('SELECT * FROM deposit_payment_methods ORDER BY is_active DESC,currency,method_type,id DESC');
@@ -1115,7 +1115,7 @@ app.get('/admin/deposits', requireFinanceAdmin, async (req,res,next) => {
     res.send(adminControlPage('Deposits','/admin/deposits',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/deposits/methods', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/deposits/methods', requireFinanceAdmin, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const id = String(req.body.id || '').trim();
   const type = String(req.body.method_type || '');
   const currency = String(req.body.currency || '');
@@ -1144,7 +1144,7 @@ app.post('/admin/deposits/methods', requireFinanceAdmin, express.urlencoded({ext
     res.redirect('/admin/deposits');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const id=String(req.params.id||''), active=String(req.body.is_active||'');
   if (!/^\d{1,20}$/.test(id) || !['0','1'].includes(active)) return res.status(400).send(page('Invalid destination status','<h1>Invalid destination status</h1><a class="btn" href="/admin/deposits">Return to deposits</a>'));
   try {
@@ -1154,7 +1154,7 @@ app.post('/admin/deposits/methods/:id/status', requireFinanceAdmin, express.urle
     res.redirect('/admin/deposits');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.get('/admin/deposits/:id/proof', requireFinanceAdmin, async (req,res,next) => {
+app.get('/admin/deposits/:id/proof', requireFinanceAdmin, requireWebCategoryAccess('financial_operations','view'), async (req,res,next) => {
   try {
     const id=String(req.params.id||'');
     if (!/^\d{1,20}$/.test(id)) return res.status(400).send(page('Invalid proof','<h1>Invalid payment proof</h1>'));
@@ -1168,7 +1168,7 @@ app.get('/admin/deposits/:id/proof', requireFinanceAdmin, async (req,res,next) =
     res.sendFile(filePath);
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit workflow setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations',req=>req.body.decision==='approved'?'approve':'reject'), async (req,res,next) => {
   const id=String(req.params.id||''), decision=String(req.body.decision||req.query.decision||''), note=String(req.body.reviewer_note||'').trim().slice(0,1000);
   if (!/^\d{1,20}$/.test(id) || !['approved','rejected'].includes(decision)) return res.status(400).send(page('Invalid deposit review','<h1>Invalid deposit review</h1><a class="btn" href="/admin/deposits">Return to deposits</a>'));
   let conn;
@@ -1205,7 +1205,7 @@ app.post('/admin/deposits/:id/review', requireFinanceAdmin, express.urlencoded({
   } finally { if(conn) conn.release(); }
 });
 
-app.get('/admin/referrals', requireAdmin, async (req,res,next) => {
+app.get('/admin/referrals', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT c.id,c.full_name,c.username,c.email,c.monarch_uid,c.created_at,r.full_name AS referrer_name,r.username AS referrer_username,r.monarch_uid AS referrer_uid FROM members c JOIN members r ON r.id=c.referred_by ORDER BY c.created_at DESC LIMIT 300');
     const items = rows.map(r => '<tr><td><strong>' + esc(r.full_name || r.username) + '</strong><br><small>' + esc(r.email) + '</small><br>' + esc(r.monarch_uid || '—') + '</td><td><strong>' + esc(r.referrer_name || r.referrer_username) + '</strong><br><small>' + esc(r.referrer_username) + ' · ' + esc(r.referrer_uid || '—') + '</small></td><td>' + esc(r.created_at || '—') + '</td></tr>').join('');
@@ -1213,7 +1213,7 @@ app.get('/admin/referrals', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Referral monitoring','/admin/referrals',content,req));
   } catch(e) { next(e); }
 });
-app.get('/admin/academy', requireAdmin, async (req,res,next) => {
+app.get('/admin/academy', requireAdmin, requireWebCategoryAccess('invest_market','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT l.id,l.title,l.description,l.access_level,l.status,l.sort_order,l.created_at,m.username AS creator FROM academy_lessons l LEFT JOIN members m ON m.id=l.created_by ORDER BY l.sort_order ASC,l.created_at DESC LIMIT 200');
     const items = rows.map(l => '<tr><td><strong>' + esc(l.title) + '</strong><br><small>' + esc(l.description || '') + '</small></td><td>' + esc(l.access_level) + '</td><td>' + esc(l.status) + '</td><td>' + esc(l.creator || '—') + '</td><td><form method="post" action="/admin/academy/lessons/' + encodeURIComponent(l.id) + '/status">' + csrfField(req) + '<select name="status" aria-label="Lesson status"><option value="draft"' + (l.status === 'draft' ? ' selected' : '') + '>Draft</option><option value="published"' + (l.status === 'published' ? ' selected' : '') + '>Published</option><option value="archived"' + (l.status === 'archived' ? ' selected' : '') + '>Archived</option></select><button class="btn" type="submit">Save status</button></form></td></tr>').join('');
@@ -1221,7 +1221,7 @@ app.get('/admin/academy', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Academy management','/admin/academy',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
-app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:false,limit:'60kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:false,limit:'60kb'}), csrfCheck, requireWebCategoryAccess('invest_market','manage'), async (req,res,next) => {
   try {
     const title = String(req.body.title || '').trim().slice(0,180);
     const description = String(req.body.description || '').trim().slice(0,1000);
@@ -1236,7 +1236,7 @@ app.post('/admin/academy/lessons', requireAdmin, express.urlencoded({extended:fa
     await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,created_by) VALUES (?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,req.session.memberId]);    res.redirect('/admin/academy');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
-app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('invest_market','manage'), async (req,res,next) => {
   const id = String(req.params.id || '');
   const status = String(req.body.status || '');
   if (!/^\d{1,20}$/.test(id) || !['draft','published','archived'].includes(status)) return res.status(400).send(page('Invalid lesson update','<h1>Invalid lesson status</h1><a class="btn" href="/admin/academy">Return to Academy</a>'));
@@ -1250,7 +1250,7 @@ app.get('/admin/sovereign-desk', requireAdmin, (req,res) => {
   if (req.adminRole === 'sovereign_desk_admin') return res.redirect('/sovereign-admin');
   res.redirect('/sovereign-admin');
 });
-app.get('/admin/notifications', requireAdmin, async (req,res,next) => {
+app.get('/admin/notifications', requireAdmin, requireWebCategoryAccess('notifications','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query('SELECT n.id,n.notification_type,n.title,n.body,n.target_url,n.read_at,n.created_at,m.full_name,m.username,m.email FROM member_notifications n JOIN members m ON m.id=n.member_id ORDER BY n.created_at DESC LIMIT 200');
     const items = rows.map(n => '<tr><td><strong>' + esc(n.title) + '</strong><br><small>' + esc(n.notification_type) + '</small><p>' + esc(n.body) + '</p></td><td>' + esc(n.full_name || n.username) + '<br><small>' + esc(n.email) + '</small></td><td>' + esc(n.read_at ? 'Read' : 'Unread') + '</td><td>' + esc(n.created_at) + '</td></tr>').join('');
@@ -1258,7 +1258,7 @@ app.get('/admin/notifications', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Notifications','/admin/notifications',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Notification setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
-app.get('/admin/audit', requireAdmin, async (req,res,next) => {
+app.get('/admin/audit', requireAdmin, requireWebCategoryAccess('security_audit','view'), async (req,res,next) => {
   try {
     const [admins] = await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name,m.email FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
     const [events] = await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 100');
@@ -1268,7 +1268,7 @@ app.get('/admin/audit', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Audit & access','/admin/audit',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Audit setup required','migrations/002_admin_access.sql')); next(e); }
 });
-app.get('/admin/settings', requireAdmin, async (req,res,next) => {
+app.get('/admin/settings', requireAdmin, requireWebCategoryAccess('security_audit','manage'), async (req,res,next) => {
   try {
     const [[pricing]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent,bank_fee_usd,wallet_fee_usd,updated_at FROM deposit_pricing_settings WHERE id=1');
     const settings = [
@@ -1295,7 +1295,7 @@ app.get('/admin/settings', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('Platform settings','/admin/settings',content,req));
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Deposit pricing setup required','migrations/006_deposit_payment_workflow.sql')); next(e); }
 });
-app.post('/admin/settings/deposit-pricing', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/settings/deposit-pricing', requireFinanceAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('financial_operations','manage'), async (req,res,next) => {
   const base = Number(req.body.base_usd_ngn_rate);
   const markup = Number(req.body.markup_percent);
   const bankFee = Number(req.body.bank_fee_usd);
@@ -1341,7 +1341,7 @@ app.get('/admin/roles', requireAdmin, (req,res)=>{
   res.send(adminControlPage('Member roles','/admin/roles',content,req));
 });
 
-app.get('/admin/members', requireAdmin, async (req,res,next)=>{
+app.get('/admin/members', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next)=>{
   try {
     let blockColumn=false; try { const [blockCols]=await pool.query("SHOW COLUMNS FROM members LIKE 'is_blocked'"); blockColumn=blockCols.length>0; } catch (_) { blockColumn=false; }
     const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active,mp.avatar_key'+(blockColumn?',m.is_blocked':' ,0 AS is_blocked')+' FROM members m LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY m.id DESC LIMIT 200');
@@ -1355,7 +1355,7 @@ app.get('/admin/members', requireAdmin, async (req,res,next)=>{
   } catch(e){next(e);}
 });
 
-app.post('/admin/members/:memberId/block', requireAdmin, (req,res,next)=>{
+app.post('/admin/members/:memberId/block', requireAdmin, requireWebCategoryAccess('members_roles','edit'), (req,res,next)=>{
   csrfCheck(req,res,async csrfErr=>{
     if(csrfErr)return;
     try{
@@ -1373,7 +1373,7 @@ app.post('/admin/members/:memberId/block', requireAdmin, (req,res,next)=>{
   });
 });
 
-app.post('/admin/members/:memberId/delete', requireAdmin, (req,res,next)=>{
+app.post('/admin/members/:memberId/delete', requireAdmin, requireWebCategoryAccess('members_roles','delete'), (req,res,next)=>{
   csrfCheck(req,res,async csrfErr=>{
     if(csrfErr)return;
     let conn;
@@ -1396,7 +1396,7 @@ app.post('/admin/members/:memberId/delete', requireAdmin, (req,res,next)=>{
   });
 });
 
-app.get('/admin/members/:memberId', requireAdmin, async (req,res,next)=>{
+app.get('/admin/members/:memberId', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next)=>{
   try {
     const memberId=Number(req.params.memberId);
     if(!Number.isSafeInteger(memberId)||memberId<1)return res.sendStatus(400);
@@ -1425,7 +1425,7 @@ const KYC_REJECTION_REASONS = Object.freeze({
   other: { label: 'Other verification issue', message: 'We could not approve this verification submission. Please contact support for clarification before resubmitting.' }
 });
 
-app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
+app.get('/admin/kyc/:id', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next) => {
   try {
     const id=String(req.params.id||''); if(!/^\d{1,20}$/.test(id)) return res.sendStatus(400);
     const [rows]=await pool.execute('SELECT k.*,m.username,m.monarch_uid FROM kyc_submissions k JOIN members m ON m.id=k.member_id WHERE k.id=? LIMIT 1',[id]);
@@ -1440,7 +1440,7 @@ app.get('/admin/kyc/:id', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('KYC applicant review','/admin/kyc',body,req));
   } catch(e){next(e);}
 });
-app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
+app.get('/admin/kyc/:id/document/:kind', requireAdmin, requireWebCategoryAccess('members_roles','view'), async(req,res,next)=>{
   try {
     const id=String(req.params.id||''),kind=String(req.params.kind||'');
     const cols={front:'document_front_private_key',back:'document_back_private_key',selfie:'selfie_private_key'};
@@ -1452,7 +1452,7 @@ app.get('/admin/kyc/:id/document/:kind', requireAdmin, async(req,res,next)=>{
     res.set({'Content-Type':mime,'Content-Disposition':'inline','Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff'});return res.send(image);
   } catch(e){if(e.code==='ENOENT'||e.message==='Invalid encrypted KYC file.')return res.sendStatus(404);next(e);}
 });
-app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
+app.get('/admin/kyc', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next) => {
   try {
     const [rows] = await pool.query("SELECT k.id,k.member_id,k.legal_full_name,k.contact_email,k.document_type,k.document_issuer_country,k.document_number_last4,k.status,k.submitted_at FROM kyc_submissions k WHERE NOT EXISTS (SELECT 1 FROM kyc_submissions newer WHERE newer.member_id=k.member_id AND (newer.submitted_at>k.submitted_at OR (newer.submitted_at=k.submitted_at AND newer.id>k.id))) ORDER BY k.submitted_at DESC,k.id DESC LIMIT 200");
     const rejectionOptions = Object.entries(KYC_REJECTION_REASONS).map(([value, reason]) => '<option value="' + esc(value) + '">' + esc(reason.label) + '</option>').join('');
@@ -1473,7 +1473,7 @@ app.get('/admin/kyc', requireAdmin, async (req,res,next) => {
     res.send(adminControlPage('KYC review','/admin/kyc', '<section class="ac-panel">' + body + '</section>', req));
   } catch(e) { next(e); }
 });
-app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async (req,res,next) => {
+app.post('/admin/kyc/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('members_roles',req=>req.body.status==='approved'?'approve':'reject'), async (req,res,next) => {
   const id = String(req.params.id || '');
   const status = req.body.status;
   const reasonCode = String(req.body.reason_code || '').trim();
