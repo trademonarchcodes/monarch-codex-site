@@ -446,6 +446,133 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } finally { if (connection) connection.release(); }
   });
 
+
+  const requireMobileFinanceAdmin = async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin || !['super_admin','main_admin'].includes(String(admin.role))) return res.status(403).json({error:'finance_admin_required',message:'Only Super Admin or Main Admin can review financial requests.'});
+      req.mobileAdminRole=admin.role; next();
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'admin_setup_required',message:'Administrator access is not configured.'}); next(e); }
+  };
+  const adminAudit = async (executor,actor,action,targetType,targetId,details,ip) => executor.execute(
+    'INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',
+    [actor,action,targetType,String(targetId),JSON.stringify(details||{}),ip||null]
+  );
+
+  router.get('/admin/reviews/:type', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    const type=String(req.params.type||'');
+    if(!['kyc','deposits','withdrawals'].includes(type))return res.status(400).json({error:'invalid_review_queue'});
+    if(type!=='kyc' && !['super_admin','main_admin'].includes(String(req.mobileAdminRole)))return res.status(403).json({error:'finance_admin_required',message:'Only Super Admin or Main Admin can review financial requests.'});
+    try {
+      let rows=[];
+      if(type==='kyc') {
+        [rows]=await pool.query("SELECT k.id,k.member_id,k.legal_full_name,k.contact_email,k.document_type,k.document_issuer_country,k.document_number_last4,k.status,k.submitted_at,k.reviewer_note,m.username,m.monarch_uid FROM kyc_submissions k JOIN members m ON m.id=k.member_id WHERE NOT EXISTS (SELECT 1 FROM kyc_submissions newer WHERE newer.member_id=k.member_id AND (newer.submitted_at>k.submitted_at OR (newer.submitted_at=k.submitted_at AND newer.id>k.id))) ORDER BY (k.status='pending') DESC,k.submitted_at DESC,k.id DESC LIMIT 200");
+      } else if(type==='deposits') {
+        [rows]=await pool.query("SELECT d.id,d.member_id,d.currency,d.amount,d.fee_amount,d.total_due,d.payment_reference,d.status,d.created_at,d.reviewer_note,m.full_name,m.username,m.email,p.label AS payment_label,p.method_type FROM deposit_requests d JOIN members m ON m.id=d.member_id JOIN deposit_payment_methods p ON p.id=d.payment_method_id ORDER BY (d.status='pending') DESC,d.created_at DESC LIMIT 200");
+      } else {
+        [rows]=await pool.query("SELECT w.id,w.member_id,w.currency,w.amount,w.status,w.created_at,w.reviewer_note,w.payment_reference,m.full_name,m.username,m.email FROM withdrawal_requests w JOIN members m ON m.id=w.member_id ORDER BY CASE w.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,w.created_at DESC LIMIT 200");
+      }
+      res.json({type,items:rows});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'review_setup_required',message:'The review queue database is not configured.'}); next(e); }
+  });
+
+  router.post('/admin/reviews/kyc/:id', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    const id=String(req.params.id||''), status=String(req.body.status||''), note=String(req.body.note||'').trim().slice(0,1000);
+    if(!/^\d{1,20}$/.test(id)||!['approved','rejected','needs_resubmission'].includes(status))return res.status(400).json({error:'invalid_review',message:'Choose a valid KYC decision.'});
+    if(status!=='approved'&&!note)return res.status(400).json({error:'review_note_required',message:'Add a reason or instructions for this decision.'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[row]]=await conn.execute('SELECT id,status FROM kyc_submissions WHERE id=? FOR UPDATE',[id]);
+      if(!row){await conn.rollback();return res.status(404).json({error:'not_found',message:'KYC submission not found.'});}
+      if(row.status==='approved' || row.status===status){await conn.rollback();return res.status(409).json({error:'already_reviewed',message:'This KYC submission is already approved or has this status.'});}
+      await conn.execute('UPDATE kyc_submissions SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
+      await conn.execute('INSERT INTO kyc_review_events (submission_id,actor_member_id,event_type,note) VALUES (?,?,?,?)',[id,req.session.memberId,status,note||null]);
+      await adminAudit(conn,req.session.memberId,'kyc.'+status,'kyc_submission',id,{status,note},req.ip);
+      await conn.commit();
+      return res.json({ok:true,id:Number(id),status,message:'KYC review saved.'});
+    } catch(e) { try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'kyc_setup_required',message:'KYC review tables are not configured.'}); return next(e); }
+    finally {conn.release();}
+  });
+
+  router.post('/admin/reviews/deposits/:id', noStore, apiAuth, requireMobileFinanceAdmin, async (req,res,next) => {
+    const id=String(req.params.id||''), decision=String(req.body.decision||''), note=String(req.body.note||'').trim().slice(0,1000);
+    if(!/^\d{1,20}$/.test(id)||!['approved','rejected'].includes(decision))return res.status(400).json({error:'invalid_review',message:'Choose approve or reject.'});
+    if(req.body.confirmed!==true)return res.status(400).json({error:'confirmation_required',message:'A second confirmation is required for financial actions.'});
+    if(decision==='rejected'&&!note)return res.status(400).json({error:'review_note_required',message:'Add a reason before rejecting a deposit.'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[d]]=await conn.execute('SELECT id,member_id,currency,amount,fee_amount,status FROM deposit_requests WHERE id=? FOR UPDATE',[id]);
+      if(!d){await conn.rollback();return res.status(404).json({error:'not_found',message:'Deposit request not found.'});}
+      if(d.status!=='pending'){await conn.rollback();return res.status(409).json({error:'already_reviewed',message:'This deposit has already been reviewed.'});}
+      if(decision==='approved') {
+        await conn.execute('INSERT INTO member_wallets (member_id,currency,balance) VALUES (?,?,?) ON DUPLICATE KEY UPDATE balance=balance+VALUES(balance)',[d.member_id,d.currency,d.amount]);
+        await conn.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,?,?,?,?,?)',[d.member_id,d.id,'deposit_credit',d.currency,d.amount,'DEP-'+d.id]);
+      }
+      await conn.execute('UPDATE deposit_requests SET status=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision,req.session.memberId,note||null,id]);
+      await adminAudit(conn,req.session.memberId,'deposit.'+decision,'deposit_request',id,{currency:d.currency,amount:String(d.amount),note,confirmed:true},req.ip);
+      await conn.commit();
+      return res.json({ok:true,id:Number(id),status:decision,message:decision==='approved'?'Deposit approved and credited.':'Deposit rejected.'});
+    } catch(e) {try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'deposit_setup_required',message:'Deposit workflow tables are not configured.'}); return next(e);}
+    finally{conn.release();}
+  });
+
+  router.post('/admin/reviews/withdrawals/:id', noStore, apiAuth, requireMobileFinanceAdmin, async (req,res,next) => {
+    const id=String(req.params.id||''),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000),reference=String(req.body.paymentReference||'').trim().slice(0,190);
+    if(!/^\d{1,20}$/.test(id)||!['approved','rejected','paid'].includes(decision))return res.status(400).json({error:'invalid_review',message:'Choose a valid withdrawal decision.'});
+    if(req.body.confirmed!==true)return res.status(400).json({error:'confirmation_required',message:'A second confirmation is required for financial actions.'});
+    if(decision==='rejected'&&!note)return res.status(400).json({error:'review_note_required',message:'Add a reason before rejecting a withdrawal.'});
+    if(decision==='paid'&&!reference)return res.status(400).json({error:'payment_reference_required',message:'Enter the actual completed transfer reference.'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[w]]=await conn.execute('SELECT id,member_id,currency,amount,status FROM withdrawal_requests WHERE id=? FOR UPDATE',[id]);
+      if(!w){await conn.rollback();return res.status(404).json({error:'not_found',message:'Withdrawal request not found.'});}
+      if(decision==='approved') {
+        if(w.status!=='pending'){await conn.rollback();return res.status(409).json({error:'already_reviewed',message:'Only pending withdrawals can be approved.'});}
+        await conn.execute("UPDATE withdrawal_requests SET status='approved',reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?",[req.session.memberId,note||null,id]);
+      } else if(decision==='rejected') {
+        if(!['pending','approved'].includes(w.status)){await conn.rollback();return res.status(409).json({error:'invalid_status',message:'This withdrawal can no longer be rejected.'});}
+        await conn.execute("UPDATE withdrawal_requests SET status='rejected',reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?",[req.session.memberId,note,id]);
+      } else {
+        if(w.status!=='approved'){await conn.rollback();return res.status(409).json({error:'approval_required',message:'Approve the withdrawal before recording payment.'});}
+        const [[wallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[w.member_id,w.currency]);
+        if(!wallet||Number(wallet.balance)+1e-8<Number(w.amount)){await conn.rollback();return res.status(409).json({error:'insufficient_balance',message:'The wallet no longer contains enough funds.'});}
+        await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=?',[w.amount,wallet.id]);
+        await conn.execute('INSERT INTO withdrawal_ledger_entries (withdrawal_request_id,member_id,currency,amount,payment_reference) VALUES (?,?,?,?,?)',[w.id,w.member_id,w.currency,w.amount,reference]);
+        await conn.execute("UPDATE withdrawal_requests SET status='paid',payment_reference=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP,paid_at=CURRENT_TIMESTAMP WHERE id=?",[reference,req.session.memberId,note||null,id]);
+      }
+      await adminAudit(conn,req.session.memberId,'withdrawal.'+decision,'withdrawal_request',id,{decision,amount:String(w.amount),currency:w.currency,paymentReference:decision==='paid'?reference:null,confirmed:true},req.ip);
+      await conn.commit();
+      return res.json({ok:true,id:Number(id),status:decision,message:decision==='paid'?'Withdrawal marked paid after transfer confirmation.':'Withdrawal review saved.'});
+    } catch(e) {try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'withdrawal_setup_required',message:'Withdrawal workflow tables are not configured.'}); if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'duplicate_payment_reference',message:'That transfer reference has already been used.'}); return next(e);}
+    finally{conn.release();}
+  });
+
+  router.get('/admin/audit-events', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    try {
+      const [rows]=await pool.query('SELECT l.action,l.target_type,l.target_id,l.details,l.ip_address,l.created_at,m.username FROM admin_audit_log l JOIN members m ON m.id=l.admin_member_id ORDER BY l.created_at DESC LIMIT 200');
+      return res.json({events:rows});
+    } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'audit_setup_required',message:'Audit logging is not configured.'});next(e);}
+  });
+  router.get('/admin/analytics', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    try {
+      const [[members]]=await pool.query('SELECT COUNT(*) AS total FROM members');
+      const [[kyc]]=await pool.query("SELECT COUNT(*) AS total,SUM(status='pending') AS pending,SUM(status='approved') AS approved,SUM(status='rejected') AS rejected FROM kyc_submissions");
+      const [[deposits]]=await pool.query("SELECT COUNT(*) AS total,SUM(status='pending') AS pending,COALESCE(SUM(CASE WHEN status='approved' THEN amount ELSE 0 END),0) AS approvedAmount FROM deposit_requests");
+      const [[withdrawals]]=await pool.query("SELECT COUNT(*) AS total,SUM(status='pending') AS pending,SUM(status='approved') AS approved,COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) AS paidAmount FROM withdrawal_requests");
+      return res.json({members:Number(members.total)||0,kyc:{total:Number(kyc.total)||0,pending:Number(kyc.pending)||0,approved:Number(kyc.approved)||0,rejected:Number(kyc.rejected)||0},deposits:{total:Number(deposits.total)||0,pending:Number(deposits.pending)||0,approvedAmount:String(deposits.approvedAmount||0)},withdrawals:{total:Number(withdrawals.total)||0,pending:Number(withdrawals.pending)||0,approved:Number(withdrawals.approved)||0,paidAmount:String(withdrawals.paidAmount||0)}});
+    } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'analytics_setup_required',message:'Analytics data tables are not configured.'});next(e);}
+  });
+  router.get('/admin/security', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    try {
+      const [admins]=await pool.query('SELECT a.member_id,a.role,a.is_active,a.created_at,m.username,m.full_name FROM admin_users a JOIN members m ON m.id=a.member_id ORDER BY a.created_at DESC LIMIT 100');
+      const [events]=await pool.query("SELECT action,target_type,target_id,ip_address,created_at FROM admin_audit_log WHERE action LIKE '%login%' OR action LIKE '%security%' OR action LIKE '%session%' ORDER BY created_at DESC LIMIT 100");
+      return res.json({admins,securityEvents:events,session:{authenticated:true,reauthenticationAvailable:false,secondConfirmationRequired:true}});
+    } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'security_setup_required',message:'Security records are not configured.'});next(e);}
+  });
+
   router.get('/admin/overview', noStore, apiAuth, requireMobileAdmin, async (req, res, next) => {
     try {
       const [[members]] = await pool.query('SELECT COUNT(*) AS total FROM members');
