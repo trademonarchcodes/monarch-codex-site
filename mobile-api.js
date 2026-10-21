@@ -704,8 +704,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const connection=await pool.getConnection();
       try {
         await connection.beginTransaction();
-        const [[request]]=await connection.execute("SELECT id,member_id,role_id,status FROM member_role_requests WHERE id=? FOR UPDATE",[id]);
+        const [[request]]=await connection.execute("SELECT q.id,q.member_id,q.role_id,q.status,r.role_key,r.role_name FROM member_role_requests q JOIN member_role_catalog r ON r.id=q.role_id WHERE q.id=? FOR UPDATE",[id]);
         if(!request||request.status!=='pending'){await connection.rollback();return res.status(409).json({error:'already_reviewed'});}
+        if(decision==='approve'&&(String(request.role_key).toLowerCase()==='founder'||String(request.role_name).toLowerCase()==='founder')){await connection.rollback();return res.status(403).json({error:'founder_reserved',message:'Founder is reserved exclusively for the Monarch Codex Super Admin.'});}
         if(decision==='approve')await connection.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)',[request.member_id,request.role_id,req.session.memberId]);
         await connection.execute('UPDATE member_role_requests SET status=?,reviewed_by_member_id=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[decision==='approve'?'approved':'rejected',req.session.memberId,id]);
         await connection.commit();
