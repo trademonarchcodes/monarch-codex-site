@@ -718,6 +718,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await requireRoleTables();
       const memberId=Number(req.body.memberId), roleId=Number(req.body.roleId), action=String(req.body.action||'assign');
       if(!Number.isSafeInteger(memberId)||memberId<1||!Number.isSafeInteger(roleId)||roleId<1||!['assign','remove'].includes(action))return res.status(400).json({error:'invalid_assignment'});
+      const [[targetRole]]=await pool.execute('SELECT role_key,role_name FROM member_role_catalog WHERE id=? LIMIT 1',[roleId]);
+      if(!targetRole)return res.status(404).json({error:'role_not_found'});
+      if(String(targetRole.role_key).toLowerCase()==='founder'||String(targetRole.role_name).toLowerCase()==='founder')return res.status(403).json({error:'founder_reserved',message:'Founder cannot be assigned to members.'});
       if(action==='assign')await pool.execute('INSERT IGNORE INTO member_role_assignments (member_id,role_id,assigned_by_member_id) VALUES (?,?,?)',[memberId,roleId,req.session.memberId]);
       else await pool.execute('DELETE FROM member_role_assignments WHERE member_id=? AND role_id=?',[memberId,roleId]);
       res.json({ok:true});
