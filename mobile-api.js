@@ -776,6 +776,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       req.platformSuperAdmin=true; next();
     } catch(e) { next(e); }
   };
+  const notifyActiveAdmins = async ({type,title,body,targetUrl,dedupePrefix}) => {
+    const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+    for(const admin of admins){
+      await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
+        [admin.member_id,type,title,body,targetUrl||'/admin',dedupePrefix+'_'+admin.member_id]);
+    }
+  };
   const auditPlatformAction = async (actor,action,targetType,targetId,details={}) => {
     await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',
       [actor,action,targetType||null,targetId==null?null:String(targetId),JSON.stringify(details)]);
@@ -798,6 +805,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(existing&&existing.status==='pending')return res.status(409).json({error:'request_pending',message:'Your registration details are already waiting for verification.'});
       const [result]=await pool.execute("INSERT INTO online_cooperative_connections (member_id,registered_name,registered_email,status) VALUES (?,?,?,'pending')",[req.session.memberId,registeredName,registeredEmail]);
       await auditPlatformAction(req.session.memberId,'cooperative.connection_submitted','cooperative_connection',result.insertId,{status:'pending'});
+      await notifyActiveAdmins({type:'cooperative_review',title:'Online Cooperative verification required',body:'A member submitted registration details for manual verification.',targetUrl:'/admin/cooperative',dedupePrefix:'cooperative_review_needed_'+result.insertId});
       res.status(201).json({ok:true,id:result.insertId,status:'pending',message:'Submitted for manual verification. Do not send your Online Cooperative password or OTP.'});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
   });
@@ -849,6 +857,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const status=type==='post'?'published':'pending';
       const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,type,status]);
       await auditPlatformAction(req.session.memberId,'community.post_created','community_post',result.insertId,{type,status});
+      if(status==='pending')await notifyActiveAdmins({type:'community_review',title:'Community item awaiting approval',body:'A partner campaign or Sovereign Desk signal is awaiting review.',targetUrl:'/admin/community',dedupePrefix:'community_review_needed_'+result.insertId});
       res.status(201).json({ok:true,id:result.insertId,status,message:status==='pending'?'Submitted for admin approval before publication.':'Your post is now published.'});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
@@ -878,6 +887,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
       if(!post)return res.status(404).json({error:'post_not_found'});
       await pool.execute('INSERT INTO community_reports (post_id,reporter_member_id,reason) VALUES (?,?,?)',[id,req.session.memberId,reason]);
+      await notifyActiveAdmins({type:'community_report',title:'Community post reported',body:'A member submitted a community content report for moderation.',targetUrl:'/admin/community',dedupePrefix:'community_report_needed_'+id+'_'+req.session.memberId});
       res.status(201).json({ok:true});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
