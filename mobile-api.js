@@ -4,10 +4,10 @@ const express = require('express');
 const crypto = require('node:crypto');
 const rateLimit = require('express-rate-limit');
 
-function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl }) {
+function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, loginLimiter: sharedLoginLimiter, registrationLimiter: sharedRegistrationLimiter }) {
   const router = express.Router();
-  const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
-  const registerLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false });
+  const apiLoginLimiter = sharedLoginLimiter || rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
+  const apiRegisterLimiter = sharedRegistrationLimiter || rateLimit({ windowMs: 60 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
   const noStore = (_req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };
   const apiAuth = (req, res, next) => {
     if (!req.session || !req.session.memberId) return res.status(401).json({ error: 'authentication_required', message: 'Please sign in to continue.' });
@@ -34,7 +34,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl }) {
 
   router.get('/health', noStore, (_req, res) => res.json({ ok: true, service: 'monarch-codex-mobile-api', version: 1 }));
 
-  router.post('/auth/login', loginLimiter, noStore, async (req, res, next) => {
+  router.post('/auth/login', apiLoginLimiter, noStore, async (req, res, next) => {
     try {
       const identity = String(req.body.identity || req.body.email || req.body.username || '').trim();
       const password = String(req.body.password || '');
@@ -42,12 +42,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl }) {
         return res.status(400).json({ error: 'invalid_input', message: 'Enter your email or username and password.' });
       }
       const [rows] = await pool.execute(
-        'SELECT id, password_hash, email_verified_at FROM members WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?) LIMIT 1',
+        'SELECT id, password_hash, email_verified_at, is_blocked FROM members WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?) LIMIT 1',
         [identity, identity]
       );
       const member = rows[0];
       const matches = member ? await bcrypt.compare(password, member.password_hash) : false;
       if (!member || !matches) return res.status(401).json({ error: 'invalid_credentials', message: 'The email/username or password is incorrect.' });
+      if (Number(member.is_blocked) === 1) return res.status(403).json({ error: 'account_restricted', message: 'Account access is restricted. Please contact Monarch Codex support.' });
       if (!member.email_verified_at) return res.status(403).json({ error: 'email_not_verified', message: 'Verify your email using the link we sent before signing in.' });
       req.session.regenerate(async err => {
         if (err) return next(err);
@@ -63,7 +64,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl }) {
     } catch (error) { next(error); }
   });
 
-  router.post('/auth/register', registerLimiter, noStore, async (req, res, next) => {
+  router.post('/auth/register', apiRegisterLimiter, noStore, async (req, res, next) => {
     try {
       const fullName = String(req.body.fullName || '').trim();
       const email = String(req.body.email || '').trim().toLowerCase();
@@ -119,11 +120,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl }) {
       const verifyLink = appBaseUrl.replace(/\/+$/, '') + '/verify-email?token=' + token;
       if (typeof sendAppEmail === 'function') {
         try {
-          await sendAppEmail({
+          const sent = await sendAppEmail({
             to: email,
             subject: 'Verify your Monarch Codex email',
             text: 'Hello ' + fullName + ',\n\nYour Monarch ID is ' + member.monarch_uid + '. Verify your email within 24 hours using this link:\n' + verifyLink + '\n\nIf you did not create this account, ignore this email.'
           });
+          if (sent === false) return res.status(503).json({ error: 'verification_email_unavailable', message: 'Your account was created, but email delivery is not configured. Contact support before trying to register again.', uid: member.monarch_uid });
         } catch (mailError) {
           console.error('[mobile-api] Verification email could not be sent:', mailError && mailError.message);
           return res.status(503).json({ error: 'verification_email_failed', message: 'Your account was created, but we could not send the verification email. Contact support before trying to register again.', uid: member.monarch_uid });
