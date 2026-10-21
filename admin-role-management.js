@@ -37,7 +37,7 @@ function createAdminRoleManagementRouter({ pool, requireAdmin, csrfCheck, csrfFi
       };
       const table = rows.map(member => {
         const current = member.role || 'none';
-        const protectedSuper = actorRole !== 'super_admin' && member.role === 'super_admin';
+        const protectedSuper = actorRole !== 'super_admin' && ['super_admin', 'main_admin'].includes(String(member.role || ''));
         const self = Number(member.id) === Number(req.session.memberId);
         const state = member.role ? (Number(member.is_active) ? 'Active administrator' : 'Inactive administrator') : 'Member';
         const control = self
@@ -47,7 +47,8 @@ function createAdminRoleManagementRouter({ pool, requireAdmin, csrfCheck, csrfFi
             : '<form method="post" action="/admin/roles/' + Number(member.id) + '" class="role-edit-form">' + csrfField(req) + '<label class="sr-only" for="role-' + Number(member.id) + '">Role for ' + esc(member.username) + '</label><select id="role-' + Number(member.id) + '" name="role" required>' + optionsFor(current) + '</select><button class="btn" type="submit">Save role</button></form>';
         return '<tr><td><strong>' + esc(member.full_name || member.username) + '</strong><br><small>@' + esc(member.username) + ' · ID ' + Number(member.id) + '</small></td><td>' + esc(member.email || '') + '</td><td>' + esc(roleLabel(member.role)) + '</td><td>' + esc(state) + '</td><td>' + control + '</td></tr>';
       }).join('');
-      const content = '<section class="ac-panel"><h2>Administrator roles</h2><p class="muted">Grant or remove administrative workspace access. Sovereign Desk access does not include deposits, withdrawals, wallet balances, or financial approvals. Role changes are recorded in the admin audit log.</p><form method="get" action="/admin/roles" class="role-search"><label for="role-search">Find a member</label><input id="role-search" name="q" value="' + esc(query) + '" maxlength="120" placeholder="Username, name, email, or member ID"><button class="btn" type="submit">Search</button></form><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Member</th><th>Email</th><th>Role</th><th>Status</th><th>Change role</th></tr></thead><tbody>' + (table || '<tr><td colspan="5">No matching members found.</td></tr>') + '</tbody></table></div><p class="muted small">Main admins can assign Limited Admin and Sovereign Desk roles, but cannot grant or change Main Admin or Super Admin. Only a Super Admin can assign senior roles. Your own role is protected.</p></section><style>.role-search{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:16px 0 20px}.role-search label{display:grid;gap:6px;flex:1 1 240px}.role-search input,.role-edit-form select{box-sizing:border-box;min-height:44px;padding:10px 12px;border:1px solid #49443a;border-radius:10px;background:#0d0d10;color:#f7f5ef;font:inherit}.role-edit-form{display:flex;gap:8px;align-items:center;min-width:250px}.role-edit-form select{flex:1;min-width:150px}.role-edit-form .btn{white-space:nowrap}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:600px){.role-edit-form{align-items:stretch;flex-direction:column;min-width:170px}.role-edit-form .btn{width:100%}}</style>';
+      const updatedNotice = req.query.notice === 'updated' ? '<div class="ac-alert" role="status">Administrator role updated and recorded in the audit log.</div>' : '';
+      const content = updatedNotice + '<section class="ac-panel"><h2>Administrator roles</h2><p class="muted">Grant or remove administrative workspace access. Sovereign Desk access does not include deposits, withdrawals, wallet balances, or financial approvals. Role changes are recorded in the admin audit log.</p><form method="get" action="/admin/roles" class="role-search"><label for="role-search">Find a member</label><input id="role-search" name="q" value="' + esc(query) + '" maxlength="120" placeholder="Username, name, email, or member ID"><button class="btn" type="submit">Search</button></form><div class="ac-table-wrap"><table class="ac-table"><thead><tr><th>Member</th><th>Email</th><th>Role</th><th>Status</th><th>Change role</th></tr></thead><tbody>' + (table || '<tr><td colspan="5">No matching members found.</td></tr>') + '</tbody></table></div><p class="muted small">Main admins can assign Limited Admin and Sovereign Desk roles, but cannot grant or change Main Admin or Super Admin. Only a Super Admin can assign senior roles. Your own role is protected.</p></section><style>.role-search{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin:16px 0 20px}.role-search label{display:grid;gap:6px;flex:1 1 240px}.role-search input,.role-edit-form select{box-sizing:border-box;min-height:44px;padding:10px 12px;border:1px solid #49443a;border-radius:10px;background:#0d0d10;color:#f7f5ef;font:inherit}.role-edit-form{display:flex;gap:8px;align-items:center;min-width:250px}.role-edit-form select{flex:1;min-width:150px}.role-edit-form .btn{white-space:nowrap}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:600px){.role-edit-form{align-items:stretch;flex-direction:column;min-width:170px}.role-edit-form .btn{width:100%}}</style>';
       res.set('Cache-Control', 'no-store, private');
       res.send(adminControlPage('Administrator roles', '/admin/roles', content, req));
     } catch (error) {
@@ -75,14 +76,15 @@ function createAdminRoleManagementRouter({ pool, requireAdmin, csrfCheck, csrfFi
         await conn.rollback();
         return res.status(404).send(page('Member not found', '<h1>Member account not found</h1><a class="btn" href="/admin/roles">Return to roles</a>'));
       }
-      const [activeAdmins] = await conn.execute('SELECT member_id,role,is_active FROM admin_users WHERE is_active=1 FOR UPDATE');
-      const currentRow = activeAdmins.find(row => Number(row.member_id) === memberId);
+      const [adminRows] = await conn.execute('SELECT member_id,role,is_active FROM admin_users FOR UPDATE');
+      const activeAdmins = adminRows.filter(row => Number(row.is_active) === 1);
+      const currentRow = adminRows.find(row => Number(row.member_id) === memberId);
       const currentRole = currentRow ? String(currentRow.role) : 'none';
       if (!canAssign(actorRole, currentRole === 'none' ? null : currentRole, nextRole)) {
         await conn.rollback();
         return res.status(403).send(page('Permission required', '<h1>This role change is not permitted</h1><p class="muted">Your administrator role cannot grant or modify that level of access.</p><a class="btn" href="/admin/roles">Return to roles</a>'));
       }
-      if ((currentRole === 'super_admin' || nextRole !== 'super_admin') && currentRole === 'super_admin' && activeAdmins.filter(row => row.role === 'super_admin').length <= 1) {
+      if (currentRole === 'super_admin' && nextRole !== 'super_admin' && activeAdmins.filter(row => row.role === 'super_admin').length <= 1) {
         await conn.rollback();
         return res.status(409).send(page('Protected administrator access', '<h1>The last active Super Admin cannot be removed</h1><p class="muted">Promote another authorised account first, then retry this change.</p><a class="btn" href="/admin/roles">Return to roles</a>'));
       }
