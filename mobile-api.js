@@ -214,6 +214,51 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
   });
 
+  // Native KYC status and referral history use the signed-in mobile session.
+  router.get('/kyc/status', noStore, apiAuth, async (req, res, next) => {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT status, reviewer_note, submitted_at FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1',
+        [req.session.memberId]
+      );
+      const row = rows[0] || null;
+      return res.set('Cache-Control', 'no-store, private').json({
+        status: row ? String(row.status || 'pending').trim().toLowerCase() : 'not_submitted',
+        reviewerNote: row && row.reviewer_note ? String(row.reviewer_note) : '',
+        submittedAt: row && row.submitted_at ? row.submitted_at : null,
+        canResubmit: Boolean(row && ['rejected', 'needs_resubmission'].includes(String(row.status || '').trim().toLowerCase()))
+      });
+    } catch (error) {
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'kyc_setup_required', message: 'Identity verification records are not available yet.' });
+      return next(error);
+    }
+  });
+
+  router.get('/referrals', noStore, apiAuth, async (req, res, next) => {
+    try {
+      const [[member]] = await pool.execute('SELECT monarch_uid FROM members WHERE id=? LIMIT 1', [req.session.memberId]);
+      if (!member) return res.status(401).json({ error: 'account_not_found', message: 'Please sign in again.' });
+      const [rows] = await pool.execute(
+        'SELECT full_name, username, monarch_uid, created_at FROM members WHERE referred_by=? ORDER BY created_at DESC LIMIT 100',
+        [req.session.memberId]
+      );
+      const base = String(appBaseUrl || 'https://monarchcodex.online').replace(/\\/+$/, '');
+      return res.set('Cache-Control', 'no-store, private').json({
+        referralCount: rows.length,
+        referralLink: base + '/register?ref=' + encodeURIComponent(member.monarch_uid),
+        referrals: rows.map(row => ({
+          fullName: row.full_name || row.username || 'Monarch member',
+          username: row.username || '',
+          monarchId: row.monarch_uid || '',
+          joinedAt: row.created_at || null
+        }))
+      });
+    } catch (error) {
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'referrals_setup_required', message: 'Referral records are not available yet.' });
+      return next(error);
+    }
+  });
+
   router.get('/wallet/balances', noStore, apiAuth, async (req, res, next) => {
     try {
       const [rows] = await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
