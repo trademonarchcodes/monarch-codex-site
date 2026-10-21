@@ -9,9 +9,18 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, loginLi
   const apiLoginLimiter = sharedLoginLimiter || rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
   const apiRegisterLimiter = sharedRegistrationLimiter || rateLimit({ windowMs: 60 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
   const noStore = (_req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };
-  const apiAuth = (req, res, next) => {
+  const apiAuth = async (req, res, next) => {
     if (!req.session || !req.session.memberId) return res.status(401).json({ error: 'authentication_required', message: 'Please sign in to continue.' });
-    next();
+    try {
+      const [rows] = await pool.execute('SELECT is_blocked FROM members WHERE id=? LIMIT 1', [req.session.memberId]);
+      if (!rows.length || Number(rows[0].is_blocked) === 1) {
+        return req.session.destroy(() => {
+          res.clearCookie('monarch.sid', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+          res.status(403).json({ error: 'account_restricted', message: 'This account is blocked or unavailable. Please contact Monarch Codex support.' });
+        });
+      }
+      return next();
+    } catch (error) { return next(error); }
   };
   const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
   const validUsername = value => /^[a-zA-Z0-9_]{6,30}$/.test(value);
