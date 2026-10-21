@@ -1569,14 +1569,20 @@ app.get('/notifications', requireAuth, async (req,res,next) => {
         kyc_review: { label: 'Identity verification', icon: '✓', tone: 'gold' },
         deposit_review: { label: 'Deposit update', icon: '↗', tone: 'green' },
         withdrawal_review: { label: 'Withdrawal update', icon: '↙', tone: 'blue' },
-        investment_purchase: { label: 'Investment activity', icon: '◇', tone: 'gold' }
+        investment_purchase: { label: 'Investment activity', icon: '◇', tone: 'gold' },
+        cooperative_review: { label: 'Online Cooperative', icon: '♙', tone: 'gold' },
+        community_comment: { label: 'Community reply', icon: '◉', tone: 'blue' },
+        community_review: { label: 'Community review', icon: '◉', tone: 'gold' },
+        community_report: { label: 'Community moderation', icon: '⚑', tone: 'gold' }
       })[type] || { label: 'Account update', icon: '•', tone: 'gold' };
       let safeTarget = null;
       if (type === 'kyc_review') safeTarget = '/kyc';
       else if (type === 'deposit_review') safeTarget = titleLower.includes('approved') ? '/transactions' : '/deposit';
       else if (type === 'withdrawal_review') safeTarget = titleLower.includes('paid') ? '/transactions' : '/withdraw';
       else if (type === 'investment_purchase') safeTarget = '/investments';
-      else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications'].includes(n.target_url)) safeTarget = n.target_url;
+      else if (type === 'cooperative_review') safeTarget = '/online-cooperative';
+      else if (type === 'community_comment') safeTarget = '/community';
+      else if (['/dashboard','/profile','/kyc','/deposit','/withdraw','/transactions','/investments','/notifications','/community','/social-links','/online-cooperative'].includes(n.target_url)) safeTarget = n.target_url;
       let messageHtml = '';
       const isKycApproved = type === 'kyc_review' && /\bapproved\b|\bverified\b/i.test(title);
       const isKycRejected = type === 'kyc_review' && !isKycApproved && /not approved|unable to approve|needs attention|rejected/i.test(rawBody + ' ' + title);
