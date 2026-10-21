@@ -50,7 +50,7 @@ function createRoleManagementRouter({ pool, requireWebCategoryAccess }) {
       await ensureReady();
       const roleId = Number(req.params.roleId), message = String(req.body.message || '').trim().slice(0, 1000);
       if (!Number.isSafeInteger(roleId) || roleId < 1) return res.sendStatus(400);
-      const [[role]] = await pool.execute('SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 AND LOWER(role_key)<>'founder' AND LOWER(role_name)<>'founder' LIMIT 1', [roleId]);
+      const [[role]] = await pool.execute("SELECT id FROM member_role_catalog WHERE id=? AND is_active=1 AND LOWER(role_key)<>'founder' AND LOWER(role_name)<>'founder' LIMIT 1", [roleId]);
       if (!role) return res.status(404).send('That role is not available.');
       const [[assigned]] = await pool.execute('SELECT id FROM member_role_assignments WHERE member_id=? AND role_id=? LIMIT 1', [req.session.memberId, roleId]);
       if (assigned) return res.redirect('/roles?notice=already-assigned');
