@@ -737,6 +737,221 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
 
+
+  // Persistent notification centre shared by the Android app and website.
+  router.get('/notifications', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [items] = await pool.execute(
+        'SELECT id,notification_type AS type,title,body,target_url AS targetUrl,read_at AS readAt,created_at AS createdAt FROM member_notifications WHERE member_id=? ORDER BY created_at DESC LIMIT 100',
+        [req.session.memberId]
+      );
+      res.json({items, unreadCount:items.filter(item=>!item.readAt).length});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required',message:'Apply migrations/005_member_dashboard_and_sovereign_desk.sql first.'}); next(e); }
+  });
+  router.post('/notifications/read-all', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required'}); next(e); }
+  });
+  router.post('/notifications/:id/read', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_notification_id'});
+    try {
+      const [result]=await pool.execute('UPDATE member_notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND member_id=?',[id,req.session.memberId]);
+      if(!result.affectedRows)return res.status(404).json({error:'notification_not_found'});
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required'}); next(e); }
+  });
+
+  const requireSuperAdmin = async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin||String(admin.role)!=='super_admin')return res.status(403).json({error:'super_admin_required',message:'Only the Monarch Codex Super Admin can perform this action.'});
+      req.platformSuperAdmin=true; next();
+    } catch(e) { next(e); }
+  };
+  const auditPlatformAction = async (actor,action,targetType,targetId,details={}) => {
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',
+      [actor,action,targetType||null,targetId==null?null:String(targetId),JSON.stringify(details)]);
+  };
+
+  // Online Cooperative is manually verified with the cooperative administrator; no external account credentials are requested.
+  router.get('/cooperative/status', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [items]=await pool.execute('SELECT id,registered_name AS registeredName,registered_email AS registeredEmail,status,review_note AS reviewNote,created_at AS createdAt,reviewed_at AS reviewedAt FROM online_cooperative_connections WHERE member_id=? ORDER BY created_at DESC LIMIT 10',[req.session.memberId]);
+      res.json({registrationUrl:'https://airdrop.myturntech.com/register?ref=53',items,connection:items.find(x=>x.status==='approved')||null});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
+  });
+  router.post('/cooperative/connections', noStore, apiAuth, async (req,res,next) => {
+    const registeredName=String(req.body.registeredName||'').trim().replace(/\\s+/g,' ').slice(0,160);
+    const registeredEmail=String(req.body.registeredEmail||'').trim().toLowerCase();
+    if(registeredName.length<2||registeredEmail.length>254||!validEmail(registeredEmail))return res.status(400).json({error:'invalid_registration_details',message:'Enter the name and valid email used for Online Cooperative registration.'});
+    try {
+      const [[existing]]=await pool.execute("SELECT id,status FROM online_cooperative_connections WHERE member_id=? AND status IN ('pending','approved') ORDER BY created_at DESC LIMIT 1",[req.session.memberId]);
+      if(existing&&existing.status==='approved')return res.status(409).json({error:'already_connected',message:'Your Online Cooperative connection is already approved.'});
+      if(existing&&existing.status==='pending')return res.status(409).json({error:'request_pending',message:'Your registration details are already waiting for verification.'});
+      const [result]=await pool.execute("INSERT INTO online_cooperative_connections (member_id,registered_name,registered_email,status) VALUES (?,?,?,'pending')",[req.session.memberId,registeredName,registeredEmail]);
+      await auditPlatformAction(req.session.memberId,'cooperative.connection_submitted','cooperative_connection',result.insertId,{status:'pending'});
+      res.status(201).json({ok:true,id:result.insertId,status:'pending',message:'Submitted for manual verification. Do not send your Online Cooperative password or OTP.'});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
+  });
+  router.get('/admin/cooperative/connections', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    try {
+      const [items]=await pool.query("SELECT c.id,c.member_id AS memberId,c.registered_name AS registeredName,c.registered_email AS registeredEmail,c.status,c.review_note AS reviewNote,c.created_at AS createdAt,m.full_name AS memberName,m.username,m.email AS memberEmail,m.monarch_uid AS uid FROM online_cooperative_connections c JOIN members m ON m.id=c.member_id WHERE c.status='pending' ORDER BY c.created_at ASC LIMIT 200");
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
+  });
+  router.post('/admin/cooperative/connections/:id/review', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const id=Number(req.params.id), decision=String(req.body.decision||'');
+    const note=String(req.body.note||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||!['approve','reject'].includes(decision))return res.status(400).json({error:'invalid_review'});
+    if(decision==='reject'&&!note)return res.status(400).json({error:'rejection_reason_required',message:'Provide a reason before rejecting the connection.'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[item]]=await conn.execute("SELECT id,member_id,status FROM online_cooperative_connections WHERE id=? FOR UPDATE",[id]);
+      if(!item||item.status!=='pending'){await conn.rollback();return res.status(409).json({error:'request_not_pending'});}
+      const status=decision==='approve'?'approved':'rejected';
+      await conn.execute('UPDATE online_cooperative_connections SET status=?,reviewer_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
+      const title=status==='approved'?'Online Cooperative connected':'Online Cooperative connection rejected';
+      const body=status==='approved'?'Your Online Cooperative registration has been manually verified and connected to Monarch Codex.':'Your Online Cooperative connection request was rejected. Reason: '+note;
+      await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[item.member_id,'cooperative_review',title,body,'/online-cooperative','cooperative_review_'+id+'_'+status]);
+      await conn.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'cooperative.connection_'+status,'cooperative_connection',String(id),JSON.stringify({memberId:item.member_id,note})]);
+      await conn.commit();
+      res.json({ok:true,status});
+    } catch(e) { await conn.rollback(); if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required'}); next(e); }
+    finally { conn.release(); }
+  });
+
+  // Text-first community feed. Partner campaigns and Sovereign Desk signals require review before publication.
+  router.get('/community/posts', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
+  });
+  router.post('/community/posts', noStore, apiAuth, async (req,res,next) => {
+    const body=String(req.body.body||'').trim();
+    const type=String(req.body.type||'post');
+    if(body.length<1||body.length>5000)return res.status(400).json({error:'invalid_post',message:'Posts must contain 1 to 5000 characters.'});
+    if(!['post','partner_campaign','sovereign_signal'].includes(type))return res.status(400).json({error:'invalid_post_type'});
+    try {
+      if(type==='partner_campaign'){
+        const [[partner]]=await pool.execute("SELECT id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key='partner' LIMIT 1",[req.session.memberId]);
+        if(!partner)return res.status(403).json({error:'partner_role_required'});
+      }
+      const status=type==='post'?'published':'pending';
+      const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,type,status]);
+      await auditPlatformAction(req.session.memberId,'community.post_created','community_post',result.insertId,{type,status});
+      res.status(201).json({ok:true,id:result.insertId,status,message:status==='pending'?'Submitted for admin approval before publication.':'Your post is now published.'});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.get('/community/posts/:id/comments', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id); if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_post_id'});
+    try {
+      const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+      if(!post)return res.status(404).json({error:'post_not_found'});
+      const [items]=await pool.execute("SELECT c.id,c.body,c.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername FROM community_comments c JOIN members m ON m.id=c.member_id WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 200",[id]);
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.post('/community/posts/:id/comments', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id), body=String(req.body.body||'').trim();
+    if(!Number.isSafeInteger(id)||id<1||body.length<1||body.length>2000)return res.status(400).json({error:'invalid_comment'});
+    try {
+      const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+      if(!post)return res.status(404).json({error:'post_not_found'});
+      const [result]=await pool.execute("INSERT INTO community_comments (post_id,member_id,body) VALUES (?,?,?)",[id,req.session.memberId,body]);
+      res.status(201).json({ok:true,id:result.insertId});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.post('/community/posts/:id/report', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id), reason=String(req.body.reason||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||reason.length<3)return res.status(400).json({error:'invalid_report'});
+    try {
+      const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
+      if(!post)return res.status(404).json({error:'post_not_found'});
+      await pool.execute('INSERT INTO community_reports (post_id,reporter_member_id,reason) VALUES (?,?,?)',[id,req.session.memberId,reason]);
+      res.status(201).json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.get('/admin/community/review-queue', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    try {
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.status,p.created_at AS createdAt,m.full_name AS authorName,m.email FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='pending' ORDER BY p.created_at ASC LIMIT 200");
+      const [reports]=await pool.query("SELECT r.id,r.post_id AS postId,r.reason,r.created_at AS createdAt,m.full_name AS reporterName FROM community_reports r JOIN members m ON m.id=r.reporter_member_id WHERE r.status='pending' ORDER BY r.created_at ASC LIMIT 200");
+      res.json({items,reports});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.post('/admin/community/posts/:id/review', noStore, apiAuth, requireMobileAdmin, async (req,res,next) => {
+    const id=Number(req.params.id), decision=String(req.body.decision||''), note=String(req.body.note||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||!['approve','reject','hide'].includes(decision))return res.status(400).json({error:'invalid_review'});
+    if(decision!=='approve'&&!note)return res.status(400).json({error:'review_reason_required'});
+    try {
+      const status=decision==='approve'?'published':decision==='hide'?'hidden':'rejected';
+      const [result]=await pool.execute("UPDATE community_posts SET status=?,reviewed_by_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('pending','published')",[status,req.session.memberId,note||null,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'post_not_found_or_already_reviewed'});
+      await auditPlatformAction(req.session.memberId,'community.post_'+status,'community_post',id,{note});
+      res.json({ok:true,status});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+
+  const socialLinkDefaults = [
+    ['whatsapp','WhatsApp','https://chat.whatsapp.com/FA3x382Snhf6o68YYbsPdm',1],
+    ['telegram','Telegram','https://t.me/TheMonarchCodex',1],
+    ['facebook','Facebook',null,0],['instagram','Instagram',null,0],
+    ['youtube','YouTube','https://youtube.com/@monarchcodexonline?si=AqczxpbI9KgzMmQdQ',1],
+    ['tiktok','TikTok',null,0],['x','X',null,0],['other','Other',null,0]
+  ];
+  router.get('/social-links', noStore, async (_req,res,next) => {
+    try {
+      const [items]=await pool.query('SELECT link_key AS key_name,label,url,is_active AS active FROM platform_social_links ORDER BY id');
+      res.json({items:items.filter(x=>x.active&&x.url&&/^https:\/\//i.test(x.url))});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
+  });
+  router.get('/admin/social-links', noStore, apiAuth, requireSuperAdmin, async (_req,res,next) => {
+    try {
+      const [items]=await pool.query('SELECT link_key AS key_name,label,url,is_active AS active FROM platform_social_links ORDER BY id');
+      res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
+  });
+  router.post('/admin/social-links', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const key=String(req.body.key||''), label=String(req.body.label||'').trim().slice(0,80);
+    const rawUrl=String(req.body.url||'').trim(), active=Boolean(req.body.active);
+    if(!/^(whatsapp|telegram|facebook|instagram|youtube|tiktok|x|other)$/.test(key)||!label)return res.status(400).json({error:'invalid_social_link'});
+    let url=null;
+    if(rawUrl){try{const parsed=new URL(rawUrl);if(parsed.protocol!=='https:'||!parsed.hostname||parsed.username||parsed.password)return res.status(400).json({error:'unsafe_social_url',message:'Use a valid HTTPS link without embedded credentials.'});url=parsed.toString();}catch(_){return res.status(400).json({error:'invalid_social_url'});}}
+    if(active&&!url)return res.status(400).json({error:'active_link_requires_url'});
+    try {
+      await pool.execute('INSERT INTO platform_social_links (link_key,label,url,is_active,updated_by_member_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),url=VALUES(url),is_active=VALUES(is_active),updated_by_member_id=VALUES(updated_by_member_id)',[key,label,url,active?1:0,req.session.memberId]);
+      await auditPlatformAction(req.session.memberId,'social_link.updated','social_link',key,{active,urlPresent:Boolean(url)});
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'social_links_setup_required'}); next(e); }
+  });
+
+  const permissionCategories = ['members_roles','online_cooperative','partner_campaigns','community_moderation','invest_market','sovereign_desk','financial_operations','notifications','social_links','security_audit'];
+  router.get('/admin/permissions', noStore, apiAuth, requireSuperAdmin, async (_req,res,next) => {
+    try {
+      const [admins]=await pool.query("SELECT a.member_id AS memberId,a.role,m.full_name AS fullName,m.email FROM admin_users a JOIN members m ON m.id=a.member_id WHERE a.is_active=1 ORDER BY a.role,m.full_name");
+      const [permissions]=await pool.query('SELECT admin_member_id AS adminMemberId,category_key AS category,access_level AS level,allowed_actions AS allowedActions,updated_at AS updatedAt FROM platform_admin_permissions');
+      res.json({categories:permissionCategories,levels:['green','gold','red'],admins,permissions});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required'}); next(e); }
+  });
+  router.post('/admin/permissions', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const adminMemberId=Number(req.body.adminMemberId), category=String(req.body.category||''), level=String(req.body.level||''), actions=req.body.allowedActions;
+    if(!Number.isSafeInteger(adminMemberId)||adminMemberId<1||!permissionCategories.includes(category)||!['green','gold','red'].includes(level))return res.status(400).json({error:'invalid_permission'});
+    if(level==='gold'&&(!Array.isArray(actions)||actions.length<1||actions.some(x=>typeof x!=='string'||x.length>80)))return res.status(400).json({error:'partial_actions_required',message:'Gold access must name each allowed action.'});
+    if(level!=='gold'&&actions!==undefined&&actions!==null&&!Array.isArray(actions))return res.status(400).json({error:'invalid_actions'});
+    try {
+      const [[target]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[adminMemberId]);
+      if(!target)return res.status(404).json({error:'active_admin_not_found'});
+      if(adminMemberId===req.session.memberId)return res.status(403).json({error:'cannot_change_own_permissions'});
+      await pool.execute('INSERT INTO platform_admin_permissions (admin_member_id,category_key,access_level,allowed_actions,updated_by_member_id) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE access_level=VALUES(access_level),allowed_actions=VALUES(allowed_actions),updated_by_member_id=VALUES(updated_by_member_id)',[adminMemberId,category,level,level==='gold'?JSON.stringify([...new Set(actions)]):null,req.session.memberId]);
+      await auditPlatformAction(req.session.memberId,'admin.permission_updated','admin_permission',adminMemberId,{category,level,allowedActions:level==='gold'?[...new Set(actions)]:[]});
+      res.json({ok:true});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required'}); next(e); }
+  });
+
   return router;
 }
 
