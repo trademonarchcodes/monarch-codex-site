@@ -704,7 +704,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
 
-  router.get('/admin/roles', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.get('/admin/roles', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const [roles]=await pool.query('SELECT r.id,r.role_key,r.role_name,r.description,r.is_active,COUNT(a.id) AS assigned_count FROM member_role_catalog r LEFT JOIN member_role_assignments a ON a.role_id=r.id GROUP BY r.id ORDER BY r.role_name');
@@ -714,7 +714,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.json({roles,requests,members,assignments});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
-  router.post('/admin/roles/catalog', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.post('/admin/roles/catalog', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles','manage'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const id=Number(req.body.roleId||0), name=String(req.body.roleName||'').trim(), description=String(req.body.description||'').trim().slice(0,500), key=roleKey(name), active=req.body.isActive===false?0:1;
@@ -725,7 +725,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.json({ok:true});
     } catch(e) { if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'duplicate_role',message:'Role names and keys must be unique.'}); if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
-  router.post('/admin/roles/requests/:requestId', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.post('/admin/roles/requests/:requestId', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles',req=>req.body.decision==='approve'?'approve':'reject'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const id=Number(req.params.requestId), decision=String(req.body.decision||'');
@@ -743,7 +743,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.json({ok:true,status:decision==='approve'?'approved':'rejected'});
     } catch(e) { if(e.code==='ROLE_MIGRATION_REQUIRED')return res.status(503).json({error:'role_setup_required',message:e.message}); next(e); }
   });
-  router.post('/admin/roles/assign', noStore, apiAuth, roleAdmin, async (req,res,next) => {
+  router.post('/admin/roles/assign', noStore, apiAuth, roleAdmin, requireCategoryAccess('members_roles','manage'), async (req,res,next) => {
     try {
       await requireRoleTables();
       const memberId=Number(req.body.memberId), roleId=Number(req.body.roleId), action=String(req.body.action||'assign');
