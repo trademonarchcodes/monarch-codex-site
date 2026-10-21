@@ -690,7 +690,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try {
       await requireRoleTables();
       const id=Number(req.body.roleId||0), name=String(req.body.roleName||'').trim(), description=String(req.body.description||'').trim().slice(0,500), key=roleKey(name), active=req.body.isActive===false?0:1;
-      if(!name||name.length>100||!key)return res.status(400).json({error:'invalid_role_name'});\n      if(key==='founder')return res.status(403).json({error:'founder_reserved',message:'Founder is reserved exclusively for the Monarch Codex Super Admin and cannot be created as a member role.'});
+      if(!name||name.length>100||!key)return res.status(400).json({error:'invalid_role_name'});
+      if(key==='founder')return res.status(403).json({error:'founder_reserved',message:'Founder is reserved exclusively for the Monarch Codex Super Admin and cannot be created as a member role.'});
       if(id) await pool.execute('UPDATE member_role_catalog SET role_key=?,role_name=?,description=?,is_active=? WHERE id=?',[key,name,description||null,active,id]);
       else await pool.execute('INSERT INTO member_role_catalog (role_key,role_name,description,is_active,created_by_member_id) VALUES (?,?,?,1,?)',[key,name,description||null,req.session.memberId]);
       res.json({ok:true});
