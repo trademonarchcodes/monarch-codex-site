@@ -17,6 +17,7 @@ const { renderMemberNavigation } = require('./lib/member-navigation');
 const createMonarchsDirectoryRouter = require('./monarchs-directory');
 const createToolsRouter = require('./tools');
 const createMobileApiRouter = require('./mobile-api');
+const createRoleManagementRouter = require('./role-management');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -695,7 +696,7 @@ function adminControlPage(title, active, content, req) {
   const deskOnly = req.adminRole === 'sovereign_desk_admin' || String(active || '').startsWith('/sovereign-admin');
   const groups = deskOnly ? [
     {label:'Workspace',links:[['/sovereign-admin','Desk overview','◫']]},
-    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/market-movers.html','Live Markets','⌁']]},
+    {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/sovereign-admin/roles/request','Founder Partner request','♜'],['/market-movers.html','Live Markets','⌁']]},
     {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤']]},
     {label:'Governance',links:[['/sovereign-admin/activity','Activity log','◷']]},
     {label:'Your account',links:[['/admin/profile','My admin profile','◎']]}
@@ -2831,6 +2832,7 @@ app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.
 });
 app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'ignore', maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0 }));
 app.use('/api/mobile', createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl: (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, ''), depositProofUpload, decryptProfileValue, loginLimiter, registrationLimiter }));
+app.use(createRoleManagementRouter({ pool }));
 app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
 app.use((err, req, res, _next) => {
   const incidentId = crypto.randomBytes(5).toString('hex').toUpperCase();
