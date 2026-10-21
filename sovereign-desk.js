@@ -84,6 +84,7 @@ function createSovereignDeskRouter(deps) {
       '{{TITLE}}': esc(title),
       '{{ROLE}}': esc(role),
       '{{NAV}}': adminReturn + nav + '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #514322"><form method="post" action="/logout" style="margin:0">' + csrfField(req) + '<button type="submit" style="width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #70443b;border-radius:11px;background:#241614;color:#f0b3a7;font:inherit;font-weight:800;text-align:left;cursor:pointer">↪ <span>Log out securely</span></button></form></div>',
+      '{{BOTTOM_NAV}}': mobileNav,
       '{{CONTENT}}': content
     };
     let html = template;
