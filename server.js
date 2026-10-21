@@ -2526,10 +2526,60 @@ app.get('/transactions', requireAuth, async (req,res,next) => {
     res.send(memberPage('Transaction history','/transactions',m,body,req));
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).send(memberPage('Transaction history','/transactions',await getMemberForPage(req,res),'Deposit ledger setup is not complete. Please check back later.',req)); next(e); }
 });
+
+app.post('/online-cooperative/connection', requireAuth, requireApprovedKyc, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const registeredName=String(req.body.registered_name||'').trim().replace(/\\s+/g,' ').slice(0,160);
+  const registeredEmail=String(req.body.registered_email||'').trim().toLowerCase();
+  if(registeredName.length<2||registeredName.length>160||registeredEmail.length>254||!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(registeredEmail))return res.status(400).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p class="error">Enter the name and valid email used for your Cooperative registration.</p><a href="/online-cooperative">Return</a>',req));
+  try{
+    const [[existing]]=await pool.execute("SELECT id,status FROM online_cooperative_connections WHERE member_id=? AND status IN ('pending','approved') ORDER BY created_at DESC LIMIT 1",[req.session.memberId]);
+    if(existing)return res.redirect('/online-cooperative?connection='+encodeURIComponent(existing.status));
+    const [result]=await pool.execute("INSERT INTO online_cooperative_connections (member_id,registered_name,registered_email,status) VALUES (?,?,?,'pending')",[req.session.memberId,registeredName,registeredEmail]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'cooperative.connection_submitted','cooperative_connection',String(result.insertId),JSON.stringify({status:'pending'})]);
+    const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
+    for(const admin of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[admin.member_id,'cooperative_review','Online Cooperative verification required','A member submitted registration details for manual verification.','/admin/cooperative-connections','web_cooperative_review_'+result.insertId+'_'+admin.member_id]);
+    res.redirect('/online-cooperative?connection=pending');
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Online Cooperative','/online-cooperative',await getMemberForPage(req,res),'<p>Connection verification setup is not complete yet. Please try again later.</p>',req));next(e);}
+});
+
+app.get('/admin/cooperative-connections', requireAdmin, async(req,res,next)=>{
+  try{
+    const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+    if(!admin||admin.role!=='super_admin')return res.status(403).send(page('Access denied','<main><h1>Super Admin access required</h1><p>Only the Monarch Codex Super Admin can approve Online Cooperative connections.</p><a href="/admin">Return to Admin</a></main>'));
+    const [items]=await pool.query("SELECT c.id,c.member_id,c.registered_name,c.registered_email,c.created_at,m.full_name,m.email AS member_email,m.username FROM online_cooperative_connections c JOIN members m ON m.id=c.member_id WHERE c.status='pending' ORDER BY c.created_at ASC LIMIT 200");
+    const rows=items.map(x=>'<article style="padding:18px;margin:12px 0;border:1px solid #6b5927;border-radius:14px;background:#111216"><h3>'+esc(x.full_name||x.username||'Member')+'</h3><p>Member email: '+esc(x.member_email||'—')+'</p><p>Cooperative registration name: <strong>'+esc(x.registered_name)+'</strong></p><p>Cooperative registration email: <strong>'+esc(x.registered_email)+'</strong></p><small>Submitted '+esc(x.created_at)+'</small><form method="post" action="/admin/cooperative-connections/'+Number(x.id)+'/review" style="display:grid;gap:10px;margin-top:14px">'+csrfField(req)+'<label>Review note (required for rejection)<textarea name="note" maxlength="1000" rows="2"></textarea></label><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" name="decision" value="approve" type="submit">Approve verified connection</button><button class="btn" name="decision" value="reject" type="submit">Reject</button></div></form></article>').join('');
+    res.send(page('Online Cooperative verification','<main style="max-width:850px;margin:28px auto;padding:20px"><h1>Online Cooperative verification</h1><p>Contact the Cooperative administrator and verify the submitted name and email before approval. If uncertain, leave the request pending. Never request a password or OTP.</p><p><a href="/admin">Admin dashboard</a></p>'+(rows||'<p>No pending connection requests.</p>')+'</main>'));
+  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Verification setup required','<main><h1>Verification setup required</h1><p>Apply migrations/021_platform_completion_foundation.sql after taking a verified database backup.</p></main>'));next(e);}
+});
+
+app.post('/admin/cooperative-connections/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
+  const id=Number(req.params.id),decision=String(req.body.decision||''),note=String(req.body.note||'').trim().slice(0,1000);
+  if(!Number.isSafeInteger(id)||id<1||!['approve','reject'].includes(decision))return res.status(400).send(page('Invalid review','<main><h1>Invalid review request</h1><a href="/admin/cooperative-connections">Return to queue</a></main>'));
+  if(decision==='reject'&&!note)return res.status(400).send(page('Reason required','<main><h1>Add a rejection reason</h1><p>Provide a reason before rejecting a connection.</p><a href="/admin/cooperative-connections">Return to queue</a></main>'));
+  const conn=await pool.getConnection();
+  try{
+    const [[admin]]=await conn.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+    if(!admin||admin.role!=='super_admin'){await conn.rollback();return res.status(403).send(page('Access denied','<main><h1>Super Admin access required</h1></main>'));}
+    await conn.beginTransaction();
+    const [[item]]=await conn.execute("SELECT id,member_id,status FROM online_cooperative_connections WHERE id=? FOR UPDATE",[id]);
+    if(!item||item.status!=='pending'){await conn.rollback();return res.status(409).send(page('Already reviewed','<main><h1>This request is no longer pending.</h1><a href="/admin/cooperative-connections">Return to queue</a></main>'));}
+    const status=decision==='approve'?'approved':'rejected';
+    await conn.execute('UPDATE online_cooperative_connections SET status=?,reviewer_member_id=?,review_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,req.session.memberId,note||null,id]);
+    await conn.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[item.member_id,'cooperative_review',status==='approved'?'Online Cooperative connected':'Online Cooperative connection rejected',status==='approved'?'Your registration was manually verified and connected to Monarch Codex.':'Your connection request was rejected. Reason: '+note,'/online-cooperative','web_cooperative_result_'+id+'_'+status]);
+    await conn.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'cooperative.connection_'+status,'cooperative_connection',String(id),JSON.stringify({memberId:item.member_id,note})]);
+    await conn.commit();
+    res.redirect('/admin/cooperative-connections?review='+status);
+  }catch(e){try{await conn.rollback();}catch(_){}if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Verification setup required','<main><h1>Apply migrations/021_platform_completion_foundation.sql</h1></main>'));next(e);}
+  finally{conn.release();}
+});
+
 app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,next)=>{
   try {
     const m = await getMemberForPage(req,res);
     if (!m) return;
+    const [[connection]] = await pool.execute('SELECT id,status,review_note,created_at,reviewed_at FROM online_cooperative_connections WHERE member_id=? ORDER BY created_at DESC LIMIT 1',[m.id]);
+    const connectionStatus = connection ? String(connection.status) : 'not_connected';
+    const connectionPanel = '<section class="coop-member-section"><h4>05 / Connect your Cooperative account</h4><p>Register using our referral link, then submit the exact name and email used there. The Super Admin will check with the Cooperative administrator and approve only after confirmation. Do not send passwords or OTPs.</p><p><strong>Status: '+esc(connectionStatus.replace(/_/g,' '))+'</strong>'+(connection&&connection.review_note?'<br>Review note: '+esc(connection.review_note):'')+'</p>'+(connectionStatus==='not_connected'||connectionStatus==='rejected'?'<form method="post" action="/online-cooperative/connection" style="display:grid;gap:12px;max-width:520px">'+csrfField(req)+'<label>Registered name<input name="registered_name" required maxlength="160" autocomplete="name"></label><label>Registered email<input name="registered_email" type="email" required maxlength="254" autocomplete="email"></label><button class="btn" type="submit">Submit for manual verification</button></form>':'<p>'+(connectionStatus==='pending'?'Your details are waiting for manual verification.':'Your account is connected to Monarch Codex.')+'</p>')+'</section>';
     const content = `<style>
     .coop-member{display:grid;gap:20px;min-width:0;color:#f5f0e3}
     .coop-member-hero{padding:clamp(24px,4vw,42px);border:1px solid rgba(223,189,98,.3);border-radius:22px;background:radial-gradient(ellipse at 90% 0%,rgba(223,189,98,.2),transparent 38%),linear-gradient(135deg,#1d1a13,#101114 72%)}
@@ -2562,6 +2612,7 @@ app.get('/online-cooperative', requireAuth, requireApprovedKyc, async (req,res,n
       <section class="coop-member-section"><h4>02 / How the system is described</h4><p><strong>1. Contribute:</strong> choose a stated $10, $100 or $1,000 package. <strong>2. Placement:</strong> referred members are described as automatically placed, with up to 10 direct members per person. <strong>3. Earn:</strong> the description lists referral and network bonuses. <strong>4. Reach the target:</strong> an upgrade prompt is described when the target is reached. <strong>5. Upgrade:</strong> review the next tier and its conditions. <strong>6. Elite:</strong> the final level is described as offering VIP benefits.</p></section>
       <section class="coop-member-section"><h4>03 / Earning structure described</h4><div class="coop-member-bonuses"><div class="coop-member-bonus"><strong>10%</strong><span>Direct referral bonus on eligible contributions, as described</span></div><div class="coop-member-bonus"><strong>$1.00</strong><span>System placement bonus for qualifying placements, up to 10</span></div><div class="coop-member-bonus"><strong>$0.50</strong><span>Network depth bonus for qualifying wider-network members</span></div></div><p>Members can also benefit from the 10% monthly earning feature described by The Online Cooperative, even without direct referrals.</p></section>
       <section class="coop-member-section"><h4>04 / Features highlighted</h4><p>Members can track activity through the dashboard, build a direct network of up to 10 referrals, benefit from automatic placement, and work toward package milestones.</p></section>
+      ${connectionPanel}
       <div class="coop-member-cta"><a class="primary" href="https://airdrop.myturntech.com/register?ref=53" target="_blank" rel="noopener noreferrer">Continue to Online Cooperative ↗</a><a class="secondary" href="/dashboard">Return to member overview</a></div>
     </div>`;
     res.send(memberPage('The Online Cooperative','/online-cooperative',m,content,req));
