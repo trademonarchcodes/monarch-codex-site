@@ -124,7 +124,7 @@ function createRoleManagementRouter({ pool }) {
     if (!req.session || !req.session.memberId) return res.redirect('/login');
     try {
       const [[admin]] = await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1', [req.session.memberId]);
-      if (!admin || admin.role !== 'sovereign_desk_admin') return res.status(403).send('Only the Sovereign Desk administrator can submit a company Founder Partner request.');
+      if (!admin || admin.role !== 'sovereign_desk_admin') return res.status(403).send('Only the Sovereign Desk administrator can submit a company Partner request.');
       await ensureReady();
       const [[role]] = await pool.execute("SELECT id FROM member_role_catalog WHERE role_key='partner' AND is_active=1 LIMIT 1");
       if (!role) return res.status(409).send('Partner role is not active. Contact a Monarch Codex administrator.');
