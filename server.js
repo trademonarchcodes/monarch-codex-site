@@ -725,7 +725,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
     {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/cooperative-connections','Online Cooperative','♙'],['/admin/monarchs','Homepage profiles','✦']]},
-    {label:'Community & platform links',links:[['/admin/community-moderation','Community moderation','◉'],['/admin/social-links','Official social links','↗']]},
+    {label:'Community & platform links',links:[['/admin/community-moderation','Community moderation','◉'],['/admin/feedback','Member feedback','✎'],['/admin/social-links','Official social links','↗']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
@@ -2575,6 +2575,31 @@ app.get('/social-links', requireAuth, async(req,res,next)=>{
     const content='<section style="max-width:800px;margin:auto"><p class="muted">OFFICIAL CHANNELS</p><h2>Connect with Monarch Codex</h2><p>These are the official channels published by the platform. Links open in a new tab.</p>'+(links.length?links.map(x=>'<a href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;margin:10px 0;border:1px solid #6b5927;border-radius:13px;background:#111216;color:#f3cf3c;text-decoration:none"><strong>'+esc(x.label)+'</strong><span>Open securely ↗</span></a>').join(''):'<p>No official social links have been published yet.</p>')+'</section>';
     res.send(memberPage('Social links','/social-links',m,content,req));
   }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Social links','/social-links',await getMemberForPage(req,res),'<p>Social links are being configured. Please check back later.</p>',req));next(e);}
+});
+
+
+app.get('/admin/feedback', requireAdmin, requireWebCategoryAccess('community_moderation','view'), async(req,res,next)=>{
+  try{
+    await ensurePresenceFeedbackTables();
+    const [items]=await pool.query("SELECT f.id,f.member_id,f.category,f.title,f.description,f.status,f.admin_note,f.image_mime IS NOT NULL AS has_image,f.created_at,m.full_name,m.username FROM member_feedback f JOIN members m ON m.id=f.member_id ORDER BY (f.status='received') DESC,f.created_at DESC LIMIT 300");
+    const cards=items.map(x=>'<article class="ac-panel" style="margin:12px 0;padding:16px"><p class="muted">#'+Number(x.id)+' · '+esc(x.full_name||x.username||'Member')+' · '+esc(x.category.replace(/_/g,' '))+' · '+esc(x.created_at)+'</p><h3>'+esc(x.title)+'</h3><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(x.description)+'</p>'+(Number(x.has_image)===1?'<p><a href="/api/mobile/feedback/'+Number(x.id)+'/image" target="_blank" rel="noopener">View attached image</a></p>':'')+'<p>Status: <strong>'+esc(x.status.replace(/_/g,' '))+'</strong></p><form method="post" action="/admin/feedback/'+Number(x.id)+'/review" style="display:grid;gap:10px">'+csrfField(req)+'<label>Status<select name="status" required><option value="under_review">Under review</option><option value="planned">Planned</option><option value="in_progress">In progress</option><option value="implemented">Implemented</option><option value="declined">Declined</option></select></label><label>Update for member<textarea name="note" maxlength="2000" rows="2">'+esc(x.admin_note||'')+'</textarea></label><button class="btn" type="submit">Save status & notify member</button></form></article>').join('');
+    const content='<section style="max-width:1000px;margin:auto"><p class="muted">MEMBER VOICE</p><h2>Feedback &amp; feature requests</h2><p>Review requested features, bug reports and improvement suggestions. Status updates notify the member who submitted the item.</p>'+(cards||'<p class="ac-panel" style="padding:20px">No feedback has been submitted yet.</p>')+'</section>';
+    res.send(renderAdminWorkspace(req,'Member feedback','Review member suggestions, track implementation progress and communicate decisions.',content,'/admin/feedback'));
+  }catch(e){next(e);}
+});
+app.post('/admin/feedback/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, requireWebCategoryAccess('community_moderation',req=>req.body.status==='implemented'?'approve':req.body.status==='declined'?'reject':'moderate'), async(req,res,next)=>{
+  const id=Number(req.params.id),status=String(req.body.status||''),note=String(req.body.note||'').trim().slice(0,2000);
+  if(!Number.isSafeInteger(id)||id<1||!['under_review','planned','in_progress','implemented','declined'].includes(status))return res.status(400).send(page('Invalid feedback review','<main><h1>Choose a valid feedback status.</h1></main>'));
+  if(status==='declined'&&!note)return res.status(400).send(page('Reason required','<main><h1>Add a reason when declining a suggestion.</h1><a href="/admin/feedback">Return to feedback</a></main>'));
+  try{
+    await ensurePresenceFeedbackTables();
+    const [[item]]=await pool.execute('SELECT member_id,title FROM member_feedback WHERE id=?',[id]);
+    if(!item)return res.status(404).send(page('Feedback not found','<main><h1>This feedback item no longer exists.</h1></main>'));
+    await pool.execute('UPDATE member_feedback SET status=?,admin_note=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,note||null,req.session.memberId,id]);
+    await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[item.member_id,'feedback_update','Feedback status updated','Your feedback "'+String(item.title).slice(0,120)+'" is now '+status.replace(/_/g,' ')+(note?' — '+note:''),'/feedback.html','web_feedback_'+id+'_'+status+'_'+Date.now()]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'feedback.status_updated','member_feedback',String(id),JSON.stringify({status,note})]);
+    res.redirect('/admin/feedback?updated=1');
+  }catch(e){next(e);}
 });
 
 app.get('/community', requireAuth, async(req,res,next)=>{
