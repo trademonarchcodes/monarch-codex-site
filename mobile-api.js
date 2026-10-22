@@ -214,6 +214,36 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
   });
 
+  // Investment opportunities and a member's own portfolio are read-only here; purchase/ledger changes remain on the separately verified financial workflow.
+  router.get('/investments', noStore, apiAuth, async (req, res, next) => {
+    try {
+      const [packages] = await pool.execute(
+        "SELECT id,name,description,currency,price,duration_days,terms,status FROM investment_packages WHERE status='active' ORDER BY id ASC"
+      );
+      const [portfolio] = await pool.execute(
+        'SELECT id,package_id,package_name_snapshot AS packageName,currency,principal_amount AS principalAmount,fee_percent AS feePercent,fee_amount AS feeAmount,total_charged AS totalCharged,duration_days AS durationDays,status,starts_at AS startsAt,matures_at AS maturesAt,created_at AS createdAt FROM member_investments WHERE member_id=? ORDER BY created_at DESC,id DESC LIMIT 200',
+        [req.session.memberId]
+      );
+      res.set('Cache-Control', 'no-store, private').json({
+        packages: packages.map(p => ({
+          id: Number(p.id), name: p.name, description: p.description || '',
+          currency: p.currency, price: String(p.price), durationDays: p.duration_days,
+          terms: p.terms || '', status: p.status
+        })),
+        portfolio: portfolio.map(p => ({
+          ...p, id: Number(p.id), packageId: p.package_id == null ? null : Number(p.package_id),
+          principalAmount: String(p.principalAmount), feePercent: String(p.feePercent),
+          feeAmount: String(p.feeAmount), totalCharged: String(p.totalCharged)
+        }))
+      });
+    } catch (error) {
+      if (error && (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_FIELD_ERROR')) {
+        return res.status(503).json({ error: 'investment_setup_required', message: 'Investment records are not available right now. No financial action was taken.' });
+      }
+      next(error);
+    }
+  });
+
   // Native KYC status and referral history use the signed-in mobile session.
   router.get('/kyc/status', noStore, apiAuth, async (req, res, next) => {
     try {
