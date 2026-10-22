@@ -28,10 +28,6 @@
     .nav-login{display:inline-flex;align-items:center;justify-content:center;padding:2px 9px;min-height:0;height:28px;border:1px solid rgba(255,211,61,.38);border-radius:999px;color:#ffe16b;font-size:.72rem;line-height:1;font-weight:750;text-decoration:none;white-space:nowrap;flex:0 0 auto;align-self:center;transition:background .18s ease,border-color .18s ease,color .18s ease}.nav-login:hover{background:rgba(255,211,61,.10);border-color:rgba(255,211,61,.7)}@media(max-width:760px){.nav .nav-login{align-self:flex-start;padding:5px 10px;height:28px;min-height:0;margin-top:4px;width:auto;font-size:.74rem}}
     .button-login{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.65);border-radius:999px;color:#ffe16b;background:rgba(15,16,23,.72);font-weight:800;text-decoration:none}.button-login:hover{background:#f3cf3c;color:#111}
     @media(max-width:700px){.partner-grid,.event-grid{grid-template-columns:1fr}.partner-card,.event-card{padding:22px}.faq-item summary{padding:18px}.faq-answer{padding:0 18px 18px}}
-    .platform-downloads{position:relative;isolation:isolate;overflow:hidden;margin:0 auto;padding:clamp(34px,6vw,68px) max(22px,calc((100vw - 1120px)/2));background:radial-gradient(ellipse at 50% 0,rgba(243,207,60,.09),transparent 55%),#0c0c0f;border-top:1px solid rgba(243,207,60,.16);border-bottom:1px solid rgba(243,207,60,.16)}
-    .platform-downloads-inner{max-width:1120px;margin:0 auto}.platform-downloads .section-heading{margin-bottom:28px}.platform-downloads .section-heading h2{font-size:clamp(1.8rem,4vw,3rem)}.platform-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.platform-card{min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:22px 14px;border:1px solid rgba(243,207,60,.2);border-radius:20px;background:linear-gradient(155deg,rgba(32,31,27,.9),rgba(16,16,19,.98));transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}.platform-card:hover{transform:translateY(-3px);border-color:rgba(243,207,60,.55);box-shadow:0 14px 34px rgba(0,0,0,.22)}.platform-icon{width:48px;height:48px;display:grid;place-items:center;color:#f3cf3c}.platform-icon svg{width:42px;height:42px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.platform-card h3{margin:0;font-size:1.05rem;font-weight:850}.platform-card p{margin:0;min-height:42px;color:var(--muted);font-size:.84rem;line-height:1.5}.platform-card button{margin-top:auto;width:100%;min-height:42px;border:1px solid rgba(243,207,60,.42);border-radius:999px;background:rgba(243,207,60,.08);color:#ffe16b;font:inherit;font-size:.82rem;font-weight:800;cursor:pointer}.platform-card button:hover{background:#f3cf3c;color:#111}.platform-note{max-width:760px;margin:20px auto 0;text-align:center;color:var(--muted);font-size:.8rem;line-height:1.6}.platform-note a{color:#ffe16b}
-    @media(max-width:760px){.platform-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.platform-card{padding:18px 12px}.platform-card p{min-height:56px}}
-    @media(max-width:360px){.platform-grid{grid-template-columns:1fr}.platform-card p{min-height:0}}
   </style>
 </head>
 <body>
@@ -170,39 +166,7 @@
     </section>
   </main>
 
-  <section class="platform-downloads" id="download-app" aria-labelledby="platform-download-title">
-    <div class="platform-downloads-inner">
-      <div class="section-heading centered">
-        <p class="eyebrow">MONARCH CODEX ON YOUR DEVICE</p>
-        <h2 id="platform-download-title">Your platform. Your way.</h2>
-        <p class="section-intro">Use Monarch Codex on the web or install the app-like experience on your device. Your account stays connected to the same platform.</p>
-      </div>
-      <div class="platform-grid">
-        <article class="platform-card">
-          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="11" y="8" width="26" height="33" rx="5"/><path d="M18 4l4 5M30 4l-4 5M18 35h12"/><circle cx="18" cy="14" r="1" fill="currentColor" stroke="none"/><circle cx="30" cy="14" r="1" fill="currentColor" stroke="none"/></svg></div>
-          <h3>Android</h3><p>Install the web app from Chrome. A separate APK file is not published yet.</p>
-          <button type="button" data-install-app data-platform="android">Install Web App ↓</button>
-        </article>
-        <article class="platform-card">
-          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M29 25c0-5 4-7 4-7-2-3-5-3-6-3-3 0-4 2-6 2s-3-2-6-2c-4 0-8 4-8 10 0 5 4 14 8 14 2 0 4-2 6-2s3 2 6 2c3 0 6-5 7-8-1 0-5-2-5-6Z"/><path d="M26 12c1-4 4-6 7-6 0 4-3 7-7 7"/></svg></div>
-          <h3>iPhone & iPad</h3><p>Add Monarch Codex to your Home Screen from Safari. No App Store download is needed.</p>
-          <button type="button" data-install-app data-platform="ios">Add to Home Screen ↓</button>
-        </article>
-        <article class="platform-card">
-          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><rect x="5" y="8" width="38" height="27" rx="3"/><path d="M18 41h12M24 35v6M10 14h28"/></svg></div>
-          <h3>Mac</h3><p>Install from a supported browser or add Monarch Codex to your Dock.</p>
-          <button type="button" data-install-app data-platform="mac">Install on Mac ↓</button>
-        </article>
-        <article class="platform-card">
-          <div class="platform-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M5 9 21 7v16H5Zm19-2 19-3v19H24ZM5 25h16v16L5 39Zm19 0h19v19l-19-3Z"/></svg></div>
-          <h3>Windows</h3><p>Install as a web app from Microsoft Edge or Chrome. A separate .exe installer is not published.</p>
-          <button type="button" data-install-app data-platform="windows">Install on Windows ↓</button>
-        </article>
-      </div>
-      <p class="platform-note">One Monarch Codex account works across devices. Android and desktop browsers may offer app installation; iPhone and iPad users must add the site to their Home Screen through Safari. Separate APK, iOS App Store, macOS .dmg and Windows .exe installers are not published yet. <a href="mailto:support@monarchcodex.online">Need help? Contact support.</a></p>
-    </div>
-  </section>
-  <div class="app-install-panel" id="appInstallPanel" role="dialog" aria-modal="true" aria-labelledby="appInstallTitle" aria-hidden="true"><div class="app-install-card"><button class="app-install-close" type="button" data-close-install aria-label="Close install instructions">×</button><p class="eyebrow">YOUR COMMUNITY. ONE TAP AWAY.</p><h2 id="appInstallTitle">Take Monarch Codex with you.</h2><p id="appInstallMessage">Install the app for a faster, app-like experience from your home screen.</p><ol id="appInstallSteps"><li>Open this website in Chrome.</li><li>Tap the browser menu <strong>⋮</strong>.</li><li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>, then follow the prompt.</li></ol><button class="button button-gold" type="button" data-close-install>Got it</button></div></div>
+  
   <footer class="footer">
     <a class="brand footer-brand" href="#top"><span class="brand-mark"><img src="assets/images/monarch-codex-logo.svg" alt=""></span><span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span></a>
     <p>Knowledge. Strategy. Empowerment.</p>
@@ -240,71 +204,7 @@
     }
   })();
   </script>
-  <script>
-  (function(){
-    let installPrompt=null;
-    const panel=document.getElementById('appInstallPanel');
-    const message=document.getElementById('appInstallMessage');
-    const steps=document.getElementById('appInstallSteps');
-    const isStandalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
-    function detectPlatform(){
-      const ua=navigator.userAgent||'';
-      const touchMac=(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-      if(/iPhone|iPad|iPod/i.test(ua)||touchMac)return 'ios';
-      if(/Android/i.test(ua))return 'android';
-      if(/Macintosh|Mac OS X/i.test(ua))return 'mac';
-      if(/Windows/i.test(ua))return 'windows';
-      return 'android';
-    }
-    window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;});
-    window.addEventListener('appinstalled',()=>{installPrompt=null;if(message)message.textContent='Monarch Codex is installed. You can open it from your apps or Home Screen.';});
-    function openPanel(){if(!panel)return;panel.classList.add('is-open');panel.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';}
-    function closePanel(){if(!panel)return;panel.classList.remove('is-open');panel.setAttribute('aria-hidden','true');document.body.style.overflow='';}
-    const platformHelp={
-      android:{message:'Install the Monarch Codex web app from Chrome. A separate APK file is not published yet.',steps:['Open monarchcodex.online directly in Google Chrome.','Tap the browser menu ⋮.','Choose Install app or Add to Home screen, then confirm. If no install option appears, update Chrome and reload the page.']},
-      ios:{message:'iPhone and iPad do not download a separate app file from this page. Add the secure Monarch Codex web app to your Home Screen using Safari.',steps:['If this page opened inside WhatsApp, Telegram or another app, open its menu and choose Open in Safari.','In Safari, visit https://monarchcodex.online.','Tap the Share button (the square with the upward arrow).','Scroll the share sheet and tap Add to Home Screen. If needed, tap Edit Actions to find it.','Keep “Open as Web App” enabled if shown, then tap Add. Open Monarch Codex from the new Home Screen icon.']},
-      mac:{message:'On a Mac, install Monarch Codex from a supported browser, or add it to your Dock in recent versions of Safari. No separate .dmg installer is published yet.',steps:['Open https://monarchcodex.online in Safari, Chrome or Microsoft Edge.','In Safari on macOS Sonoma or later, choose File → Add to Dock. In Chrome, use the install icon or menu → Cast, save and share → Install page as app. In Edge, use Apps → Install this site as an app.','Confirm the install prompt. If your browser does not offer installation, bookmark the site or add it to your Dock.']},
-      windows:{message:'On Windows, install Monarch Codex as a web app from Microsoft Edge or Google Chrome. There is no separate .exe installer published yet.',steps:['Open https://monarchcodex.online in Microsoft Edge or Google Chrome.','In Edge, open ⋯ → Apps → Install this site as an app. In Chrome, open ⋮ → Cast, save and share → Install page as app (or use the install icon in the address bar).','Confirm the install prompt. If no install option appears, update the browser and reload the homepage.']}
-    };
-    document.querySelectorAll('[data-install-app]').forEach(button=>button.addEventListener('click',async()=>{
-      const platform=button.dataset.platform||detectPlatform();
-      const help=platformHelp[platform]||platformHelp[detectPlatform()];
-      if(message)message.textContent=isStandalone?'Monarch Codex is already installed on this device.':help.message;
-      if(steps){steps.replaceChildren();help.steps.forEach(instruction=>{const li=document.createElement('li');li.textContent=instruction;steps.append(li);});steps.hidden=isStandalone;}
-      if(installPrompt&&!isStandalone&&platform!=='ios'){
-        const promptEvent=installPrompt;
-        installPrompt=null;
-        try{
-          promptEvent.prompt();
-          const choice=await promptEvent.userChoice;
-          if(choice&&choice.outcome!=='accepted')openPanel();
-        }catch(_){openPanel();}
-        return;
-      }
-      openPanel();
-    }));
-    document.querySelectorAll('[data-close-install]').forEach(button=>button.addEventListener('click',closePanel));
-    if(panel)panel.addEventListener('click',event=>{if(event.target===panel)closePanel();});
-    document.addEventListener('keydown',event=>{if(event.key==='Escape')closePanel();});
-    if('serviceWorker' in navigator && location.protocol==='https:'){
-      window.addEventListener('load',async()=>{
-        try{
-          const registration=await navigator.serviceWorker.register('/service-worker.js',{updateViaCache:'none'});
-          registration.update().catch(()=>{});
-          // Refresh only the installed app's welcome screen after a new worker takes control.
-          // Never force-reload member, payment, verification, or admin screens.
-          let appWelcomeRefreshed=false;
-          navigator.serviceWorker.addEventListener('controllerchange',()=>{
-            if(document.documentElement.dataset.appMode==='true'&&!appWelcomeRefreshed){
-              appWelcomeRefreshed=true;
-              window.location.reload();
-            }
-          });
-        }catch(_){}
-      });
-    }
-  })();
-  </script>
+  
   <script src="assets/js/main.js"></script>
 </body>
 </html>
