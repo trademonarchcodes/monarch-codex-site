@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 const deskMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '004_admin_sovereign_desk.sql'), 'utf8');
 const memberMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '005_member_dashboard_and_sovereign_desk.sql'), 'utf8');
 
@@ -164,4 +165,13 @@ test('Sovereign Desk setup screen diagnoses missing schema without modifying pro
   assert.match(desk, /005_member_dashboard_and_sovereign_desk\.sql/);
   assert.match(desk, /010_sovereign_desk_announcements\.sql/);
   assert.match(desk, /Read-only check/);
+});
+
+test('mobile investments endpoint returns active opportunities and only the signed-in member portfolio', () => {
+  assert.match(mobileApi, /router\.get\('\/investments', noStore, apiAuth/);
+  assert.match(mobileApi, /FROM investment_packages WHERE status='active' ORDER BY id ASC/);
+  assert.match(mobileApi, /FROM member_investments WHERE member_id=\? ORDER BY created_at DESC,id DESC LIMIT 200/);
+  assert.match(mobileApi, /investment_setup_required/);
+  assert.match(mobileApi, /Cache-Control', 'no-store, private/);
+  assert.doesNotMatch(mobileApi.slice(mobileApi.indexOf("router.get('/investments'"), mobileApi.indexOf("Native KYC status")), /INSERT INTO|UPDATE member_wallets|financial_transactions/);
 });
