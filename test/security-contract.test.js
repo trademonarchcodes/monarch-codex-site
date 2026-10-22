@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 const deskMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '004_admin_sovereign_desk.sql'), 'utf8');
 const memberMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '005_member_dashboard_and_sovereign_desk.sql'), 'utf8');
 
@@ -134,10 +135,22 @@ test('admin overview uses live database metrics and clearly labels unconnected f
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM members/);
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM admin_users WHERE is_active = 1/);
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM kyc_submissions WHERE status = 'pending'/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM deposit_requests WHERE status='pending'/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM withdrawal_requests WHERE status='pending'/);
+  assert.match(server, /stat\('Pending deposits'/);
+  assert.match(server, /stat\('Pending withdrawals'/);
+  assert.match(server, /Deposit review .*needs checking/);
+  assert.match(server, /Withdrawal review .*needs checking/);
   assert.match(server, /ac-overview-hero/);
   assert.match(server, /Workflow readiness/);
-  assert.match(server, /Payment provider and fully verified deposit-credit workflow are not connected/);
-  assert.match(server, /No verified investment, profit or bonus ledger is connected/);
+  assert.match(server, /Deposit review .*needs checking/);
+  assert.match(server, /Withdrawal review .*needs checking/);
+  assert.match(server, /Investment packages/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM community_posts WHERE status='pending'/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM online_cooperative_connections WHERE status='pending'/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM member_notifications WHERE read_at IS NULL/);
+  assert.match(server, /tile\('\/admin\/investments','Investment packages'/);
+  assert.match(server, /tile\('\/admin\/community-moderation','Community moderation'/);
   assert.match(server, /never filled with fake account or financial records/i);
 });
 
@@ -153,4 +166,13 @@ test('Sovereign Desk setup screen diagnoses missing schema without modifying pro
   assert.match(desk, /005_member_dashboard_and_sovereign_desk\.sql/);
   assert.match(desk, /010_sovereign_desk_announcements\.sql/);
   assert.match(desk, /Read-only check/);
+});
+
+test('mobile investments endpoint returns active opportunities and only the signed-in member portfolio', () => {
+  assert.match(mobileApi, /router\.get\('\/investments', noStore, apiAuth/);
+  assert.match(mobileApi, /FROM investment_packages WHERE status='active' ORDER BY id ASC/);
+  assert.match(mobileApi, /FROM member_investments WHERE member_id=\? ORDER BY created_at DESC,id DESC LIMIT 200/);
+  assert.match(mobileApi, /investment_setup_required/);
+  assert.match(mobileApi, /Cache-Control', 'no-store, private/);
+  assert.doesNotMatch(mobileApi.slice(mobileApi.indexOf("router.get('/investments'"), mobileApi.indexOf("Native KYC status")), /INSERT INTO|UPDATE member_wallets|financial_transactions/);
 });
