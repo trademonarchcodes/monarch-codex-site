@@ -136,8 +136,13 @@ test('admin overview uses live database metrics and clearly labels unconnected f
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM kyc_submissions WHERE status = 'pending'/);
   assert.match(server, /ac-overview-hero/);
   assert.match(server, /Workflow readiness/);
-  assert.match(server, /Payment provider and fully verified deposit-credit workflow are not connected/);
-  assert.match(server, /No verified investment, profit or bonus ledger is connected/);
+  assert.match(server, /The admin workspace supports payment-method management and request review/);
+  assert.match(server, /Investment packages/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM community_posts WHERE status='pending'/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM online_cooperative_connections WHERE status='pending'/);
+  assert.match(server, /SELECT COUNT\(\*\) AS total FROM member_notifications WHERE read_at IS NULL/);
+  assert.match(server, /tile\('\/admin\/investments','Investment packages'/);
+  assert.match(server, /tile\('\/admin\/community-moderation','Community moderation'/);
   assert.match(server, /never filled with fake account or financial records/i);
 });
 
