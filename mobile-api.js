@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 
 function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, depositProofUpload, decryptProfileValue, loginLimiter: sharedLoginLimiter, registrationLimiter: sharedRegistrationLimiter }) {
   const router = express.Router();
@@ -898,7 +899,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   // Text-first community feed. Partner campaigns and Sovereign Desk signals require review before publication.
   router.get('/community/posts', noStore, apiAuth, async (req,res,next) => {
     try {
-      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+      await ensureFeatureTables();
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
       res.json({items});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
   });
@@ -1023,6 +1025,167 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await auditPlatformAction(req.session.memberId,'admin.permission_updated','admin_permission',adminMemberId,{category,level,allowedActions:level==='gold'?[...new Set(actions)]:[]});
       res.json({ok:true});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'permission_setup_required'}); next(e); }
+  });
+
+
+  // Member presence, feedback centre and optional community image attachments.
+  const featureUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    fileFilter(_req,file,cb) { if (!['image/jpeg','image/png','image/webp'].includes(file.mimetype)) return cb(new Error('Choose a JPG, PNG or WebP image under 5 MB.')); cb(null,true); }
+  });
+  const imageSignatureOk = file => {
+    const b=file?.buffer;
+    if(!b||b.length<12)return false;
+    return (b[0]===0xff&&b[1]===0xd8&&b[2]===0xff) ||
+      (b[0]===0x89&&b[1]===0x50&&b[2]===0x4e&&b[3]===0x47) ||
+      (b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP');
+  };
+  const featureTables = `CREATE TABLE IF NOT EXISTS member_presence (
+    member_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+    last_seen_at TIMESTAMP NULL DEFAULT NULL,
+    online_until TIMESTAMP NULL DEFAULT NULL,
+    show_status TINYINT(1) NOT NULL DEFAULT 1,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  CREATE TABLE IF NOT EXISTS member_feedback (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    member_id BIGINT UNSIGNED NOT NULL,
+    category ENUM('feature_request','bug_report','improvement','other') NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    description TEXT NOT NULL,
+    status ENUM('received','under_review','planned','in_progress','implemented','declined') NOT NULL DEFAULT 'received',
+    admin_note VARCHAR(2000) NULL,
+    image_mime VARCHAR(40) NULL,
+    image_data MEDIUMBLOB NULL,
+    reviewed_by BIGINT UNSIGNED NULL,
+    reviewed_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_member_feedback_member (member_id, created_at),
+    KEY idx_member_feedback_status (status, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  CREATE TABLE IF NOT EXISTS community_post_media (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    post_id BIGINT UNSIGNED NOT NULL,
+    image_mime VARCHAR(40) NOT NULL,
+    image_data MEDIUMBLOB NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_community_post_media_post (post_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`;
+  let featureTablesReady = null;
+  const ensureFeatureTables = async () => {
+    if (!featureTablesReady) featureTablesReady = (async () => {
+      const statements = featureTables.split(/;\s*(?=CREATE TABLE|$)/).map(s=>s.trim()).filter(Boolean);
+      for (const sql of statements) await pool.query(sql);
+    })().catch(e => { featureTablesReady=null; throw e; });
+    return featureTablesReady;
+  };
+  const onlineFlag = row => Boolean(row && Number(row.show_status)===1 && row.online_until && new Date(row.online_until).getTime()>Date.now());
+
+  router.post('/presence/heartbeat', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureFeatureTables();
+      await pool.execute('INSERT INTO member_presence (member_id,last_seen_at,online_until) VALUES (?,CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE)) ON DUPLICATE KEY UPDATE last_seen_at=CURRENT_TIMESTAMP,online_until=DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE)',[req.session.memberId]);
+      res.json({ok:true,online:true,heartbeatSeconds:45});
+    } catch(e){ next(e); }
+  });
+  router.get('/presence/members', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureFeatureTables();
+      const ids=String(req.query.ids||'').split(',').map(x=>Number(x)).filter(x=>Number.isSafeInteger(x)&&x>0).slice(0,100);
+      if(!ids.length)return res.json({items:[]});
+      const [rows]=await pool.query('SELECT p.member_id AS memberId,p.last_seen_at AS lastSeenAt,p.online_until AS onlineUntil,p.show_status AS showStatus FROM member_presence p WHERE p.member_id IN ('+ids.map(()=>'?').join(',')+')',ids);
+      res.json({items:rows.map(x=>({memberId:x.memberId,showStatus:Boolean(x.showStatus),online:onlineFlag(x),lastSeenAt:x.showStatus?x.lastSeenAt:null}))});
+    } catch(e){ next(e); }
+  });
+  router.get('/presence/settings', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureFeatureTables();
+      const [[row]]=await pool.execute('SELECT show_status AS showStatus FROM member_presence WHERE member_id=?',[req.session.memberId]);
+      res.json({showStatus:row?Boolean(row.showStatus):true});
+    } catch(e){ next(e); }
+  });
+  router.put('/presence/settings', noStore, apiAuth, async (req,res,next) => {
+    const showStatus=req.body.showStatus===true;
+    try {
+      await ensureFeatureTables();
+      await pool.execute('INSERT INTO member_presence (member_id,last_seen_at,online_until,show_status) VALUES (?,CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE),?) ON DUPLICATE KEY UPDATE show_status=VALUES(show_status),last_seen_at=CURRENT_TIMESTAMP,online_until=IF(VALUES(show_status)=1,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE),NULL)',[req.session.memberId,showStatus?1:0]);
+      res.json({ok:true,showStatus});
+    } catch(e){ next(e); }
+  });
+
+  router.post('/feedback', noStore, apiAuth, (req,res,next)=>featureUpload.single('image')(req,res,err=>err?res.status(400).json({error:'invalid_image',message:err.message||'Invalid image upload.'}):next()), async (req,res,next) => {
+    const category=String(req.body.category||'other'),title=String(req.body.title||'').trim(),description=String(req.body.description||'').trim();
+    if(!['feature_request','bug_report','improvement','other'].includes(category)||title.length<3||title.length>160||description.length<5||description.length>5000)return res.status(400).json({error:'invalid_feedback',message:'Enter a title and description. Titles must be 3–160 characters and descriptions 5–5000 characters.'});
+    if(req.file&&!imageSignatureOk(req.file))return res.status(400).json({error:'invalid_image_signature',message:'The selected file is not a valid JPG, PNG or WebP image.'});
+    try {
+      await ensureFeatureTables();
+      const [result]=await pool.execute('INSERT INTO member_feedback (member_id,category,title,description,image_mime,image_data) VALUES (?,?,?,?,?,?)',[req.session.memberId,category,title,description,req.file?.mimetype||null,req.file?.buffer||null]);
+      res.status(201).json({ok:true,id:result.insertId,status:'received',message:'Feedback received. You can track its progress in Feedback & Suggestions.'});
+    } catch(e){ next(e); }
+  });
+  router.get('/feedback', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureFeatureTables();
+      const [items]=await pool.execute('SELECT id,category,title,description,status,admin_note AS adminNote, image_mime IS NOT NULL AS hasImage,created_at AS createdAt,updated_at AS updatedAt FROM member_feedback WHERE member_id=? ORDER BY created_at DESC LIMIT 100',[req.session.memberId]);
+      res.json({items});
+    } catch(e){ next(e); }
+  });
+  router.get('/admin/feedback', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureFeatureTables();
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin||!['super_admin','main_admin'].includes(String(admin.role)))return res.status(403).json({error:'admin_required'});
+      const [items]=await pool.query('SELECT f.id,f.member_id AS memberId,m.full_name AS memberName,m.username,f.category,f.title,f.description,f.status,f.admin_note AS adminNote,f.image_mime IS NOT NULL AS hasImage,f.created_at AS createdAt FROM member_feedback f JOIN members m ON m.id=f.member_id ORDER BY (f.status="received") DESC,f.created_at DESC LIMIT 300');
+      res.json({items});
+    } catch(e){ next(e); }
+  });
+  router.post('/admin/feedback/:id/review', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id),status=String(req.body.status||''),note=String(req.body.note||'').trim().slice(0,2000);
+    if(!Number.isSafeInteger(id)||id<1||!['under_review','planned','in_progress','implemented','declined'].includes(status))return res.status(400).json({error:'invalid_feedback_review'});
+    try {
+      await ensureFeatureTables();
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin||!['super_admin','main_admin'].includes(String(admin.role)))return res.status(403).json({error:'admin_required'});
+      const [result]=await pool.execute('UPDATE member_feedback SET status=?,admin_note=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,note||null,req.session.memberId,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'feedback_not_found'});
+      try { await pool.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) SELECT member_id,?,?,?,?,? FROM member_feedback WHERE id=?',[ 'feedback_update','Feedback status updated','Your feedback is now '+status.replaceAll('_',' ')+(note?' — '+note:''),'/feedback','feedback_'+id+'_'+status,id]); } catch(_){}
+      res.json({ok:true,status});
+    } catch(e){ next(e); }
+  });
+
+  router.post('/community/posts/media', noStore, apiAuth, (req,res,next)=>featureUpload.single('image')(req,res,err=>err?res.status(400).json({error:'invalid_image',message:err.message||'Invalid image upload.'}):next()), async (req,res,next) => {
+    const body=String(req.body.body||'').trim(),type=String(req.body.type||'post');
+    if(body.length<1||body.length>5000||type!=='post')return res.status(400).json({error:'invalid_post',message:'Enter a post between 1 and 5000 characters. Image attachments are for ordinary community posts.'});
+    if(req.file&&!imageSignatureOk(req.file))return res.status(400).json({error:'invalid_image_signature',message:'The selected file is not a valid JPG, PNG or WebP image.'});
+    try {
+      await ensureFeatureTables();
+      const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,'post','published']);
+      if(req.file)await pool.execute('INSERT INTO community_post_media (post_id,image_mime,image_data) VALUES (?,?,?)',[result.insertId,req.file.mimetype,req.file.buffer]);
+      await auditPlatformAction(req.session.memberId,'community.post_created','community_post',result.insertId,{type:'post',hasImage:Boolean(req.file)});
+      res.status(201).json({ok:true,id:result.insertId,status:'published',hasImage:Boolean(req.file),message:'Your post is now published.'});
+    } catch(e){ next(e); }
+  });
+  router.get('/community/posts/:id/image', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)return res.status(400).end();
+    try {
+      await ensureFeatureTables();
+      const [[row]]=await pool.execute("SELECT pm.image_mime AS mime,pm.image_data AS data FROM community_post_media pm JOIN community_posts p ON p.id=pm.post_id WHERE p.id=? AND p.status='published'",[id]);
+      if(!row)return res.status(404).json({error:'image_not_found'});
+      res.set('Content-Type',row.mime);res.set('Cache-Control','private, no-store');res.set('X-Content-Type-Options','nosniff');res.send(row.data);
+    } catch(e){ next(e); }
+  });
+  router.get('/feedback/:id/image', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)return res.status(400).end();
+    try {
+      await ensureFeatureTables();
+      const [[row]]=await pool.execute('SELECT image_mime AS mime,image_data AS data,member_id AS memberId FROM member_feedback WHERE id=?',[id]);
+      if(!row|| (Number(row.memberId)!==Number(req.session.memberId))) {
+        const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+        if(!row||!admin||!['super_admin','main_admin'].includes(String(admin.role)))return res.status(404).json({error:'image_not_found'});
+      }
+      if(!row.data)return res.status(404).json({error:'image_not_found'});
+      res.set('Content-Type',row.mime);res.set('Cache-Control','private, no-store');res.set('X-Content-Type-Options','nosniff');res.send(row.data);
+    } catch(e){ next(e); }
   });
 
   return router;
