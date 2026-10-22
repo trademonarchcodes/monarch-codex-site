@@ -246,6 +246,21 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   });
 
 
+  const requireApprovedKycApi = async (req, res, next) => {
+    try {
+      const [rows] = await pool.execute(
+        "SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",
+        [req.session.memberId]
+      );
+      if (rows.length && String(rows[0].status || '').trim().toLowerCase() === 'approved') return next();
+      return res.status(403).json({ error: 'kyc_required', message: 'Identity verification must be approved before this financial action.' });
+    } catch (error) {
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'kyc_setup_required', message: 'Identity verification is temporarily unavailable. No financial action was taken.' });
+      return next(error);
+    }
+  };
+
+
   // Native investment purchase: same wallet, fee, ledger, idempotency and notification rules as the website.
   router.post('/investments/:packageId/purchase', noStore, apiAuth, requireApprovedKycApi, async (req, res, next) => {
     const packageId = String(req.params.packageId || '');
@@ -464,19 +479,6 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
 
   // Native transaction APIs reuse the same database ledger and review queues as the website.
   // They never credit a wallet merely because a member submits a request.
-  const requireApprovedKycApi = async (req, res, next) => {
-    try {
-      const [rows] = await pool.execute(
-        "SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1",
-        [req.session.memberId]
-      );
-      if (rows.length && String(rows[0].status || '').trim().toLowerCase() === 'approved') return next();
-      return res.status(403).json({ error: 'kyc_required', message: 'Identity verification must be approved before this financial action.' });
-    } catch (error) {
-      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'kyc_setup_required', message: 'Identity verification is temporarily unavailable. No financial action was taken.' });
-      return next(error);
-    }
-  };
 
   const requireMobileAdmin = async (req, res, next) => {
     try {
