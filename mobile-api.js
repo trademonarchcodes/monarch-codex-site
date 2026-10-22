@@ -899,7 +899,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   // Text-first community feed. Partner campaigns and Sovereign Desk signals require review before publication.
   router.get('/community/posts', noStore, apiAuth, async (req,res,next) => {
     try {
-      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,COALESCE(pr.is_online,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+      await ensureFeatureTables();
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
       res.json({items});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
   });
