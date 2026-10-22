@@ -791,6 +791,54 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) {if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'security_setup_required',message:'Security records are not configured.'});next(e);}
   });
 
+  // Member management: category permissions gate viewing; destructive actions require Super Admin.
+  router.get('/admin/members', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
+    try {
+      const q=String(req.query.q||'').trim().slice(0,120);
+      const [rows]=await pool.execute(
+        "SELECT m.id,m.monarch_uid AS uid,m.full_name AS fullName,m.username,m.email,m.phone,m.created_at AS createdAt,m.email_verified_at AS emailVerifiedAt,COALESCE(m.is_blocked,0) AS isBlocked FROM members m WHERE (?='' OR m.full_name LIKE ? OR m.username LIKE ? OR m.email LIKE ? OR m.monarch_uid LIKE ?) ORDER BY m.id DESC LIMIT 200",
+        [q,q+'%',q+'%',q+'%',q+'%']
+      );
+      res.json({items:rows});
+    } catch(e) { if(e.code==='ER_BAD_FIELD_ERROR' && /is_blocked/.test(e.message)) return res.status(503).json({error:'member_management_schema_required',message:'The members table needs the is_blocked column before member controls can be used safely.'}); next(e); }
+  });
+  router.get('/admin/members/:id', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
+    const id=Number(req.params.id); if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
+    try {
+      const [[member]]=await pool.execute("SELECT id,monarch_uid AS uid,full_name AS fullName,username,email,phone,created_at AS createdAt,email_verified_at AS emailVerifiedAt,COALESCE(is_blocked,0) AS isBlocked FROM members WHERE id=? LIMIT 1",[id]);
+      if(!member)return res.status(404).json({error:'member_not_found'});
+      const [wallets]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[id]);
+      const [kyc]=await pool.execute('SELECT status,submitted_at AS submittedAt FROM kyc_submissions WHERE member_id=? ORDER BY id DESC LIMIT 5',[id]);
+      res.json({member,wallets,kyc});
+    } catch(e) { next(e); }
+  });
+  router.post('/admin/members/:id/status', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const id=Number(req.params.id), blocked=req.body.blocked===true;
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
+    if(id===Number(req.session.memberId))return res.status(400).json({error:'cannot_block_self'});
+    try {
+      const [result]=await pool.execute('UPDATE members SET is_blocked=? WHERE id=?',[blocked?1:0,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'member_not_found'});
+      await adminAudit(pool,req.session.memberId,blocked?'member.blocked':'member.unblocked','member',id,{blocked},req.ip);
+      res.json({ok:true,blocked});
+    } catch(e) { if(e.code==='ER_BAD_FIELD_ERROR' && /is_blocked/.test(e.message)) return res.status(503).json({error:'member_management_schema_required',message:'Apply the member status schema migration before blocking accounts.'}); next(e); }
+  });
+  router.delete('/admin/members/:id', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
+    if(id===Number(req.session.memberId))return res.status(400).json({error:'cannot_delete_self'});
+    let conn;
+    try {
+      conn=await pool.getConnection(); await conn.beginTransaction();
+      const [[member]]=await conn.execute('SELECT id,username,email FROM members WHERE id=? FOR UPDATE',[id]);
+      if(!member){await conn.rollback();return res.status(404).json({error:'member_not_found'});}
+      await conn.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,'member.deleted','member',String(id),JSON.stringify({username:member.username,email:member.email}),req.ip||null]);
+      await conn.execute('DELETE FROM members WHERE id=?',[id]);
+      await conn.commit(); res.json({ok:true});
+    } catch(e) { if(conn)try{await conn.rollback();}catch(_){} next(e); }
+    finally { if(conn)conn.release(); }
+  });
+
   router.get('/admin/overview', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req, res, next) => {
     try {
       const [[members]] = await pool.query('SELECT COUNT(*) AS total FROM members');
