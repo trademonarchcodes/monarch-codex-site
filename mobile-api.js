@@ -9,6 +9,14 @@ const multer = require('multer');
 
 function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, depositProofUpload, decryptProfileValue, loginLimiter: sharedLoginLimiter, registrationLimiter: sharedRegistrationLimiter }) {
   const router = express.Router();
+
+  const requireSuperAdmin = async (req,res,next) => {
+    try {
+      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if(!admin||String(admin.role)!=='super_admin')return res.status(403).json({error:'super_admin_required',message:'Only the Monarch Codex Super Admin can perform this action.'});
+      req.platformSuperAdmin=true; next();
+    } catch(e) { next(e); }
+  };
   const apiLoginLimiter = sharedLoginLimiter || rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
   const apiRegisterLimiter = sharedRegistrationLimiter || rateLimit({ windowMs: 60 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
   const noStore = (_req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };
@@ -1034,13 +1042,6 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'notification_setup_required'}); next(e); }
   });
 
-  const requireSuperAdmin = async (req,res,next) => {
-    try {
-      const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
-      if(!admin||String(admin.role)!=='super_admin')return res.status(403).json({error:'super_admin_required',message:'Only the Monarch Codex Super Admin can perform this action.'});
-      req.platformSuperAdmin=true; next();
-    } catch(e) { next(e); }
-  };
   const notifyActiveAdmins = async ({type,title,body,targetUrl,dedupePrefix}) => {
     const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
     for(const admin of admins){
