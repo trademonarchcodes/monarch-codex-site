@@ -1044,7 +1044,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     last_seen_at TIMESTAMP NULL DEFAULT NULL,
     online_until TIMESTAMP NULL DEFAULT NULL,
     show_status TINYINT(1) NOT NULL DEFAULT 1,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   CREATE TABLE IF NOT EXISTS member_feedback (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1061,7 +1061,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_member_feedback_member (member_id, created_at),
-    KEY idx_member_feedback_status (status, created_at),
+    KEY idx_member_feedback_status (status, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   CREATE TABLE IF NOT EXISTS community_post_media (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1069,7 +1069,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     image_mime VARCHAR(40) NOT NULL,
     image_data MEDIUMBLOB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_community_post_media_post (post_id),
+    UNIQUE KEY uq_community_post_media_post (post_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`;
   let featureTablesReady = null;
   const ensureFeatureTables = async () => {
