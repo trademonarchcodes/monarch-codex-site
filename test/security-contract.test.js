@@ -143,7 +143,8 @@ test('admin overview uses live database metrics and clearly labels unconnected f
   assert.match(server, /Withdrawal review .*needs checking/);
   assert.match(server, /ac-overview-hero/);
   assert.match(server, /Workflow readiness/);
-  assert.match(server, /The admin workspace supports payment-method management and request review/);
+  assert.match(server, /Deposit review .*needs checking/);
+  assert.match(server, /Withdrawal review .*needs checking/);
   assert.match(server, /Investment packages/);
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM community_posts WHERE status='pending'/);
   assert.match(server, /SELECT COUNT\(\*\) AS total FROM online_cooperative_connections WHERE status='pending'/);
