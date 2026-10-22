@@ -1,0 +1,47 @@
+name: Flutter Android validation
+
+on:
+  push:
+    branches: [android-app-foundation]
+    paths:
+      - "android-app/**"
+      - ".github/workflows/flutter-android.yml"
+  pull_request:
+    paths:
+      - "android-app/**"
+      - ".github/workflows/flutter-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android platform scaffold
+        run: flutter create --platforms=android --org com.monarchcodex .
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Analyze Dart code
+        run: flutter analyze
+      - name: Run widget tests
+        run: flutter test
+      - name: Build debug APK
+        run: flutter build apk --debug
+      - name: Upload debug APK for testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: monarch-codex-debug-apk
+          path: android-app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
