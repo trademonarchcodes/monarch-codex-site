@@ -174,5 +174,5 @@ test('mobile investments endpoint returns active opportunities and only the sign
   assert.match(mobileApi, /FROM member_investments WHERE member_id=\? ORDER BY created_at DESC,id DESC LIMIT 200/);
   assert.match(mobileApi, /investment_setup_required/);
   assert.match(mobileApi, /Cache-Control', 'no-store, private/);
-  assert.doesNotMatch(mobileApi.slice(mobileApi.indexOf("router.get('/investments'"), mobileApi.indexOf("Native KYC status")), /INSERT INTO|UPDATE member_wallets|financial_transactions/);
+  assert.doesNotMatch(mobileApi.slice(mobileApi.indexOf("router.get('/investments'"), mobileApi.indexOf("router.post('/investments/:packageId/purchase'")), /INSERT INTO|UPDATE member_wallets|financial_transactions/);
 });

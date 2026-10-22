@@ -245,6 +245,162 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
   });
 
+
+  // Native investment purchase: same wallet, fee, ledger, idempotency and notification rules as the website.
+  router.post('/investments/:packageId/purchase', noStore, apiAuth, requireApprovedKycApi, async (req, res, next) => {
+    const packageId = String(req.params.packageId || '');
+    const key = String(req.body.idempotencyKey || '').trim();
+    if (!/^\d{1,20}$/.test(packageId) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
+      return res.status(400).json({ error: 'invalid_purchase', message: 'Refresh the investment page and try again. No funds were deducted.' });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[prior]] = await conn.execute(
+        'SELECT id,purchase_reference,package_name_snapshot,currency,principal_amount,fee_amount,total_charged,status FROM member_investments WHERE member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE',
+        [req.session.memberId, key]
+      );
+      if (prior) {
+        await conn.commit();
+        return res.json({
+          ok: true, alreadyProcessed: true,
+          investment: {
+            id: Number(prior.id), reference: prior.purchase_reference, packageName: prior.package_name_snapshot,
+            currency: prior.currency, principalAmount: String(prior.principal_amount),
+            feeAmount: String(prior.fee_amount), totalCharged: String(prior.total_charged), status: prior.status
+          },
+          message: 'This purchase was already processed. Your wallet was not charged again.'
+        });
+      }
+
+      const [[pkg]] = await conn.execute(
+        "SELECT id,name,currency,price,duration_days,terms FROM investment_packages WHERE id=? AND status='active' LIMIT 1 FOR UPDATE",
+        [packageId]
+      );
+      if (!pkg) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'package_unavailable', message: 'This package is no longer active. Refresh to see available offers.' });
+      }
+
+      const [[amounts]] = await conn.execute(
+        'SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.01,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.01,8),8) AS total',
+        [pkg.price, pkg.price, pkg.price, pkg.price]
+      );
+      const principal = String(amounts.principal);
+      const fee = String(amounts.fee);
+      const total = String(amounts.total);
+      let walletCurrency = pkg.currency;
+      let wallet = null;
+      let debitAmount = Number(total);
+      let conversionRate = 1;
+
+      const [[nativeWallet]] = await conn.execute(
+        'SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',
+        [req.session.memberId, pkg.currency]
+      );
+      if (nativeWallet && Number(nativeWallet.balance) + 1e-8 >= Number(total)) {
+        wallet = nativeWallet;
+      } else {
+        const [[pricing]] = await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+        conversionRate = Number(pricing && pricing.base_usd_ngn_rate) * (1 + Number(pricing && pricing.markup_percent || 0) / 100);
+        if (!Number.isFinite(conversionRate) || conversionRate <= 0) {
+          await conn.rollback();
+          return res.status(503).json({ error: 'exchange_rate_unavailable', message: 'The configured exchange rate is unavailable. No funds were deducted.' });
+        }
+        if (pkg.currency === 'USD') {
+          walletCurrency = 'NGN';
+          debitAmount = Math.round(Number(total) * conversionRate * 100) / 100;
+          const [[otherWallet]] = await conn.execute(
+            "SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='NGN' LIMIT 1 FOR UPDATE",
+            [req.session.memberId]
+          );
+          if (otherWallet && Number(otherWallet.balance) + 1e-8 >= debitAmount) wallet = otherWallet;
+        } else if (pkg.currency === 'NGN') {
+          walletCurrency = 'USD';
+          debitAmount = Math.round((Number(total) / conversionRate) * 100) / 100;
+          const [[otherWallet]] = await conn.execute(
+            "SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='USD' LIMIT 1 FOR UPDATE",
+            [req.session.memberId]
+          );
+          if (otherWallet && Number(otherWallet.balance) + 1e-8 >= debitAmount) wallet = otherWallet;
+        }
+      }
+      if (!wallet) {
+        await conn.rollback();
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance is not enough for the package price plus the 1% fee. No funds were deducted.' });
+      }
+
+      const [debit] = await conn.execute(
+        'UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',
+        [debitAmount, wallet.id, debitAmount]
+      );
+      if (debit.affectedRows !== 1) {
+        await conn.rollback();
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance changed. Refresh your wallet and try again. No funds were deducted.' });
+      }
+
+      const reference = 'INV-' + crypto.randomUUID().replace(/-/g, '').toUpperCase();
+      const [created] = await conn.execute(
+        "INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",
+        [req.session.memberId, pkg.id, pkg.name, pkg.currency, principal, fee, total, pkg.duration_days, pkg.terms || '', reference, key, pkg.duration_days, pkg.duration_days]
+      );
+      const walletDebitReference = walletCurrency === pkg.currency ? reference : reference + '-FX';
+      const adminNote = walletCurrency === pkg.currency ? null :
+        (pkg.currency === 'USD'
+          ? 'USD package converted to NGN at ' + conversionRate.toFixed(6) + ' NGN per USD; package total ' + total + ' USD'
+          : 'NGN package converted to USD at ' + conversionRate.toFixed(6) + ' NGN per USD; package total ' + total + ' NGN');
+      await conn.execute(
+        "INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",
+        [req.session.memberId, created.insertId, walletCurrency, (-debitAmount).toFixed(8), walletDebitReference, adminNote]
+      );
+      await conn.execute(
+        'INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
+        [req.session.memberId, 'investment_purchase', 'Investment package purchased',
+          'Your ' + pkg.name + ' package purchase was recorded. Package price: ' + principal + ' ' + pkg.currency +
+          '; 1% fee: ' + fee + ' ' + pkg.currency + '; total wallet deduction: ' + total + ' ' + pkg.currency + '.',
+          '/investments', 'investment-purchase:' + created.insertId]
+      );
+      await conn.commit();
+      return res.status(201).json({
+        ok: true, alreadyProcessed: false,
+        investment: {
+          id: Number(created.insertId), reference, packageName: pkg.name, currency: pkg.currency,
+          principalAmount: principal, feeAmount: fee, totalCharged: total, status: 'active',
+          durationDays: pkg.duration_days
+        },
+        walletDebit: { currency: walletCurrency, amount: debitAmount.toFixed(8) },
+        message: 'Investment purchase recorded successfully.'
+      });
+    } catch (error) {
+      try { await conn.rollback(); } catch (_) {}
+      if (error && error.code === 'ER_DUP_ENTRY') {
+        try {
+          const [[prior]] = await pool.execute(
+            'SELECT id,purchase_reference,package_name_snapshot,currency,principal_amount,fee_amount,total_charged,status FROM member_investments WHERE member_id=? AND idempotency_key=? LIMIT 1',
+            [req.session.memberId, key]
+          );
+          if (prior) return res.json({
+            ok: true, alreadyProcessed: true,
+            investment: {
+              id: Number(prior.id), reference: prior.purchase_reference, packageName: prior.package_name_snapshot,
+              currency: prior.currency, principalAmount: String(prior.principal_amount),
+              feeAmount: String(prior.fee_amount), totalCharged: String(prior.total_charged), status: prior.status
+            },
+            message: 'This purchase was already processed. Your wallet was not charged again.'
+          });
+        } catch (_) {}
+      }
+      if (error && (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_FIELD_ERROR')) {
+        return res.status(503).json({ error: 'investment_setup_required', message: 'Investment records are not configured yet. No financial action was completed.' });
+      }
+      return next(error);
+    } finally {
+      conn.release();
+    }
+  });
+
   // Native KYC status and referral history use the signed-in mobile session.
   router.get('/kyc/status', noStore, apiAuth, async (req, res, next) => {
     try {
