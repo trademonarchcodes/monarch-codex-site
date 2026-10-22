@@ -3094,7 +3094,7 @@ app.get(['/manifest.webmanifest', '/service-worker.js', '/app-icon.svg'], (req, 
   if (req.path === '/service-worker.js') return res.sendFile(file, { headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' } });
   return res.sendFile(file, { headers: { 'Cache-Control': 'public, max-age=3600' } });
 });
-app.get(['/privacy.html', '/terms.html', '/market-news.html', '/market-movers.html', '/online-cooperative.html', '/sovereign-desk.html'], (req, res) => {
+app.get(['/privacy.html', '/terms.html', '/market-news.html', '/market-movers.html', '/online-cooperative.html', '/sovereign-desk.html', '/help-support.html'], (req, res) => {
   res.sendFile(path.join(__dirname, path.basename(req.path)));
 });
 app.get(['/style.css', '/member-dashboard.css', '/kyc-wizard.css', '/kyc-wizard.js', '/wallet-balances.js', '/member-nav.js', '/member-dashboard.js'], (req, res) => {
