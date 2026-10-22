@@ -35,6 +35,16 @@ const dbOptions = {
   charset: 'utf8mb4'
 };
 const pool = mysql.createPool({ ...dbOptions, waitForConnections: true, connectionLimit: 10, queueLimit: 0 });
+
+const ensurePresenceFeedbackTables = async () => {
+  const statements = [
+    "CREATE TABLE IF NOT EXISTS member_presence (member_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,last_seen_at TIMESTAMP NULL DEFAULT NULL,online_until TIMESTAMP NULL DEFAULT NULL,show_status TINYINT(1) NOT NULL DEFAULT 1,updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "CREATE TABLE IF NOT EXISTS member_feedback (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,member_id BIGINT UNSIGNED NOT NULL,category ENUM('feature_request','bug_report','improvement','other') NOT NULL,title VARCHAR(160) NOT NULL,description TEXT NOT NULL,status ENUM('received','under_review','planned','in_progress','implemented','declined') NOT NULL DEFAULT 'received',admin_note VARCHAR(2000) NULL,image_mime VARCHAR(40) NULL,image_data MEDIUMBLOB NULL,reviewed_by BIGINT UNSIGNED NULL,reviewed_at TIMESTAMP NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,KEY idx_member_feedback_member(member_id,created_at),KEY idx_member_feedback_status(status,created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+    "CREATE TABLE IF NOT EXISTS community_post_media (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,post_id BIGINT UNSIGNED NOT NULL,image_mime VARCHAR(40) NOT NULL,image_data MEDIUMBLOB NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_community_post_media_post(post_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+  ];
+  for (const sql of statements) await pool.query(sql);
+};
+
 const depositProofDir = path.resolve(process.env.DEPOSIT_STORAGE_DIR || path.join(__dirname, '.private-deposit-proofs'));
 const depositProofUpload = multer({
   storage: multer.diskStorage({
@@ -50,6 +60,15 @@ const depositProofUpload = multer({
     cb(null, true);
   }
 });
+const communityImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter(_req,file,cb) { if(!['image/jpeg','image/png','image/webp'].includes(file.mimetype))return cb(new Error('Choose a JPG, PNG or WebP image under 5 MB.'));cb(null,true); }
+});
+function validCommunityImage(file) {
+  const b=file&&file.buffer;if(!b||b.length<12)return false;
+  return (b[0]===0xff&&b[1]===0xd8&&b[2]===0xff)||(b[0]===0x89&&b[1]===0x50&&b[2]===0x4e&&b[3]===0x47)||(b.toString('ascii',0,4)==='RIFF'&&b.toString('ascii',8,12)==='WEBP');
+}
 function parseDepositProof(req,res,next) {
   depositProofUpload.single('payment_proof')(req,res,err => {
     if (err) return res.status(400).send(formError('Invalid payment proof', err.message || 'Choose a supported proof file under 5 MB.', '/deposit'));
@@ -2561,21 +2580,27 @@ app.get('/social-links', requireAuth, async(req,res,next)=>{
 app.get('/community', requireAuth, async(req,res,next)=>{
   try{
     const m=await getMemberForPage(req,res);if(!m)return;
-    const [posts]=await pool.query("SELECT p.id,p.member_id,p.body,p.post_type,p.created_at,m.full_name,m.username FROM community_posts p JOIN members m ON m.id=p.member_id WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+    await ensurePresenceFeedbackTables();
+    await pool.execute("INSERT INTO member_presence (member_id,last_seen_at,online_until) VALUES (?,CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE)) ON DUPLICATE KEY UPDATE last_seen_at=CURRENT_TIMESTAMP,online_until=DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 2 MINUTE)",[req.session.memberId]);
+    const [posts]=await pool.query("SELECT p.id,p.member_id,p.body,p.post_type,p.created_at,m.full_name,m.username,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS author_online,pr.last_seen_at AS author_last_seen,pr.show_status,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS has_image FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
     const postHtml=await Promise.all(posts.map(async p=>{
       const [comments]=await pool.execute("SELECT c.body,c.created_at,m.full_name,m.username FROM community_comments c JOIN members m ON m.id=c.member_id WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 50",[p.id]);
       const commentHtml=comments.map(x=>'<div style="margin:8px 0 0 18px;padding:10px;border-left:2px solid #6b5927"><strong>'+esc(x.full_name||x.username||'Member')+'</strong><p>'+esc(x.body)+'</p><small>'+esc(x.created_at)+'</small></div>').join('');
-      return '<article style="padding:18px;margin:14px 0;border:1px solid #40371f;border-radius:16px;background:#111216"><p style="color:#f3cf3c;font-size:12px"><strong>'+esc(p.full_name||p.username||'Member')+'</strong> · '+esc(String(p.post_type).replace(/_/g,' '))+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(p.body)+'</p><small>'+esc(p.created_at)+'</small>'+commentHtml+'<form method="post" action="/community/posts/'+Number(p.id)+'/comments" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+csrfField(req)+'<input name="body" required maxlength="2000" placeholder="Write a reply" style="flex:1;min-width:180px"><button class="btn" type="submit">Reply</button></form><form method="post" action="/community/posts/'+Number(p.id)+'/report" style="margin-top:8px">'+csrfField(req)+'<input name="reason" required minlength="3" maxlength="1000" placeholder="Report reason" aria-label="Report reason"><button type="submit" class="btn">Report</button></form></article>';
+      const presenceLabel=Number(p.show_status)!==1?'':Number(p.author_online)===1?'🟢 Online now':p.author_last_seen?'Last seen '+esc(String(p.author_last_seen)):'Status unavailable';
+      const imageHtml=Number(p.has_image)===1?'<img src="/community/posts/'+Number(p.id)+'/image" alt="Community post image" loading="lazy" style="display:block;max-width:100%;max-height:520px;object-fit:contain;border-radius:12px;margin-top:12px">':'';
+      return '<article style="padding:18px;margin:14px 0;border:1px solid #40371f;border-radius:16px;background:#111216"><p style="color:#f3cf3c;font-size:12px"><strong>'+esc(p.full_name||p.username||'Member')+'</strong> · '+esc(String(p.post_type).replace(/_/g,' '))+' '+presenceLabel+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(p.body)+'</p>'+imageHtml+'<small>'+esc(p.created_at)+'</small>'+commentHtml+'<form method="post" action="/community/posts/'+Number(p.id)+'/comments" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'+csrfField(req)+'<input name="body" required maxlength="2000" placeholder="Write a reply" style="flex:1;min-width:180px"><button class="btn" type="submit">Reply</button></form><form method="post" action="/community/posts/'+Number(p.id)+'/report" style="margin-top:8px">'+csrfField(req)+'<input name="reason" required minlength="3" maxlength="1000" placeholder="Report reason" aria-label="Report reason"><button type="submit" class="btn">Report</button></form></article>';
     }));
-    const content='<section style="max-width:900px;margin:auto"><p class="muted">MEMBER NETWORK</p><h2>Community feed</h2><p>Share updates, ask questions and connect with members. Partner campaigns and Sovereign Desk signals are reviewed before publication.</p><form method="post" action="/community/posts" style="display:grid;gap:10px;padding:18px;border:1px solid #6b5927;border-radius:16px;background:#111216">'+csrfField(req)+'<label>Post type<select name="post_type"><option value="post">Community post</option><option value="partner_campaign">Partner campaign (approval required)</option><option value="sovereign_signal">Sovereign Desk signal (approval required)</option></select></label><label>Message<textarea name="body" required minlength="1" maxlength="5000" rows="4" placeholder="Share with the community"></textarea></label><button class="btn" type="submit">Publish / submit for review</button></form>'+(postHtml.length?postHtml.join(''):'<p style="padding:24px;text-align:center;border:1px solid #40371f;border-radius:16px">No community posts yet. Start the conversation.</p>')+'</section>';
+    const content='<section style="max-width:900px;margin:auto"><p class="muted">MEMBER NETWORK</p><h2>Community feed</h2><p>Share updates, ask questions and connect with members. Partner campaigns and Sovereign Desk signals are reviewed before publication.</p><form method="post" enctype="multipart/form-data" action="/community/posts" style="display:grid;gap:10px;padding:18px;border:1px solid #6b5927;border-radius:16px;background:#111216">'+csrfField(req)+'<label>Post type<select name="post_type"><option value="post">Community post</option><option value="partner_campaign">Partner campaign (approval required)</option><option value="sovereign_signal">Sovereign Desk signal (approval required)</option></select></label><label>Message<textarea name="body" required minlength="1" maxlength="5000" rows="4" placeholder="Share with the community"></textarea></label><label>Image (optional)<input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label><p class="muted">Optional JPG, PNG or WebP image, maximum 5 MB. Posts with images are still subject to community rules.</p><button class="btn" type="submit">Publish / submit for review</button></form><p><a class="btn" href="/feedback.html">Feedback &amp; Suggestions</a></p>'+(postHtml.length?postHtml.join(''):'<p style="padding:24px;text-align:center;border:1px solid #40371f;border-radius:16px">No community posts yet. Start the conversation.</p>')+'</section>';
     res.send(memberPage('Community','/community',m,content,req));
   }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(memberPage('Community','/community',await getMemberForPage(req,res),'<p>Community setup is not complete. Apply the platform migration after a verified backup.</p>',req));next(e);}
 });
 
-app.post('/community/posts', requireAuth, express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async(req,res,next)=>{
+app.post('/community/posts', requireAuth, communityImageUpload.single('image'), express.urlencoded({extended:false,limit:'10kb'}), csrfCheck, async(req,res,next)=>{
   const body=String(req.body.body||'').trim(),type=String(req.body.post_type||'post');
   if(!body||body.length>5000||!['post','partner_campaign','sovereign_signal'].includes(type))return res.status(400).send(page('Invalid post','<main><h1>Check your post</h1><p>Use a supported post type and keep the message under 5,000 characters.</p><a href="/community">Return to community</a></main>'));
+  if(req.file&&!validCommunityImage(req.file))return res.status(400).send(page('Invalid image','<main><h1>Choose a valid image</h1><p>Use a real JPG, PNG or WebP image under 5 MB.</p><a href="/community">Return to community</a></main>'));
   try{
+    await ensurePresenceFeedbackTables();
     if(type==='partner_campaign'){
       const [[role]]=await pool.execute("SELECT r.id FROM member_role_assignments a JOIN member_role_catalog r ON r.id=a.role_id WHERE a.member_id=? AND r.role_key='partner' LIMIT 1",[req.session.memberId]);
       if(!role)return res.status(403).send(page('Partner access required','<main><h1>Partner access required</h1><p>Apply for Partner status before submitting a campaign.</p><a href="/community">Return to community</a></main>'));
@@ -2586,13 +2611,20 @@ app.post('/community/posts', requireAuth, express.urlencoded({extended:false,lim
     }
     const status=type==='post'?'published':'pending';
     const [result]=await pool.execute('INSERT INTO community_posts (member_id,body,post_type,status) VALUES (?,?,?,?)',[req.session.memberId,body,type,status]);
-    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.post_created','community_post',String(result.insertId),JSON.stringify({type,status})]);
+    if(req.file&&type==='post')await pool.execute('INSERT INTO community_post_media (post_id,image_mime,image_data) VALUES (?,?,?)',[result.insertId,req.file.mimetype,req.file.buffer]);
+    await pool.execute('INSERT INTO platform_action_audit (actor_member_id,action_key,target_type,target_id,details) VALUES (?,?,?,?,?)',[req.session.memberId,'community.post_created','community_post',String(result.insertId),JSON.stringify({type,status,hasImage:Boolean(req.file&&type==='post')})]);
     if(status==='pending'){
       const [admins]=await pool.query("SELECT member_id FROM admin_users WHERE is_active=1");
       for(const a of admins)await pool.execute('INSERT IGNORE INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',[a.member_id,'community_review','Community item awaiting approval','A partner campaign or Sovereign Desk signal is awaiting review.','/admin/community-moderation','web_community_review_'+result.insertId+'_'+a.member_id]);
     }
     res.redirect('/community?post='+status);
   }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Community setup required','<main><h1>Apply migrations/021_platform_completion_foundation.sql</h1></main>'));next(e);}
+});
+
+
+app.get('/community/posts/:id/image', requireAuth, async(req,res,next)=>{
+  const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<1)return res.status(400).end();
+  try{await ensurePresenceFeedbackTables();const [[row]]=await pool.execute("SELECT pm.image_mime AS mime,pm.image_data AS data FROM community_post_media pm JOIN community_posts p ON p.id=pm.post_id WHERE p.id=? AND p.status='published'",[id]);if(!row)return res.status(404).end();res.set('Content-Type',row.mime);res.set('Cache-Control','private, no-store');res.set('X-Content-Type-Options','nosniff');res.send(row.data);}catch(e){next(e);}
 });
 
 app.post('/community/posts/:id/comments', requireAuth, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
