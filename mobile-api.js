@@ -594,15 +594,17 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try {
       const uid = String(req.params.uid || '').trim().toUpperCase();
       if (!/^MONARCH\\d{6}$/.test(uid)) return res.status(400).json({ error: 'invalid_uid', message: 'Enter a valid Monarch UID.' });
-      const [[recipient]] = await pool.execute('SELECT monarch_uid,full_name,is_blocked FROM members WHERE monarch_uid=? LIMIT 1', [uid]);
-      if (!recipient || Number(recipient.is_blocked) === 1) return res.status(404).json({ error: 'recipient_unavailable', message: 'No eligible member was found for that UID.' });
+      const [[recipient]] = await pool.execute('SELECT monarch_uid,full_name,is_blocked,email_verified_at FROM members WHERE monarch_uid=? LIMIT 1', [uid]);
+      if (!recipient || Number(recipient.is_blocked) === 1 || !recipient.email_verified_at) return res.status(404).json({ error: 'recipient_unavailable', message: 'No eligible verified member was found for that UID.' });
+      const [[kyc]] = await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=(SELECT id FROM members WHERE monarch_uid=? LIMIT 1) AND status='approved' ORDER BY submitted_at DESC,id DESC LIMIT 1", [uid]);
+      if (!kyc) return res.status(403).json({ error: 'recipient_verification_required', message: 'The recipient must complete account verification before receiving wallet transfers.' });
       const current = await memberById(req.session.memberId);
       if (current && String(uid) === String(current.uid || '').toUpperCase()) return res.status(400).json({ error: 'self_transfer', message: 'That is your own UID.' });
       return res.set('Cache-Control','no-store').json({ uid: recipient.monarch_uid, name: recipient.full_name });
     } catch (error) { next(error); }
   });
 
-  router.post('/wallet/transfer', noStore, apiAuth, async (req, res, next) => {
+  router.post('/wallet/transfer', noStore, apiAuth, requireApprovedKycApi, async (req, res, next) => {
     const contentType = String(req.get('content-type') || '').toLowerCase();
     if (!contentType.includes('application/json')) return res.status(415).json({ error: 'json_required', message: 'Send the transfer request as JSON.' });
     const recipientUid = String(req.body.recipientUid || req.body.monarchUid || '').trim().toUpperCase();
@@ -629,14 +631,19 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await connection.commit();
         return res.json({ ok: true, alreadyProcessed: true, reference: prior.reference, currency: prior.currency, amount: String(prior.amount), message: 'This transfer was already completed. Your wallet was not charged again.' });
       }
-      const [[recipient]] = await connection.execute('SELECT id,monarch_uid,full_name,is_blocked FROM members WHERE monarch_uid=? LIMIT 1 FOR UPDATE', [recipientUid]);
-      if (!recipient || Number(recipient.is_blocked) === 1) {
+      const [[recipient]] = await connection.execute('SELECT id,monarch_uid,full_name,is_blocked,email_verified_at FROM members WHERE monarch_uid=? LIMIT 1 FOR UPDATE', [recipientUid]);
+      if (!recipient || Number(recipient.is_blocked) === 1 || !recipient.email_verified_at) {
         await connection.rollback();
         return res.status(404).json({ error: 'recipient_unavailable', message: 'No eligible recipient was found for that Monarch UID.' });
       }
       if (Number(recipient.id) === Number(req.session.memberId)) {
         await connection.rollback();
         return res.status(400).json({ error: 'self_transfer', message: 'Choose another member. You cannot transfer funds to your own UID.' });
+      }
+      const [[recipientKyc]] = await connection.execute("SELECT id FROM kyc_submissions WHERE member_id=? AND status='approved' ORDER BY submitted_at DESC,id DESC LIMIT 1", [recipient.id]);
+      if (!recipientKyc) {
+        await connection.rollback();
+        return res.status(403).json({ error: 'recipient_verification_required', message: 'The recipient must complete account verification before receiving wallet transfers.' });
       }
       await connection.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0)', [req.session.memberId,currency,recipient.id,currency]);
       const [walletRows] = await connection.execute('SELECT id,member_id,balance FROM member_wallets WHERE member_id IN (?,?) AND currency=? ORDER BY member_id FOR UPDATE', [req.session.memberId,recipient.id,currency]);
