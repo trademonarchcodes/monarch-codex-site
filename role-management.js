@@ -75,16 +75,34 @@ function createRoleManagementRouter({ pool, requireWebCategoryAccess }) {
     } catch (e) { if (e.code === 'ROLE_MIGRATION_REQUIRED') return res.status(503).send(shell('Roles not configured', '<section class="hero"><h1>Role management is being prepared</h1><p>' + esc(e.message) + '</p></section>', true)); next(e); }
   });
   router.post('/admin/roles/promote-member', adminAuth, csrf, requireWebCategoryAccess ? requireWebCategoryAccess('members_roles','manage') : (_req,_res,next)=>next(), async (req, res, next) => {
+    const uid = String(req.body.monarchUid || '').trim().toUpperCase();
+    if (!/^MONARCH\\d{6}$/.test(uid)) return res.status(400).send(shell('Invalid Monarch UID', '<section class="hero"><h1>Check the UID</h1><p>Enter a valid UID in the format MONARCH123456.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
+    const connection = await pool.getConnection();
     try {
-      const uid = String(req.body.monarchUid || '').trim().toUpperCase();
-      if (!/^MONARCH\\d{6}$/.test(uid)) return res.status(400).send(shell('Invalid Monarch UID', '<section class="hero"><h1>Check the UID</h1><p>Enter a valid UID in the format MONARCH123456.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
-      const [[member]] = await pool.execute('SELECT id,full_name,monarch_uid FROM members WHERE monarch_uid=? LIMIT 1', [uid]);
-      if (!member) return res.status(404).send(shell('Member not found', '<section class="hero"><h1>No member found</h1><p>Check the Monarch UID and try again. No administrator access was changed.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
-      const [[existing]] = await pool.execute('SELECT role,is_active FROM admin_users WHERE member_id=? LIMIT 1', [member.id]);
-      if (existing) return res.status(409).send(shell('Administrator record already exists', '<section class="hero"><h1>Administrator record already exists</h1><p>' + esc(member.full_name) + ' (' + esc(uid) + ') already has an administrator record (' + esc(existing.role) + ', ' + (Number(existing.is_active) === 1 ? 'active' : 'inactive') + '). No changes were made; ask a Super Admin to review that record.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
-      await pool.execute("INSERT INTO admin_users (member_id,role,is_active) VALUES (?,'limited_admin',1)", [member.id]);
+      await connection.beginTransaction();
+      const [[member]] = await connection.execute('SELECT id,full_name,monarch_uid,is_blocked FROM members WHERE monarch_uid=? LIMIT 1 FOR UPDATE', [uid]);
+      if (!member) {
+        await connection.rollback();
+        return res.status(404).send(shell('Member not found', '<section class="hero"><h1>No member found</h1><p>Check the Monarch UID and try again. No administrator access was changed.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
+      }
+      if (Number(member.is_blocked) === 1) {
+        await connection.rollback();
+        return res.status(403).send(shell('Member account restricted', '<section class="hero"><h1>This account is blocked</h1><p>Restore the member account through the approved account-controls workflow before considering administrator access.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
+      }
+      const [[existing]] = await connection.execute('SELECT role,is_active FROM admin_users WHERE member_id=? LIMIT 1 FOR UPDATE', [member.id]);
+      if (existing) {
+        await connection.rollback();
+        return res.status(409).send(shell('Administrator record already exists', '<section class="hero"><h1>Administrator record already exists</h1><p>' + esc(member.full_name) + ' (' + esc(uid) + ') already has an administrator record (' + esc(existing.role) + ', ' + (Number(existing.is_active) === 1 ? 'active' : 'inactive') + '). No changes were made; ask a Super Admin to review that record.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
+      }
+      await connection.execute("INSERT INTO admin_users (member_id,role,is_active) VALUES (?,'limited_admin',1)", [member.id]);
+      await connection.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)', [req.session.memberId,'member.admin_promoted','member',member.id,JSON.stringify({monarch_uid:uid,role:'limited_admin'}),String(req.ip || '').slice(0,45)]);
+      await connection.commit();
       res.redirect('/admin/roles?promoted=' + encodeURIComponent(uid));
-    } catch (e) { next(e); }
+    } catch (e) {
+      try { await connection.rollback(); } catch (_) {}
+      if (e.code === 'ER_DUP_ENTRY') return res.status(409).send(shell('Administrator record already exists', '<section class="hero"><h1>Administrator record already exists</h1><p>This member has an administrator record already. No changes were made.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
+      next(e);
+    } finally { connection.release(); }
   });
 
   router.post('/admin/roles/catalog', adminAuth, csrf, requireWebCategoryAccess ? requireWebCategoryAccess('members_roles','manage') : (_req,_res,next)=>next(), async (req, res, next) => {
