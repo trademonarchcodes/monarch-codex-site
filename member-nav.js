@@ -32,6 +32,7 @@
         if (category === 'invest') return /invest/.test(type);
         if (category === 'profile') return /kyc|role|profile/.test(type);
         if (category === 'sovereign') return /sovereign|signal|guidance/.test(type);
+        if (category === 'community') return /community/.test(type);
         return false;
       }).length;
     }
@@ -60,7 +61,7 @@
           marker = latest;
           try { window.sessionStorage.setItem(readKey, String(latest)); } catch (_) {}
         }
-        paint('community', ids.filter(function (id) { return id > marker; }).length);
+        paint('community', ids.filter(function (id) { return id > marker; }).length + unreadBy(items, 'community'));
       } catch (_) {
         // Keep existing badge state if the service is temporarily unavailable.
       }
