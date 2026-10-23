@@ -29,7 +29,9 @@
     .button-login{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:12px 20px;border:1px solid rgba(255,211,61,.65);border-radius:999px;color:#ffe16b;background:rgba(15,16,23,.72);font-weight:800;text-decoration:none}.button-login:hover{background:#f3cf3c;color:#111}
     @media(max-width:700px){.partner-grid,.event-grid{grid-template-columns:1fr}.partner-card,.event-card{padding:22px}.faq-item summary{padding:18px}.faq-answer{padding:0 18px 18px}}
   </style>
-</head>
+<style>
+.monarchs-section h2{font-size:clamp(2rem,5vw,3.4rem);font-weight:950;letter-spacing:-.045em;margin:.15em 0 .35em}.monarchs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px;margin-top:26px}.monarch-card{display:flex;align-items:center;gap:14px;min-width:0;padding:17px;border:1px solid rgba(240,199,65,.25);border-radius:18px;background:linear-gradient(145deg,rgba(30,34,49,.96),rgba(15,16,23,.96));transition:transform .18s,border-color .18s}.monarch-card:hover,.monarch-card:focus-visible{transform:translateY(-3px);border-color:#f3cf3c}.monarch-card img{width:68px;height:68px;flex:0 0 68px;object-fit:cover;border-radius:50%;border:2px solid #d6b84c;background:#171612}.monarch-card-copy{min-width:0}.monarch-card-copy strong{display:block;font-size:1rem;line-height:1.25;overflow-wrap:anywhere}.monarch-card-copy span{display:block;margin-top:5px;color:#b8b2a5;font-size:.8rem;overflow-wrap:anywhere}.monarchs-state,.monarchs-note{color:#b8b2a5;font-size:.9rem}.apk-promo{display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;margin:0 auto 32px;padding:clamp(22px,4vw,36px);border:1px solid rgba(240,199,65,.34);border-radius:24px;background:radial-gradient(ellipse at top right,rgba(243,207,60,.12),transparent 45%),linear-gradient(145deg,#1b1a16,#101012)}.apk-promo h2{margin:0 0 8px;font-size:clamp(1.5rem,3.5vw,2.3rem);line-height:1.15}.apk-promo p{max-width:650px;margin:0;color:#c5c0b5}.apk-promo .button{white-space:nowrap}
+</style></head>
 <body>
   <header class="site-header">
     <a class="brand" href="#top" aria-label="Monarch Codex home">
@@ -114,7 +116,16 @@
     </section>
 
 
-    <section id="events" class="focus-section">
+  
+  <section id="monarchs" class="section-wrap section-pad monarchs-section">
+    <p class="eyebrow">THE PEOPLE BEHIND THE KINGDOM</p>
+    <h2>MONARCHS</h2>
+    <p class="section-intro">Meet the members building with Monarch Codex. Tap a profile to learn more about the person, their UID and the roles they hold.</p>
+    <div id="homepageMonarchs" class="monarchs-grid" aria-live="polite"><p class="monarchs-state">Loading the Monarchs directory…</p></div>
+    <p class="monarchs-note">Public profiles appear according to each member’s profile visibility settings and directory approval.</p>
+  </section>
+
+  <section id="events" class="focus-section">
       <div class="section-wrap section-pad">
         <div class="section-heading centered"><p class="eyebrow">SAVE THE VIBE</p><h2>Events & meetups</h2><p class="subhead">Workshops, learning sessions and community updates belong here.</p></div>
         <div class="event-grid" id="homepageEvents"><p class="partner-note">Loading current events…</p></div>
@@ -167,6 +178,7 @@
   </main>
 
   
+  <section class="section-wrap apk-promo" aria-labelledby="apk-promo-title"><div><p class="eyebrow">MONARCH CODEX FOR ANDROID</p><h2 id="apk-promo-title">Take the kingdom with you.</h2><p>Download the official Monarch Codex Android app from our website. Always use the official release so you know you are getting the right APK.</p></div><a class="button button-gold" href="/api/mobile/app-update/apk" rel="nofollow">Download Android APK <span>↓</span></a></section>
   <footer class="footer">
     <a class="brand footer-brand" href="#top"><span class="brand-mark"><img src="assets/images/monarch-codex-logo.svg" alt=""></span><span class="brand-name"><strong>MONARCH</strong><small>CODEX</small></span></a>
     <p>Knowledge. Strategy. Empowerment.</p>
@@ -175,6 +187,14 @@
     <p class="footer-disclaimer">Monarch Codex provides educational content, mentorship and trading-related guidance. All financial markets involve risk, and outcomes are never guaranteed. Information shared by Monarch Codex is not a substitute for your own judgement or an assessment of your personal circumstances.</p>
   </footer>
   <script>
+  (async function loadHomepageMonarchs(){
+    const grid=document.getElementById('homepageMonarchs');if(!grid)return;
+    try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new Error('Directory unavailable');const people=await response.json();
+      if(!Array.isArray(people)||!people.length){grid.innerHTML='<p class="monarchs-state">Member profiles will appear here as they are approved for public display.</p>';return;}
+      grid.innerHTML=people.map(function(person){const card=document.createElement('a');card.className='monarch-card';card.href='/members/'+encodeURIComponent(person.monarchId||'');card.setAttribute('aria-label','View profile for '+String(person.nickname||'Monarch'));const img=document.createElement('img');img.src=person.photo||'assets/images/monarch-codex-logo.svg';img.alt='';img.loading='lazy';img.onerror=function(){this.onerror=null;this.src='/assets/images/monarch-codex-logo.svg';};const copy=document.createElement('span');copy.className='monarch-card-copy';const name=document.createElement('strong');name.textContent=person.nickname||'Monarch';const role=document.createElement('span');role.textContent=Array.isArray(person.roles)&&person.roles.length?person.roles.join(' · '):(person.title||'Member');copy.append(name,role);card.append(img,copy);grid.append(card);return card.outerHTML;}).forEach(function(markup){/* cards are constructed with textContent before serialisation */});
+      grid.innerHTML='';people.forEach(function(person){const card=document.createElement('a');card.className='monarch-card';card.href='/members/'+encodeURIComponent(person.monarchId||'');card.setAttribute('aria-label','View profile for '+String(person.nickname||'Monarch'));const img=document.createElement('img');img.src=person.photo||'/assets/images/monarch-codex-logo.svg';img.alt='';img.loading='lazy';img.onerror=function(){this.onerror=null;this.src='/assets/images/monarch-codex-logo.svg';};const copy=document.createElement('div');copy.className='monarch-card-copy';const name=document.createElement('strong');name.textContent=person.nickname||'Monarch';const role=document.createElement('span');role.textContent=Array.isArray(person.roles)&&person.roles.length?person.roles.join(' · '):(person.title||'Member');copy.append(name,role);card.append(img,copy);grid.append(card);});
+    }catch(_){grid.innerHTML='<p class="monarchs-state">The Monarchs directory is temporarily unavailable. Please try again later.</p>';}
+  })();
   (async function loadHomepageEvents(){
     const grid=document.getElementById('homepageEvents');
     if(!grid)return;
