@@ -867,7 +867,7 @@ function adminControlPage(title, active, content, req) {
   .ac-main .ac-table th{font-weight:650!important;letter-spacing:.055em}
   .ac-main .ac-panel .btn,.ac-main .ac-panel button,.ac-main .ac-panel input[type=submit],.ac-main .ac-panel input[type=button]{font-weight:600!important}
   .ac-main .ac-panel input,.ac-main .ac-panel select,.ac-main .ac-panel textarea{font-weight:400!important}
-</style><link rel="stylesheet" href="/assets/css/admin-premium-theme.css?v=1"><div class="ac-layout" id="adminLayout">
+</style><style>@import url("/assets/css/admin-premium-theme.css?v=1");</style><div class="ac-layout" id="adminLayout">
   <div class="ac-mobilebar"><button class="ac-menu-toggle" type="button" id="adminMenuToggle" aria-label="Open admin navigation" aria-expanded="false">☰</button><span class="ac-mobile-title">MONARCH CODEX · ADMIN</span></div>
   <button class="ac-drawer-scrim" type="button" id="adminDrawerScrim" aria-label="Close admin navigation"></button>
   <aside class="ac-side ${deskOnly ? 'ac-side-desk' : ''}" id="adminSidebar"><div class="ac-brand"><span class="ac-brand-mark" aria-hidden="true"><img src="${deskOnly ? '/assets/images/sovereign-desk-logo.jpg' : '/assets/images/monarch-codex-logo.svg'}" alt="" /></span><span>${deskOnly ? 'SOVEREIGN DESK' : 'MONARCH CODEX'}<small>${deskOnly ? 'TRADING WORKSPACE' : 'ADMIN CONTROL CENTRE'}</small></span></div>
