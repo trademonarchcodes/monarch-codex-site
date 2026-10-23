@@ -32,7 +32,17 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         });
       }
       return next();
-    } catch (error) { return next(error); }
+    } catch (error) {
+      // Keep API schema failures machine-readable. If migration 015 is missing,
+      // the auth middleware fails before the members route can handle the error.
+      if (error && error.code === 'ER_BAD_FIELD_ERROR' && /is_blocked/.test(String(error.message || ''))) {
+        return res.status(503).json({
+          error: 'member_management_schema_required',
+          message: 'The database is missing the member account-controls migration (migrations/015_member_account_controls.sql). Apply that migration, then retry.'
+        });
+      }
+      return next(error);
+    }
   };
   const validEmail = value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254;
   const validUsername = value => /^[a-zA-Z0-9_]{6,30}$/.test(value);
