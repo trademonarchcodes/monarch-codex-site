@@ -1289,7 +1289,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/community/posts', noStore, apiAuth, async (req,res,next) => {
     try {
       await ensureFeatureTables();
-      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+      const [items]=await pool.execute("SELECT p.id,p.member_id AS memberId,(p.member_id=? ) AS isMine,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100",[req.session.memberId]);
       res.json({items});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
   });
@@ -1315,7 +1315,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try {
       const [[post]]=await pool.execute("SELECT id FROM community_posts WHERE id=? AND status='published'",[id]);
       if(!post)return res.status(404).json({error:'post_not_found'});
-      const [items]=await pool.execute("SELECT c.id,c.body,c.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,IF(pr.show_status=1,pr.last_seen_at,NULL) AS authorLastSeen FROM community_comments c JOIN members m ON m.id=c.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 200",[id]);
+      const [items]=await pool.execute("SELECT c.id,c.member_id AS memberId,(c.member_id=? ) AS isMine,c.body,c.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,IF(pr.show_status=1,pr.last_seen_at,NULL) AS authorLastSeen FROM community_comments c JOIN members m ON m.id=c.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 200",[req.session.memberId,id]);
       res.json({items});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
@@ -1327,6 +1327,26 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(!post)return res.status(404).json({error:'post_not_found'});
       const [result]=await pool.execute("INSERT INTO community_comments (post_id,member_id,body) VALUES (?,?,?)",[id,req.session.memberId,body]);
       res.status(201).json({ok:true,id:result.insertId});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.delete('/community/posts/:id', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_post_id'});
+    try {
+      const [result]=await pool.execute("UPDATE community_posts SET status='hidden' WHERE id=? AND member_id=? AND status='published'",[id,req.session.memberId]);
+      if(!result.affectedRows)return res.status(404).json({error:'post_not_found_or_not_owned'});
+      await auditPlatformAction(req.session.memberId,'community.post_deleted','community_post',id,{method:'member_request'});
+      res.json({ok:true,id});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  router.delete('/community/posts/:postId/comments/:commentId', noStore, apiAuth, async (req,res,next) => {
+    const postId=Number(req.params.postId),commentId=Number(req.params.commentId);
+    if(!Number.isSafeInteger(postId)||postId<1||!Number.isSafeInteger(commentId)||commentId<1)return res.status(400).json({error:'invalid_comment_id'});
+    try {
+      const [result]=await pool.execute("UPDATE community_comments SET status='hidden' WHERE id=? AND post_id=? AND member_id=? AND status='published'",[commentId,postId,req.session.memberId]);
+      if(!result.affectedRows)return res.status(404).json({error:'comment_not_found_or_not_owned'});
+      await auditPlatformAction(req.session.memberId,'community.comment_deleted','community_comment',commentId,{postId});
+      res.json({ok:true,id:commentId,postId});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
   router.post('/community/posts/:id/report', noStore, apiAuth, async (req,res,next) => {
