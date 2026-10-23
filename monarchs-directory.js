@@ -137,7 +137,7 @@ module.exports = function createMonarchsDirectoryRouter({ pool, requireAuth, req
     } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return res.json([]); next(e); }
   });
 
-  router.get('/members/:uid', async (req, res, next) => {
+  router.get('/public-member/:uid', async (req, res, next) => {
     try {
       const uid = String(req.params.uid || '').trim().toUpperCase();
       if (!/^MONARCH\d{6}$/.test(uid)) return res.status(404).send('Public member profile not found.');
