@@ -1579,6 +1579,20 @@ app.get('/api/deposit-status/:id', requireAuth, async (req,res,next) => {
     res.json({status:row.status});
   } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'status_unavailable'}); next(e); }
 });
+app.get('/api/admin/notifications/summary', requireAdmin, async (req,res,next) => {
+  const count = async (sql) => { try { const [[row]] = await pool.query(sql); return Number(row.total)||0; } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code)) return 0; throw e; } };
+  try {
+    const [kyc,deposits,withdrawals,community,cooperative] = await Promise.all([
+      count("SELECT COUNT(*) AS total FROM kyc_submissions WHERE status='pending'"),
+      count("SELECT COUNT(*) AS total FROM deposit_requests WHERE status='pending'"),
+      count("SELECT COUNT(*) AS total FROM withdrawal_requests WHERE status='pending'"),
+      count("SELECT COUNT(*) AS total FROM community_posts WHERE status='pending'"),
+      count("SELECT COUNT(*) AS total FROM online_cooperative_connections WHERE status='pending'")
+    ]);
+    res.set('Cache-Control','no-store');
+    res.json({count:kyc+deposits+withdrawals+community+cooperative, queues:{kyc,deposits,withdrawals,community,cooperative}});
+  } catch(e) { next(e); }
+});
 app.get('/api/notifications/unread-count', requireAuth, async (req,res,next) => {
   try {
     const [[row]]=await pool.execute('SELECT COUNT(*) AS total FROM member_notifications WHERE member_id=? AND read_at IS NULL',[req.session.memberId]);
