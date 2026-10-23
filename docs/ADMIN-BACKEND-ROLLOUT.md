@@ -6,7 +6,7 @@ This is a staged security foundation, not a live admin login yet.
 - super_admin: intended for the verified owner; full administrative capabilities once those features are implemented.
 - limited_admin: restricted operational access; must not be able to change admin roles, security settings, or payout/payment configuration.
 
-**Email addresses are identifiers, not proof of authority.** The two intended inboxes are tradem onarchofficial@gmail.com and handsomeprovidence38@gmail.com (remove the space in the first address if copying from this document). This migration creates no accounts and grants no privileges. Do not insert active users manually based only on an email address.
+**Email addresses are identifiers, not proof of authority.** The two intended inboxes are tradem onarchofficial@gmail.com and hananny.provy@gmail.com (remove the space in the first address if copying from this document). This migration creates no accounts and grants no privileges. Do not insert active users manually based only on an email address.
 
 ## Before enabling admin routes
 1. Back up the production database.
