@@ -590,6 +590,82 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       next(error);
     }
   });
+  router.post('/wallet/transfer', noStore, apiAuth, async (req, res, next) => {
+    const contentType = String(req.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('application/json')) return res.status(415).json({ error: 'json_required', message: 'Send the transfer request as JSON.' });
+    const recipientUid = String(req.body.recipientUid || req.body.monarchUid || '').trim().toUpperCase();
+    const currency = String(req.body.currency || '').trim().toUpperCase();
+    const amountText = String(req.body.amount || '').trim();
+    const idempotencyKey = String(req.body.idempotencyKey || '').trim();
+    if (!/^MONARCH\\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
+        !/^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,8})?$/.test(amountText) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+      return res.status(400).json({ error: 'invalid_transfer', message: 'Enter a valid recipient UID, currency, amount and transfer request key.' });
+    }
+    const amount = Number(amountText);
+    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'invalid_amount', message: 'Transfer amount must be greater than zero.' });
+    if (amount > 1000000000000) return res.status(400).json({ error: 'amount_limit', message: 'This amount exceeds the supported transfer limit.' });
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [[prior]] = await connection.execute('SELECT reference,recipient_member_id,currency,amount FROM member_wallet_transfers WHERE sender_member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE', [req.session.memberId,idempotencyKey]);
+      if (prior) {
+        if (Number(prior.recipient_member_id) !== Number((await connection.execute('SELECT id FROM members WHERE monarch_uid=? LIMIT 1',[recipientUid]))[0][0]?.id) || String(prior.currency) !== currency || Math.abs(Number(prior.amount)-amount)>0.00000001) {
+          await connection.rollback();
+          return res.status(409).json({ error: 'idempotency_conflict', message: 'This transfer key was already used for a different request. Refresh and try again.' });
+        }
+        await connection.commit();
+        return res.json({ ok: true, alreadyProcessed: true, reference: prior.reference, currency: prior.currency, amount: String(prior.amount), message: 'This transfer was already completed. Your wallet was not charged again.' });
+      }
+      const [[recipient]] = await connection.execute('SELECT id,monarch_uid,full_name,is_blocked FROM members WHERE monarch_uid=? LIMIT 1 FOR UPDATE', [recipientUid]);
+      if (!recipient || Number(recipient.is_blocked) === 1) {
+        await connection.rollback();
+        return res.status(404).json({ error: 'recipient_unavailable', message: 'No eligible recipient was found for that Monarch UID.' });
+      }
+      if (Number(recipient.id) === Number(req.session.memberId)) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'self_transfer', message: 'Choose another member. You cannot transfer funds to your own UID.' });
+      }
+      await connection.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0)', [req.session.memberId,currency,recipient.id,currency]);
+      const [walletRows] = await connection.execute('SELECT id,member_id,balance FROM member_wallets WHERE member_id IN (?,?) AND currency=? ORDER BY member_id FOR UPDATE', [req.session.memberId,recipient.id,currency]);
+      const wallets = new Map(walletRows.map(row => [Number(row.member_id),row]));
+      const senderWallet = wallets.get(Number(req.session.memberId));
+      const recipientWallet = wallets.get(Number(recipient.id));
+      if (!senderWallet || !recipientWallet) {
+        await connection.rollback();
+        return res.status(503).json({ error: 'wallet_unavailable', message: 'One of the wallets is not available. No funds were moved.' });
+      }
+      if (Number(senderWallet.balance) + 1e-8 < amount) {
+        await connection.rollback();
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your ' + currency + ' wallet does not have enough available funds.' });
+      }
+      const [debit] = await connection.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?', [amount,senderWallet.id,amount]);
+      if (debit.affectedRows !== 1) {
+        await connection.rollback();
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance changed. Refresh and try again.' });
+      }
+      await connection.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?', [amount,recipientWallet.id]);
+      const reference = 'MCT-' + crypto.randomUUID().replace(/-/g,'').toUpperCase();
+      const [senderTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [req.session.memberId,'wallet_transfer_sent',currency,-amount,reference+'-S']);
+      const [recipientTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [recipient.id,'wallet_transfer_received',currency,amount,reference+'-R']);
+      await connection.execute('INSERT INTO member_wallet_transfers (sender_member_id,recipient_member_id,currency,amount,reference,idempotency_key,sender_transaction_id,recipient_transaction_id) VALUES (?,?,?,?,?,?,?,?)', [req.session.memberId,recipient.id,currency,amount,reference,idempotencyKey,senderTx.insertId,recipientTx.insertId]);
+      try {
+        await connection.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?),(?,?,?,?,?,?)', [
+          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+amount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+').','/transactions','wallet-transfer-sent:'+reference,
+          recipient.id,'wallet_transfer','Wallet transfer received','You received '+currency+' '+amount.toFixed(2)+' from a Monarch Codex member.','/transactions','wallet-transfer-received:'+reference
+        ]);
+      } catch (notificationError) { if (notificationError.code !== 'ER_NO_SUCH_TABLE') throw notificationError; }
+      const [[balance]] = await connection.execute('SELECT balance FROM member_wallets WHERE id=? LIMIT 1', [senderWallet.id]);
+      await connection.commit();
+      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), balance: String(balance.balance), message: 'Transfer completed successfully.' });
+    } catch (error) {
+      try { await connection.rollback(); } catch (_) {}
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'transfer_setup_required', message: 'Member transfers are not configured yet. Apply migrations/024_member_wallet_transfers.sql after migrations 006, 011 and 016.' });
+      if (error && error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'duplicate_transfer', message: 'This transfer request has already been processed. Refresh your transaction history.' });
+      return next(error);
+    } finally { connection.release(); }
+  });
+
 
 
   // Native transaction APIs reuse the same database ledger and review queues as the website.
