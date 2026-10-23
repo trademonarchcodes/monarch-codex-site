@@ -31,6 +31,7 @@ WHERE @legacy_role_id IS NOT NULL
 -- Keep the old catalogue row for audit/history, but make sure it cannot be selected.
 UPDATE member_role_catalog
 SET is_active = 0
-WHERE role_key = 'founder_partner';
+WHERE role_key = 'founder_partner'
+  AND @partner_role_id IS NOT NULL;
 
 COMMIT;
