@@ -33,13 +33,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
       return next();
     } catch (error) {
-      // Keep API schema failures machine-readable. If migration 015 is missing,
-      // the auth middleware fails before the members route can handle the error.
+      // Older production databases may not have migration 015 yet. Keep normal
+      // signed-in API routes available; the member list detects the missing column
+      // and defaults block status safely. Block enforcement becomes active once
+      // the account-controls migration is applied.
       if (error && error.code === 'ER_BAD_FIELD_ERROR' && /is_blocked/.test(String(error.message || ''))) {
-        return res.status(503).json({
-          error: 'member_management_schema_required',
-          message: 'The database is missing the member account-controls migration (migrations/015_member_account_controls.sql). Apply that migration, then retry.'
-        });
+        return next();
       }
       return next(error);
     }
