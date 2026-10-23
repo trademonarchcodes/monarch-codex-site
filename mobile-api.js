@@ -1620,6 +1620,15 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.status(201).json({ok:true,id:result.insertId});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
+  desk.post('/signals/:id/validation', async (req,res,next) => {
+    const id=String(req.params.id),validation=deskClean(req.body.validation_status,12);
+    if(!deskId(id)||!['pending','valid','invalid'].includes(validation))return res.status(400).json({error:'invalid_signal_validation'});
+    try {
+      const [r]=await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=CASE WHEN ?='valid' AND status='published' THEN status WHEN ?='valid' THEN 'draft' ELSE 'draft' END,published_at=CASE WHEN ?='valid' AND status='published' THEN published_at ELSE NULL END,updated_by=? WHERE id=?",[validation,validation,validation,validation,req.session.memberId,id]);
+      if(!r.affectedRows)return res.status(404).json({error:'signal_not_found'});
+      res.json({ok:true});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
   desk.post('/signals/:id/status', async (req,res,next) => {
     const id=String(req.params.id),status=deskClean(req.body.status,20);
     if(!deskId(id)||!['draft','published','closed','archived'].includes(status))return res.status(400).json({error:'invalid_signal_status'});
@@ -1663,11 +1672,21 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [[r]]=await conn.execute('SELECT id,member_id,status FROM sovereign_access_requests WHERE id=? FOR UPDATE',[id]);
       if(!r){await conn.rollback();return res.status(404).json({error:'request_not_found'});}
       if(r.status!=='pending'){await conn.rollback();return res.status(409).json({error:'request_already_reviewed'});}
-      await conn.execute('UPDATE sovereign_access_requests SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_note=? WHERE id=?',[decision,req.session.memberId,reason||null,id]);
+      await conn.execute('UPDATE sovereign_access_requests SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?',[decision,req.session.memberId,reason||null,id]);
       if(decision==='approved')await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_at) VALUES (?,'approved',?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_at=CURRENT_TIMESTAMP",[r.member_id,reason||'Approved by Sovereign Desk administrator']);
       await conn.commit();res.json({ok:true});
     } catch(e) { await conn.rollback().catch(()=>{});try { deskFail(res,e); } catch(err) { next(err); } }
     finally { conn.release(); }
+  });
+  desk.post('/access/:memberId', async (req,res,next) => {
+    const memberId=String(req.params.memberId),decision=deskClean(req.body.decision,20),reason=deskClean(req.body.reason,1000),expiry=deskClean(req.body.expires_at,30);
+    if(!deskId(memberId)||!['approved','revoked'].includes(decision))return res.status(400).json({error:'invalid_access_change'});
+    try {
+      const [[member]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[memberId]);
+      if(!member)return res.status(404).json({error:'member_not_found'});
+      await pool.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_by,expires_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE status=VALUES(status),reason=VALUES(reason),granted_by=VALUES(granted_by),granted_at=CASE WHEN VALUES(status)='approved' THEN CURRENT_TIMESTAMP ELSE granted_at END,expires_at=VALUES(expires_at)",[memberId,decision,reason||null,req.session.memberId,decision==='approved'&&expiry?expiry.replace('T',' ')+':00':null]);
+      res.json({ok:true});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.get('/signal-access', async (req,res,next) => {
     try { const [items]=await pool.execute("SELECT a.id,a.member_id,a.access_type,a.status,a.payment_reference,a.requested_at,a.expires_at,a.review_reason,m.full_name,m.username,m.email,m.monarch_uid FROM sovereign_signal_access a JOIN members m ON m.id=a.member_id ORDER BY a.status,a.requested_at DESC LIMIT 250");res.json({items}); }
