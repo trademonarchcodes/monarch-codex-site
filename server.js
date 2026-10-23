@@ -3395,10 +3395,14 @@ app.get('/', async (_req, res, next) => {
 <script>
 (async()=>{const grid=document.getElementById('monarchsGrid');if(!grid)return;try{const response=await fetch('/api/public-monarchs',{credentials:'same-origin'});if(!response.ok)return;const people=await response.json();if(!people.length)return;grid.innerHTML='';for(const p of people){const card=document.createElement('article');card.className='monarch-card';const img=document.createElement('img');img.className='monarch-card-photo';img.src=p.photo;img.alt='Approved profile picture';img.loading='lazy';const name=document.createElement('div');name.className='monarch-card-name';name.textContent=p.nickname||'Monarch';const uid=document.createElement('span');uid.className='monarch-card-id';uid.textContent=p.monarchId||'Monarch';const title=document.createElement('span');title.className='monarch-card-title';title.textContent=p.title;card.append(img,name,uid,title);grid.append(card)}}catch(_){}})();
 </script>`;
-    if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', monarchsSection + '<footer class="footer">');
-    else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
-    else if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
-    else html += monarchsSection;
+    // index.html now owns the responsive, clickable Monarchs directory. Keep the
+    // legacy server-rendered section only as a fallback for older homepage templates.
+    if (!html.includes('id="monarchs"')) {
+      if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', monarchsSection + '<footer class="footer">');
+      else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
+      else if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
+      else html += monarchsSection;
+    }
     res.type('html').send(html);
   } catch (e) { next(e); }
 });
