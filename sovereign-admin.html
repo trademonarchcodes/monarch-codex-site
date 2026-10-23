@@ -41,22 +41,24 @@
   .desk-layout.desk-menu-open .desk-sidebar{width:min(86vw,320px)!important}
 }
 </style>
+<link rel="stylesheet" href="/assets/css/admin-premium-theme.css?v=1">
 </head>
 <body>
 <div class="desk-layout" id="sovereignDeskLayout">
 <button class="desk-mobile-toggle" id="deskMenuToggle" type="button" aria-expanded="false" aria-controls="deskSidebar"><span class="toggle-icon" aria-hidden="true">☰</span><span>THE SOVEREIGN DESK</span><span style="margin-left:auto;font-size:12px;color:#aaa7a0">Open navigation</span></button>
 <button class="desk-drawer-scrim" id="deskDrawerScrim" type="button" aria-label="Close navigation"></button>
 <aside class="desk-sidebar" id="deskSidebar">
-<a class="desk-brand" href="/sovereign-admin" style="text-decoration:none"><span class="desk-mark">⌁</span><span>MONARCH CODEX<small>THE SOVEREIGN DESK</small></span></a>
+<a class="desk-brand" href="/sovereign-admin" style="text-decoration:none"><span class="desk-mark"><img src="/assets/images/sovereign-desk-logo.jpg" alt="" /></span><span>MONARCH CODEX<small>THE SOVEREIGN DESK</small></span></a>
 <div class="desk-kicker">Desk workspace</div>
 <nav class="desk-nav" aria-label="Sovereign Desk navigation">{{NAV}}</nav>
 </aside>
 <main class="desk-main">
-<header class="desk-top"><div><h1>{{TITLE}}</h1><p>Signals, guidance, membership access and workspace activity.</p></div><span class="desk-role">{{ROLE}}</span></header>
+<header class="desk-top"><div><h1>{{TITLE}}</h1><p>Signals, guidance, membership access and workspace activity.</p></div><div class="desk-top-meta"><button class="ac-theme-toggle" type="button" id="deskThemeToggle" aria-pressed="false" aria-label="Switch to light mode"><span aria-hidden="true">☼</span><span class="ac-theme-toggle-label">Light mode</span></button><span class="desk-role">{{ROLE}}</span></div></header>
 <div class="desk-content">{{CONTENT}}</div>
 </main>
 </div>
 <nav class="desk-bottom-nav" aria-label="Sovereign Desk mobile navigation">{{BOTTOM_NAV}}</nav>
 <script>(function(){var layout=document.getElementById("sovereignDeskLayout"),toggle=document.getElementById("deskMenuToggle"),scrim=document.getElementById("deskDrawerScrim"),side=document.getElementById("deskSidebar"),bottomMore=document.getElementById("deskBottomMore");if(!layout||!toggle||!scrim||!side)return;function close(){layout.classList.remove("desk-menu-open");toggle.setAttribute("aria-expanded","false")}toggle.addEventListener("click",function(){var open=!layout.classList.contains("desk-menu-open");layout.classList.toggle("desk-menu-open",open);toggle.setAttribute("aria-expanded",String(open))});if(bottomMore){bottomMore.addEventListener("click",function(){var open=!layout.classList.contains("desk-menu-open");layout.classList.toggle("desk-menu-open",open);toggle.setAttribute("aria-expanded",String(open));if(open)side.scrollTop=0;});}scrim.addEventListener("click",close);side.addEventListener("click",function(e){if(e.target.closest("a")&&window.matchMedia("(max-width:850px)").matches)close()});document.addEventListener("keydown",function(e){if(e.key==="Escape")close()})})();</script>
+<script>(function(){var root=document.documentElement,toggle=document.getElementById("deskThemeToggle");function apply(theme,save){theme=theme==="light"?"light":"dark";root.setAttribute("data-admin-theme",theme);var meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute("content",theme==="light"?"#ffffff":"#0b0b0d");if(toggle){var light=theme==="light";toggle.setAttribute("aria-pressed",String(light));toggle.setAttribute("aria-label",light?"Switch to dark mode":"Switch to light mode");toggle.innerHTML=light?'<span aria-hidden="true">☾</span><span class="ac-theme-toggle-label">Dark mode</span>':'<span aria-hidden="true">☼</span><span class="ac-theme-toggle-label">Light mode</span>'}if(save){try{localStorage.setItem("monarch-admin-theme",theme)}catch(e){}}}var initial="dark";try{initial=localStorage.getItem("monarch-admin-theme")==="light"?"light":"dark"}catch(e){}apply(initial,false);if(toggle)toggle.addEventListener("click",function(){apply(root.getAttribute("data-admin-theme")==="light"?"dark":"light",true)})})();</script>
 </body>
 </html>
