@@ -1574,6 +1574,209 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e){ next(e); }
   });
 
+
+  // Native Sovereign Desk API. The Android app uses the same authenticated session
+  // and the same production database as the website; no database credentials leave the server.
+  const sovereignAdminApi = async (req,res,next) => {
+    try {
+      const [[admin]] = await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+      if (!admin || !['sovereign_desk_admin','super_admin','main_admin'].includes(String(admin.role))) {
+        return res.status(403).json({error:'sovereign_admin_required',message:'Authorised Sovereign Desk administrator access is required.'});
+      }
+      req.sovereignAdminRole = String(admin.role);
+      next();
+    } catch (e) { next(e); }
+  };
+  const desk = express.Router();
+  desk.use(noStore, apiAuth, sovereignAdminApi);
+  const deskClean = (v,max) => String(v == null ? '' : v).trim().slice(0,max);
+  const deskId = v => /^\\d{1,20}$/.test(String(v || ''));
+  const deskFail = (res,e) => {
+    if (e && ['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR','ER_NO_SUCH_COLUMN'].includes(e.code)) {
+      return res.status(503).json({error:'sovereign_setup_required',message:'The Sovereign Desk database schema is incomplete. No change was made.'});
+    }
+    throw e;
+  };
+  desk.get('/overview', async (req,res,next) => {
+    try {
+      const [[signals]] = await pool.execute("SELECT COUNT(*) total, SUM(status='published') published FROM sovereign_signals");
+      const [[guidance]] = await pool.execute("SELECT COUNT(*) total, SUM(status='published') published FROM sovereign_guidance");
+      const [[access]] = await pool.execute("SELECT COUNT(*) total, SUM(status='approved' AND (expires_at IS NULL OR expires_at>NOW())) active FROM sovereign_desk_access");
+      const [[requests]] = await pool.execute("SELECT COUNT(*) total, SUM(status='pending') pending FROM sovereign_access_requests");
+      const [[announcements]] = await pool.execute("SELECT COUNT(*) total, SUM(status='published') published FROM sovereign_announcements");
+      res.json({role:req.sovereignAdminRole,signals:{total:Number(signals.total)||0,published:Number(signals.published)||0},guidance:{total:Number(guidance.total)||0,published:Number(guidance.published)||0},access:{total:Number(access.total)||0,active:Number(access.active)||0},requests:{total:Number(requests.total)||0,pending:Number(requests.pending)||0},announcements:{total:Number(announcements.total)||0,published:Number(announcements.published)||0}});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/signals', async (req,res,next) => {
+    try { const [items]=await pool.execute('SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,validation_status,published_at,expires_at,created_at,updated_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100'); res.json({items}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/signals', async (req,res,next) => {
+    const asset=deskClean(req.body.asset_pair,40),direction=deskClean(req.body.direction,10),price=deskClean(req.body.price,100),explanation=deskClean(req.body.explanation,12000),validation=deskClean(req.body.validation_status||'pending',12);
+    if(!asset||!['buy','sell'].includes(direction)||!price||!['pending','valid','invalid'].includes(validation))return res.status(400).json({error:'invalid_signal',message:'Instrument, BUY/SELL direction and entry price are required.'});
+    try {
+      const title=(asset+' '+direction.toUpperCase()).slice(0,180),publish=validation==='valid';
+      const [result]=await pool.execute('INSERT INTO sovereign_signals (title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,explanation,status,validation_status,published_at,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',[title,asset,direction,price,price,deskClean(req.body.stop_loss,100)||null,deskClean(req.body.take_profit_1,100)||null,explanation,publish?'published':'draft',validation,publish?new Date():null,req.session.memberId,req.session.memberId]);
+      res.status(201).json({ok:true,id:result.insertId});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/signals/:id/status', async (req,res,next) => {
+    const id=String(req.params.id),status=deskClean(req.body.status,20);
+    if(!deskId(id)||!['draft','published','closed','archived'].includes(status))return res.status(400).json({error:'invalid_signal_status'});
+    try {
+      const [[signal]]=await pool.execute('SELECT id,validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
+      if(!signal)return res.status(404).json({error:'signal_not_found'});
+      if(status==='published'&&signal.validation_status!=='valid')return res.status(409).json({error:'signal_not_validated',message:'Mark the signal VALID before publishing.'});
+      await pool.execute('UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?=\'published\' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);
+      res.json({ok:true});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/guidance', async (req,res,next) => {
+    try { const [items]=await pool.execute('SELECT id,title,body,status,published_at,created_at,updated_at FROM sovereign_guidance ORDER BY created_at DESC LIMIT 100'); res.json({items}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/guidance', async (req,res,next) => {
+    const title=deskClean(req.body.title,180),body=deskClean(req.body.body,20000);
+    if(!title||!body)return res.status(400).json({error:'guidance_required',message:'Title and content are required.'});
+    try { const [r]=await pool.execute("INSERT INTO sovereign_guidance (title,body,status,created_by,updated_by) VALUES (?,?,'draft',?,?)",[title,body,req.session.memberId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/guidance/:id/status', async (req,res,next) => {
+    const id=String(req.params.id),status=deskClean(req.body.status,20);
+    if(!deskId(id)||!['draft','published','archived'].includes(status))return res.status(400).json({error:'invalid_guidance_status'});
+    try { const [r]=await pool.execute('UPDATE sovereign_guidance SET status=?,published_at=CASE WHEN ?=\'published\' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);if(!r.affectedRows)return res.status(404).json({error:'guidance_not_found'});res.json({ok:true}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/access', async (req,res,next) => {
+    try {
+      const [members]=await pool.execute('SELECT m.id,m.monarch_uid,m.full_name,m.email,m.username,a.status,a.reason,a.granted_at,a.expires_at FROM members m LEFT JOIN sovereign_desk_access a ON a.member_id=m.id ORDER BY a.updated_at DESC,m.id DESC LIMIT 200');
+      const [requests]=await pool.execute("SELECT r.id,r.member_id,r.reason,r.status,r.created_at,m.full_name,m.email,m.monarch_uid FROM sovereign_access_requests r JOIN members m ON m.id=r.member_id ORDER BY (r.status='pending') DESC,r.created_at DESC LIMIT 150");
+      res.json({members,requests});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/access-requests/:id/review', async (req,res,next) => {
+    const id=String(req.params.id),decision=deskClean(req.body.decision,20),reason=deskClean(req.body.reason,1000);
+    if(!deskId(id)||!['approved','rejected'].includes(decision))return res.status(400).json({error:'invalid_access_decision'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[r]]=await conn.execute('SELECT id,member_id,status FROM sovereign_access_requests WHERE id=? FOR UPDATE',[id]);
+      if(!r){await conn.rollback();return res.status(404).json({error:'request_not_found'});}
+      if(r.status!=='pending'){await conn.rollback();return res.status(409).json({error:'request_already_reviewed'});}
+      await conn.execute('UPDATE sovereign_access_requests SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_note=? WHERE id=?',[decision,req.session.memberId,reason||null,id]);
+      if(decision==='approved')await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_at) VALUES (?,'approved',?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_at=CURRENT_TIMESTAMP",[r.member_id,reason||'Approved by Sovereign Desk administrator']);
+      await conn.commit();res.json({ok:true});
+    } catch(e) { await conn.rollback().catch(()=>{});try { deskFail(res,e); } catch(err) { next(err); } }
+    finally { conn.release(); }
+  });
+  desk.get('/signal-access', async (req,res,next) => {
+    try { const [items]=await pool.execute("SELECT a.id,a.member_id,a.access_type,a.status,a.payment_reference,a.requested_at,a.expires_at,a.review_reason,m.full_name,m.username,m.email,m.monarch_uid FROM sovereign_signal_access a JOIN members m ON m.id=a.member_id ORDER BY a.status,a.requested_at DESC LIMIT 250");res.json({items}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/signal-access/:id/review', async (req,res,next) => {
+    const id=String(req.params.id),decision=deskClean(req.body.decision,20),note=deskClean(req.body.note,1000);
+    if(!deskId(id)||!['approved','rejected','revoked'].includes(decision))return res.status(400).json({error:'invalid_signal_access_decision'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[a]]=await conn.execute('SELECT id,member_id,status,access_type FROM sovereign_signal_access WHERE id=? FOR UPDATE',[id]);
+      if(!a){await conn.rollback();return res.status(404).json({error:'request_not_found'});}
+      if(['approved','rejected'].includes(decision)&&a.status!=='pending'){await conn.rollback();return res.status(409).json({error:'request_already_reviewed'});}
+      if(decision==='approved'){
+        await conn.execute("UPDATE sovereign_signal_access SET status='approved',reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=?,starts_at=CURRENT_TIMESTAMP,expires_at=DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY) WHERE id=?",[req.session.memberId,note||'Payment verified by administrator',id]);
+        if(a.access_type==='paid')await conn.execute("INSERT INTO sovereign_desk_access (member_id,status,reason,granted_at,expires_at) VALUES (?,'approved','Paid Sovereign Desk service',CURRENT_TIMESTAMP,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 14 DAY)) ON DUPLICATE KEY UPDATE status='approved',reason=VALUES(reason),granted_at=CURRENT_TIMESTAMP,expires_at=VALUES(expires_at)",[a.member_id]);
+      } else {
+        await conn.execute('UPDATE sovereign_signal_access SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?',[decision,req.session.memberId,note||null,id]);
+        if(decision==='revoked')await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=? WHERE member_id=?",[note||'Access revoked by administrator',a.member_id]);
+      }
+      await conn.commit();res.json({ok:true});
+    } catch(e) { await conn.rollback().catch(()=>{});try { deskFail(res,e); } catch(err) { next(err); } }
+    finally { conn.release(); }
+  });
+  desk.get('/announcements', async (req,res,next) => {
+    try { const [items]=await pool.execute('SELECT id,title,body,status,published_at,created_at FROM sovereign_announcements ORDER BY created_at DESC LIMIT 100');res.json({items}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/announcements', async (req,res,next) => {
+    const title=deskClean(req.body.title,180),body=deskClean(req.body.body,6000);
+    if(!title||!body)return res.status(400).json({error:'announcement_required',message:'Title and message are required.'});
+    try { const [r]=await pool.execute("INSERT INTO sovereign_announcements (title,body,status,created_by,updated_by) VALUES (?,?,'draft',?,?)",[title,body,req.session.memberId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/announcements/:id/status', async (req,res,next) => {
+    const id=String(req.params.id),status=deskClean(req.body.status,20);
+    if(!deskId(id)||!['draft','published','archived'].includes(status))return res.status(400).json({error:'invalid_announcement_status'});
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [[a]]=await conn.execute('SELECT id,title,body,status FROM sovereign_announcements WHERE id=? FOR UPDATE',[id]);
+      if(!a){await conn.rollback();return res.status(404).json({error:'announcement_not_found'});}
+      await conn.execute("UPDATE sovereign_announcements SET status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?",[status,status,req.session.memberId,id]);
+      if(status==='published'&&a.status!=='published'){
+        await conn.execute("INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) SELECT a.member_id,'sovereign_announcement',?,?,'/sovereign-desk/announcements',CONCAT('sovereign-announcement:',? ,':',a.member_id) FROM sovereign_desk_access a WHERE a.status='approved' AND (a.expires_at IS NULL OR a.expires_at>NOW())",[a.title,a.body,id]);
+      }
+      await conn.commit();res.json({ok:true});
+    } catch(e) { await conn.rollback().catch(()=>{});try { deskFail(res,e); } catch(err) { next(err); } }
+    finally { conn.release(); }
+  });
+  desk.get('/events', async (req,res,next) => {
+    try { const [items]=await pool.execute('SELECT id,title,summary,event_label,starts_at,ends_at,status FROM monarch_site_events ORDER BY starts_at DESC,id DESC LIMIT 100');res.json({items}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/watchlist', async (req,res,next) => {
+    try { const [items]=await pool.execute("SELECT id,instrument,direction,outcome,trade_date,notes,updated_at FROM sovereign_weekly_trades ORDER BY trade_date DESC,id DESC LIMIT 100");res.json({items}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/watchlist', async (req,res,next) => {
+    const instrument=deskClean(req.body.instrument,80),direction=deskClean(req.body.direction,10),outcome=deskClean(req.body.outcome,12),date=deskClean(req.body.trade_date,10),notes=deskClean(req.body.notes,1000);
+    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return res.status(400).json({error:'invalid_trade',message:'Enter instrument, direction, result and trade date.'});
+    try { const [r]=await pool.execute('INSERT INTO sovereign_weekly_trades (instrument,direction,outcome,trade_date,notes,created_by,updated_by) VALUES (?,?,?,?,?,?,?)',[instrument,direction,outcome,date,notes||null,req.session.memberId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/governance', async (req,res,next) => {
+    try {
+      const [items]=await pool.execute("SELECT g.id,g.item_type,g.subject,g.details,g.status,g.created_at,g.reviewed_at,g.resolution_note,m.full_name,m.username,m.monarch_uid,t.full_name target_name FROM sovereign_governance_items g JOIN members m ON m.id=g.submitted_by LEFT JOIN members t ON t.id=g.target_member_id ORDER BY (g.status='open') DESC,g.created_at DESC LIMIT 200");
+      const [decisions]=await pool.execute('SELECT d.id,d.decision_title,d.decision_details,d.created_at,m.full_name,m.username FROM sovereign_governance_decisions d JOIN members m ON m.id=d.recorded_by ORDER BY d.created_at DESC LIMIT 100');
+      res.json({items,decisions});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/activity', async (req,res,next) => {
+    try {
+      const [signals]=await pool.execute('SELECT id,title,status,updated_at FROM sovereign_signals ORDER BY updated_at DESC LIMIT 20');
+      const [guidance]=await pool.execute('SELECT id,title,status,updated_at FROM sovereign_guidance ORDER BY updated_at DESC LIMIT 20');
+      const [access]=await pool.execute('SELECT a.member_id,a.status,a.updated_at,m.full_name,m.monarch_uid FROM sovereign_desk_access a JOIN members m ON m.id=a.member_id ORDER BY a.updated_at DESC LIMIT 30');
+      res.json({items:[...signals.map(x=>({...x,kind:'Signal',name:x.title})),...guidance.map(x=>({...x,kind:'Guidance',name:x.title})),...access.map(x=>({...x,kind:'Member access',name:(x.full_name||x.monarch_uid)+' · '+x.monarch_uid}))].sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at)).slice(0,60)});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/chat', async (req,res,next) => {
+    try {
+      const [items]=await pool.execute("SELECT m.member_id,mem.full_name,mem.username,MAX(m.created_at) last_message,SUM(CASE WHEN m.sender_role='member' AND m.seen_at IS NULL THEN 1 ELSE 0 END) unread,SUBSTRING_INDEX(GROUP_CONCAT(m.body ORDER BY m.id DESC SEPARATOR '\\n'),'\\n',1) preview FROM sovereign_chat_messages m JOIN members mem ON mem.id=m.member_id GROUP BY m.member_id,mem.full_name,mem.username ORDER BY MAX(m.created_at) DESC LIMIT 200");
+      res.json({items});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.get('/chat/:memberId', async (req,res,next) => {
+    if(!deskId(req.params.memberId))return res.status(400).json({error:'invalid_member_id'});
+    try {
+      const [[member]]=await pool.execute('SELECT id,full_name,username,monarch_uid FROM members WHERE id=? LIMIT 1',[req.params.memberId]);
+      if(!member)return res.status(404).json({error:'member_not_found'});
+      await pool.execute("UPDATE sovereign_chat_messages SET seen_at=CURRENT_TIMESTAMP WHERE member_id=? AND sender_role='member' AND seen_at IS NULL",[member.id]);
+      const [messages]=await pool.execute('SELECT id,sender_role,body,created_at,seen_at FROM sovereign_chat_messages WHERE member_id=? ORDER BY id ASC LIMIT 500',[member.id]);
+      res.json({member,messages});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/chat/:memberId', async (req,res,next) => {
+    if(!deskId(req.params.memberId))return res.status(400).json({error:'invalid_member_id'});
+    const body=deskClean(req.body.body,4000);
+    if(!body)return res.status(400).json({error:'message_required'});
+    try {
+      const [[member]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[req.params.memberId]);
+      if(!member)return res.status(404).json({error:'member_not_found'});
+      await pool.execute("INSERT INTO sovereign_chat_messages (member_id,sender_role,sender_member_id,body) VALUES (?,'desk',?,?)",[member.id,req.session.memberId,body]);
+      res.status(201).json({ok:true});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  router.use('/sovereign', desk);
+
   return router;
 }
 
