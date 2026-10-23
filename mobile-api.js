@@ -933,14 +933,39 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { return next(e); }
   });
   router.get('/admin/members/:id', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
-    const id=Number(req.params.id); if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id',message:'Choose a valid member account.'});
     try {
-      const [[member]]=await pool.execute("SELECT id,monarch_uid AS uid,full_name AS fullName,username,email,phone,created_at AS createdAt,email_verified_at AS emailVerifiedAt,COALESCE(is_blocked,0) AS isBlocked FROM members WHERE id=? LIMIT 1",[id]);
-      if(!member)return res.status(404).json({error:'member_not_found'});
-      const [wallets]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[id]);
-      const [kyc]=await pool.execute('SELECT status,submitted_at AS submittedAt FROM kyc_submissions WHERE member_id=? ORDER BY id DESC LIMIT 5',[id]);
-      res.json({member,wallets,kyc});
-    } catch(e) { next(e); }
+      const [columnRows]=await pool.query('SHOW COLUMNS FROM members');
+      const columns=new Set(columnRows.map(c=>String(c.Field)));
+      const required=['id','username','email'];
+      const missing=required.filter(c=>!columns.has(c));
+      if(missing.length)return res.status(503).json({error:'member_management_schema_required',message:'Member details are unavailable because required columns are missing: '+missing.join(', ')+'.'});
+      const fullName=columns.has('full_name')?'full_name':'NULL';
+      const uid=columns.has('monarch_uid')?'monarch_uid':'NULL';
+      const phone=columns.has('phone')?'phone':'NULL';
+      const created=columns.has('created_at')?'created_at':'NULL';
+      const verified=columns.has('email_verified_at')?'email_verified_at':'NULL';
+      const blocked=columns.has('is_blocked')?'COALESCE(is_blocked,0)':'0';
+      const [members]=await pool.execute('SELECT id,'+uid+' AS uid,'+fullName+' AS fullName,username,email,'+phone+' AS phone,'+created+' AS createdAt,'+verified+' AS emailVerifiedAt,'+blocked+' AS isBlocked FROM members WHERE id=? LIMIT 1',[id]);
+      const member=members[0];
+      if(!member)return res.status(404).json({error:'member_not_found',message:'This member account no longer exists.'});
+      let wallets=[],kyc=[];
+      const [walletTables]=await pool.query("SHOW TABLES LIKE 'member_wallets'");
+      if(walletTables.length) {
+        const [walletRows]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[id]);
+        wallets=walletRows;
+      }
+      const [kycTables]=await pool.query("SHOW TABLES LIKE 'kyc_submissions'");
+      if(kycTables.length) {
+        const [kycRows]=await pool.execute('SELECT status,submitted_at AS submittedAt FROM kyc_submissions WHERE member_id=? ORDER BY id DESC LIMIT 5',[id]);
+        kyc=kycRows;
+      }
+      return res.json({member,wallets,kyc});
+    } catch(e) {
+      if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'member_management_schema_required',message:'Member details are temporarily unavailable because a required database table is not configured.'});
+      return next(e);
+    }
   });
   router.post('/admin/members/:id/status', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
     const id=Number(req.params.id), blocked=req.body.blocked===true;
