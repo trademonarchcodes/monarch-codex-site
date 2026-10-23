@@ -80,8 +80,8 @@ function createRoleManagementRouter({ pool, requireWebCategoryAccess }) {
       const [[member]] = await pool.execute('SELECT id,full_name,monarch_uid FROM members WHERE monarch_uid=? LIMIT 1', [uid]);
       if (!member) return res.status(404).send(shell('Member not found', '<section class="hero"><h1>No member found</h1><p>Check the Monarch UID and try again. No administrator access was changed.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
       const [[existing]] = await pool.execute('SELECT role,is_active FROM admin_users WHERE member_id=? LIMIT 1', [member.id]);
-      if (existing && Number(existing.is_active) === 1) return res.status(409).send(shell('Already an administrator', '<section class="hero"><h1>Administrator access already exists</h1><p>' + esc(member.full_name) + ' (' + esc(uid) + ') already has an active administrator role. No changes were made.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
-      await pool.execute("INSERT INTO admin_users (member_id,role,is_active) VALUES (?,'limited_admin',1) ON DUPLICATE KEY UPDATE role='limited_admin',is_active=1", [member.id]);
+      if (existing) return res.status(409).send(shell('Administrator record already exists', '<section class="hero"><h1>Administrator record already exists</h1><p>' + esc(member.full_name) + ' (' + esc(uid) + ') already has an administrator record (' + esc(existing.role) + ', ' + (Number(existing.is_active) === 1 ? 'active' : 'inactive') + '). No changes were made; ask a Super Admin to review that record.</p><a class="btn" href="/admin/roles">Back to role management</a></section>', true));
+      await pool.execute("INSERT INTO admin_users (member_id,role,is_active) VALUES (?,'limited_admin',1)", [member.id]);
       res.redirect('/admin/roles?promoted=' + encodeURIComponent(uid));
     } catch (e) { next(e); }
   });
