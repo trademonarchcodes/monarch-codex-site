@@ -885,7 +885,7 @@ function adminControlPage(title, active, content, req) {
 .ac-main .ac-panel input:focus,.ac-main .ac-panel select:focus,.ac-main .ac-panel textarea:focus{outline:2px solid #e5c46a99;outline-offset:1px;border-color:#e5c46a}
 .ac-main .ac-panel button,.ac-main .ac-panel .btn{transition:transform .15s ease,filter .15s ease}
 .ac-main .ac-panel button:hover,.ac-main .ac-panel .btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
-.ac-theme-toggle{display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid #e5c46a44;border-radius:999px;background:#211d12;color:#f3cf3c;font:700 12px/1.2 inherit;cursor:pointer}
+.ac-theme-toggle{display:inline-flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid #e5c46a44;border-radius:999px;background:#211d12;color:#f3cf3c;font:inherit;font-size:12px;font-weight:700;line-height:1.2;cursor:pointer}
 .ac-top-meta{display:flex;align-items:center;justify-content:flex-end;gap:9px;flex-wrap:wrap}
 :root[data-admin-theme="light"]{color-scheme:light}
 :root[data-admin-theme="light"] body{background:radial-gradient(ellipse at top left,#fff0bd 0,transparent 48%),#f6f5f0;color:#1b1913}
