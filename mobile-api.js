@@ -1758,14 +1758,45 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   desk.post('/governance', async (req,res,next) => {
     const type=deskClean(req.body.item_type||'concern',20),subject=deskClean(req.body.subject,180),details=deskClean(req.body.details,5000),targetRaw=deskClean(req.body.target_member_id,20),targetId=targetRaw&&deskId(targetRaw)?targetRaw:null;
     if(!['concern','access_review'].includes(type)||!subject||!details||(targetRaw&&!targetId)||(type==='access_review'&&!targetId))return res.status(400).json({error:'invalid_governance_item',message:'Complete the required governance details.'});
-    try { if(targetId){const [[m]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[targetId]);if(!m)return res.status(404).json({error:'member_not_found'});}const [r]=await pool.execute("INSERT INTO sovereign_governance_items (item_type,subject,details,target_member_id,submitted_by,status) VALUES (?,?,?,?,?,'open')",[type,subject,details,targetId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
-    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+    try {
+      if(targetId){const [[m]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[targetId]);if(!m)return res.status(404).json({error:'member_not_found'});}
+      const [cols]=await pool.query('SHOW COLUMNS FROM sovereign_governance_items');
+      const names=new Set(cols.map(c=>String(c.Field)));
+      let r;
+      if(['subject','target_member_id','submitted_by'].every(c=>names.has(c))){
+        [r]=await pool.execute("INSERT INTO sovereign_governance_items (item_type,subject,details,target_member_id,submitted_by,status) VALUES (?,?,?,?,?,'open')",[type,subject,details,targetId,req.session.memberId]);
+      } else if(['title','subject_member_id','created_by'].every(c=>names.has(c))){
+        [r]=await pool.execute("INSERT INTO sovereign_governance_items (item_type,title,details,subject_member_id,created_by,status) VALUES (?,?,?,?,?,'open')",[type,subject,details,targetId,req.session.memberId]);
+      } else {
+        return res.status(503).json({error:'governance_schema_required',message:'The governance table does not contain a supported column layout.'});
+      }
+      res.status(201).json({ok:true,id:r.insertId});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.post('/governance/:id/status', async (req,res,next) => {
-    const id=String(req.params.id),status=deskClean(req.body.status,20),note=deskClean(req.body.resolution_note,2000);
-    if(!deskId(id)||!['open','under_review','resolved','closed'].includes(status))return res.status(400).json({error:'invalid_governance_status'});
-    try { const [r]=await pool.execute('UPDATE sovereign_governance_items SET status=?,resolution_note=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,note||null,req.session.memberId,id]);if(!r.affectedRows)return res.status(404).json({error:'governance_item_not_found'});res.json({ok:true}); }
-    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+    const id=String(req.params.id),requestedStatus=deskClean(req.body.status,20),note=deskClean(req.body.resolution_note,2000);
+    if(!deskId(id)||!['open','under_review','resolved','closed'].includes(requestedStatus))return res.status(400).json({error:'invalid_governance_status'});
+    try {
+      const [cols]=await pool.query('SHOW COLUMNS FROM sovereign_governance_items');
+      const fields=new Set(cols.map(c=>String(c.Field)));
+      if(fields.has('resolution_note')&&fields.has('reviewed_by')&&fields.has('reviewed_at')){
+        const [r]=await pool.execute('UPDATE sovereign_governance_items SET status=?,resolution_note=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[requestedStatus,note||null,req.session.memberId,id]);
+        if(!r.affectedRows)return res.status(404).json({error:'governance_item_not_found'});
+      } else if(fields.has('decision_text')&&fields.has('decided_by')&&fields.has('decided_at')){
+        const [statusRows]=await pool.query("SHOW COLUMNS FROM sovereign_governance_items LIKE 'status'");
+        const statusType=String(statusRows[0]?.Type||'');
+        const supports=status=>statusType.includes("'"+status+"'");
+        let status=requestedStatus;
+        if(status==='under_review'&&!supports(status)&&supports('in_review'))status='in_review';
+        if(status==='closed'&&!supports(status)&&supports('rejected'))status='rejected';
+        if(statusType.toLowerCase().startsWith('enum(')&&!supports(status))return res.status(400).json({error:'unsupported_governance_status',message:'This database does not support the requested status.'});
+        const [r]=await pool.execute('UPDATE sovereign_governance_items SET status=?,decision_text=?,decided_by=?,decided_at=CURRENT_TIMESTAMP WHERE id=?',[status,note||null,req.session.memberId,id]);
+        if(!r.affectedRows)return res.status(404).json({error:'governance_item_not_found'});
+      } else {
+        return res.status(503).json({error:'governance_schema_required',message:'The governance table does not contain supported review columns.'});
+      }
+      res.json({ok:true});
+    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.get('/watchlist', async (req,res,next) => {
     try { const [items]=await pool.execute("SELECT id,instrument,direction,outcome,trade_date,notes,updated_at FROM sovereign_weekly_trades ORDER BY trade_date DESC,id DESC LIMIT 100");res.json({items}); }
@@ -1779,8 +1810,23 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   });
   desk.get('/governance', async (req,res,next) => {
     try {
-      const [items]=await pool.execute("SELECT g.id,g.item_type,g.subject,g.details,g.status,g.created_at,g.reviewed_at,g.resolution_note,m.full_name,m.username,m.monarch_uid,t.full_name target_name FROM sovereign_governance_items g JOIN members m ON m.id=g.submitted_by LEFT JOIN members t ON t.id=g.target_member_id ORDER BY (g.status='open') DESC,g.created_at DESC LIMIT 200");
-      const [decisions]=await pool.execute('SELECT d.id,d.decision_title,d.decision_details,d.created_at,m.full_name,m.username FROM sovereign_governance_decisions d JOIN members m ON m.id=d.recorded_by ORDER BY d.created_at DESC LIMIT 100');
+      const [cols]=await pool.query('SHOW COLUMNS FROM sovereign_governance_items');
+      const fields=new Set(cols.map(c=>String(c.Field)));
+      let items, decisions;
+      if(['subject','submitted_by','target_member_id','resolution_note','reviewed_at'].every(c=>fields.has(c))){
+        [items]=await pool.execute("SELECT g.id,g.item_type,g.subject,g.details,g.status,g.created_at,g.reviewed_at,g.resolution_note,m.full_name,m.username,m.monarch_uid,t.full_name target_name FROM sovereign_governance_items g JOIN members m ON m.id=g.submitted_by LEFT JOIN members t ON t.id=g.target_member_id WHERE g.item_type<>'decision' ORDER BY (g.status='open') DESC,g.created_at DESC LIMIT 200");
+        const [decisionTable]=await pool.query("SHOW TABLES LIKE 'sovereign_governance_decisions'");
+        if(decisionTable.length){
+          [decisions]=await pool.execute('SELECT d.id,d.decision_title,d.decision_details,d.created_at,m.full_name,m.username FROM sovereign_governance_decisions d JOIN members m ON m.id=d.recorded_by ORDER BY d.created_at DESC LIMIT 100');
+        } else {
+          decisions=[];
+        }
+      } else if(['title','created_by','subject_member_id','decision_text','decided_by','decided_at'].every(c=>fields.has(c))){
+        [items]=await pool.execute("SELECT g.id,g.item_type,g.title AS subject,g.details,CASE WHEN g.status='in_review' THEN 'under_review' WHEN g.status='rejected' THEN 'closed' ELSE g.status END AS status,g.created_at,g.decided_at AS reviewed_at,g.decision_text AS resolution_note,m.full_name,m.username,m.monarch_uid,t.full_name AS target_name FROM sovereign_governance_items g JOIN members m ON m.id=g.created_by LEFT JOIN members t ON t.id=g.subject_member_id WHERE g.item_type<>'decision' ORDER BY (g.status='open') DESC,g.created_at DESC LIMIT 200");
+        [decisions]=await pool.execute("SELECT g.id,g.title AS decision_title,COALESCE(g.decision_text,g.details) AS decision_details,g.created_at,m.full_name,m.username FROM sovereign_governance_items g JOIN members m ON m.id=COALESCE(g.decided_by,g.created_by) WHERE g.item_type='decision' ORDER BY g.created_at DESC LIMIT 100");
+      } else {
+        return res.status(503).json({error:'governance_schema_required',message:'The governance table does not contain a supported column layout.'});
+      }
       res.json({items,decisions});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
