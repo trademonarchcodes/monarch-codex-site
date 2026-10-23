@@ -115,3 +115,39 @@ html[data-admin-theme="light"] .ac-mobilebar{background:#fff!important;border-co
 @media(max-width:900px){.ac-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}.ac-overview-hero{align-items:flex-start!important}.ac-hero-mark{flex-basis:56px;width:56px;height:56px;border-radius:18px;font-size:2rem!important}}
 @media(max-width:520px){.ac-top{padding:18px!important;border-radius:19px!important}.ac-top-meta{width:100%;justify-content:space-between}.ac-theme-toggle{min-height:40px}.ac-overview-hero{padding:20px!important;gap:10px}.ac-overview-hero p:not(.ac-hero-kicker){font-size:.84rem}.ac-hero-mark{flex-basis:43px;width:43px;height:43px;font-size:1.55rem!important;border-radius:14px}.ac-stats{gap:9px!important}.ac-stat{padding:14px 13px!important;border-radius:16px!important}.ac-stat>span{font-size:.6rem!important}.ac-stat strong{font-size:1.45rem!important}.ac-stat small{font-size:.68rem!important}.ac-tiles{gap:9px!important}.ac-tile{min-height:100px;padding:16px 35px 16px 14px!important;border-radius:16px!important}.ac-tile strong{font-size:.82rem!important}.ac-tile small{font-size:.69rem!important}.ac-panel{padding:16px!important;border-radius:17px!important}.ac-section-head{margin-top:23px!important}}
 @media(prefers-reduced-motion:reduce){.ac-stat,.ac-tile,.ac-theme-toggle,.ac-nav,.ac-main .ac-panel button{transition:none!important}.ac-stat:hover,.ac-tile:hover,.ac-theme-toggle:hover{transform:none!important}}
+
+/* Sovereign Desk variant shares the design tokens while retaining its specialist workspace layout. */
+.desk-layout{font-family:Manrope,"Plus Jakarta Sans",Inter,system-ui,-apple-system,"Segoe UI",sans-serif!important;color:var(--admin-text)!important;gap:clamp(15px,1.6vw,24px)!important}
+.desk-sidebar{border-color:var(--admin-border)!important;border-radius:24px!important;background:radial-gradient(ellipse at 0 0,rgba(212,175,55,.10),transparent 34%),linear-gradient(180deg,#17171c,#0e0e11 88%)!important;box-shadow:0 18px 45px rgba(0,0,0,.18)!important}
+.desk-brand{color:#f0d77d!important;font-size:.8rem!important}
+.desk-mark{overflow:hidden!important;box-shadow:0 7px 18px rgba(212,175,55,.12)}
+.desk-mark img{display:block;width:100%;height:100%;padding:3px;object-fit:contain;border-radius:inherit}
+.desk-nav a{min-height:43px;border:1px solid transparent;border-radius:13px!important;color:#c8c5bb!important;font-weight:750!important;transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease}
+.desk-nav a:hover,.desk-nav a:focus-visible,.desk-nav a[aria-current=page]{border-color:rgba(212,175,55,.35)!important;background:linear-gradient(100deg,rgba(212,175,55,.18),rgba(212,175,55,.04))!important;color:#f0d77d!important;outline:none}
+.desk-nav a[aria-current=page]{box-shadow:inset 3px 0 0 var(--admin-gold)!important}
+.desk-top{position:relative;overflow:hidden;isolation:isolate;gap:18px!important;padding:clamp(19px,2.2vw,30px)!important;border:1px solid var(--admin-border)!important;border-radius:24px!important;background:radial-gradient(ellipse at 92% 0%,rgba(212,175,55,.16),transparent 36%),linear-gradient(135deg,var(--admin-surface),var(--admin-bg))!important;box-shadow:0 18px 48px rgba(0,0,0,.12)!important}
+.desk-top:after{content:"";position:absolute;right:-55px;top:-95px;width:220px;height:220px;border:1px solid rgba(212,175,55,.16);border-radius:50%;box-shadow:0 0 0 24px rgba(212,175,55,.035),0 0 0 48px rgba(212,175,55,.025);z-index:-1;pointer-events:none}
+.desk-top h1{font-family:Manrope,"Plus Jakarta Sans",Inter,system-ui,sans-serif!important;font-size:clamp(1.65rem,2.5vw,2.35rem)!important;line-height:1.1!important;font-weight:900!important;letter-spacing:-.045em!important}
+.desk-top p{color:var(--admin-muted)!important;font-size:.82rem!important}
+.desk-top-meta{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.desk-role{border-color:rgba(212,175,55,.35)!important;border-radius:999px!important;background:rgba(212,175,55,.09)!important;color:var(--admin-gold-soft)!important;padding:9px 13px!important;font-size:.65rem!important;letter-spacing:.08em!important}
+.desk-mobile-toggle{border-radius:14px!important;font-weight:850!important}
+html[data-admin-theme="light"] body{background:radial-gradient(ellipse at 8% 0%,#fff6d8 0,transparent 36%),radial-gradient(ellipse at 90% 8%,#eaf4ff 0,transparent 28%),var(--admin-bg)!important;color:var(--admin-text)!important}
+html[data-admin-theme="light"] .desk-layout{color:var(--admin-text)!important}
+html[data-admin-theme="light"] .desk-sidebar{background:linear-gradient(180deg,#fff,#f8f6ef 90%)!important;border-color:#e5decb!important;box-shadow:0 14px 36px rgba(32,27,12,.08)!important}
+html[data-admin-theme="light"] .desk-brand{color:#8c6814!important;border-bottom-color:#e9e2d1!important}
+html[data-admin-theme="light"] .desk-brand small{color:#77705f!important}
+html[data-admin-theme="light"] .desk-mark{background:linear-gradient(145deg,#fff7d9,#f1df9c)!important;border-color:#d9c47e!important}
+html[data-admin-theme="light"] .desk-nav a{color:#55535b!important}
+html[data-admin-theme="light"] .desk-nav a:hover,html[data-admin-theme="light"] .desk-nav a:focus-visible,html[data-admin-theme="light"] .desk-nav a[aria-current=page]{background:linear-gradient(100deg,#f8e9b8,#fffaf0)!important;border-color:#e1c86e!important;color:#77560b!important}
+html[data-admin-theme="light"] .desk-top{background:radial-gradient(ellipse at 92% 0%,rgba(212,175,55,.16),transparent 36%),linear-gradient(135deg,#fff,#fbfaf6)!important;border-color:#e7e1d4!important;box-shadow:0 14px 36px rgba(32,27,12,.06)!important}
+html[data-admin-theme="light"] .desk-top:after{border-color:rgba(173,131,27,.18);box-shadow:0 0 0 24px rgba(173,131,27,.035),0 0 0 48px rgba(173,131,27,.025)}
+html[data-admin-theme="light"] .desk-top h1{color:#1b1b21!important}
+html[data-admin-theme="light"] .desk-top p{color:#686975!important}
+html[data-admin-theme="light"] .desk-role{background:#fff7dc!important;border-color:#e2d098!important;color:#75570d!important}
+html[data-admin-theme="light"] .desk-mobile-toggle{background:linear-gradient(110deg,#fff6d9,#fff)!important;border-color:#e5d29b!important;color:#805f10!important}
+html[data-admin-theme="light"] .desk-drawer-scrim{background:rgba(31,29,23,.42)!important}
+html[data-admin-theme="light"] .desk-bottom-nav{background:rgba(255,255,255,.96)!important;border-top-color:#e3d7b6!important;box-shadow:0 -8px 28px rgba(25,25,30,.08)!important}
+html[data-admin-theme="light"] .desk-bottom-nav a,html[data-admin-theme="light"] .desk-bottom-nav button{color:#686975!important}
+html[data-admin-theme="light"] .desk-bottom-nav a[aria-current=page]{background:#fff2c9!important;color:#805f10!important}
+@media(max-width:520px){.desk-top{padding:18px!important;border-radius:19px!important}.desk-top-meta{width:100%;justify-content:space-between}.desk-top h1{font-size:1.65rem!important}.desk-top-meta .ac-theme-toggle{min-height:40px}}
