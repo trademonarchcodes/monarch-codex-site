@@ -176,3 +176,15 @@ test('mobile investments endpoint returns active opportunities and only the sign
   assert.match(mobileApi, /Cache-Control', 'no-store, private/);
   assert.doesNotMatch(mobileApi.slice(mobileApi.indexOf("router.get('/investments'"), mobileApi.indexOf("router.post('/investments/:packageId/purchase'")), /INSERT INTO|UPDATE member_wallets|financial_transactions/);
 });
+
+test('community deletion is owner-only, uses supported hidden statuses, and exposes ownership for the Android UI', () => {
+  assert.match(mobileApi, /\(p\.member_id=\?\s*\) AS isMine/);
+  assert.match(mobileApi, /\(c\.member_id=\?\s*\) AS isMine/);
+  assert.match(mobileApi, /router\.delete\('\/community\/posts\/:id', noStore, apiAuth/);
+  assert.match(mobileApi, /Number\(post\.member_id\)!==Number\(req\.session\.memberId\)/);
+  assert.match(mobileApi, /UPDATE community_posts SET status='hidden'/);
+  assert.doesNotMatch(mobileApi, /community_posts SET status='deleted'/);
+  assert.match(mobileApi, /router\.delete\('\/community\/posts\/:postId\/comments\/:commentId', noStore, apiAuth/);
+  assert.match(mobileApi, /Number\(comment\.member_id\)!==Number\(req\.session\.memberId\)/);
+  assert.match(mobileApi, /UPDATE community_comments SET status='hidden'/);
+});
