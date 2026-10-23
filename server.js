@@ -909,7 +909,69 @@ function adminControlPage(title, active, content, req) {
 :root[data-admin-theme="light"] .ac-bottom-nav{background:rgba(255,253,246,.97);border-color:#e4d4a4;box-shadow:0 -8px 24px #5e4b1714}
 :root[data-admin-theme="light"] .ac-bottom-nav a,:root[data-admin-theme="light"] .ac-bottom-nav button{color:#625a47}
 :root[data-admin-theme="light"] .ac-bottom-nav a[aria-current="page"]{background:#fff0b7;color:#5c4300}
-@media(prefers-reduced-motion:reduce){.ac-main *{transition:none!important}}
+
+/* MONARCH CODEX ADMIN — full workspace visual redesign v2 */
+.ac-layout{max-width:1720px;grid-template-columns:258px minmax(0,1fr);gap:24px;padding:22px;align-items:start}
+.ac-side{width:auto;max-height:calc(100dvh - 44px);top:22px;padding:18px 14px;border-radius:24px;border-color:rgba(229,196,106,.28);background:radial-gradient(ellipse at 10% 0,rgba(229,196,106,.17),transparent 38%),linear-gradient(165deg,#1a1a1d 0%,#101012 72%);box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.ac-brand{padding:10px 8px 21px;font-size:.84rem;letter-spacing:.09em}
+.ac-brand-mark{width:44px;height:44px;flex-basis:44px;border-radius:15px;background:linear-gradient(145deg,#3c3017,#17140d);box-shadow:inset 0 1px rgba(255,255,255,.1),0 7px 18px #0004}
+.ac-brand>span:not(.ac-brand-mark){display:block}
+.ac-desk-intro{padding:15px 12px;border-radius:16px}
+.ac-side-search{margin-top:16px}
+.ac-nav-group{margin-top:18px}
+.ac-nav-group-label{font-size:.65rem;letter-spacing:.16em;padding:6px 10px 9px}
+.ac-nav{min-height:43px;padding:9px 10px;border-radius:13px}
+.ac-nav b{font-size:.8rem;font-weight:720}
+.ac-nav-icon{flex-basis:30px;height:30px;border-radius:10px;background:linear-gradient(145deg,#22211d,#141416);font-size:1rem}
+.ac-nav-arrow{display:inline;opacity:.38}
+.ac-nav.is-active{background:linear-gradient(105deg,rgba(229,196,106,.2),rgba(229,196,106,.045));box-shadow:inset 3px 0 #f0d078,0 8px 18px #0002}
+.ac-nav.is-active .ac-nav-icon{background:linear-gradient(145deg,#473719,#241d10);border-color:#8a7135}
+.ac-secure{border-radius:15px;background:linear-gradient(135deg,rgba(229,196,106,.1),rgba(229,196,106,.025));border-color:#514323}
+.ac-main{padding:0 2px 42px}
+.ac-top{margin:0 0 24px;padding:24px 26px;border:1px solid rgba(229,196,106,.3);border-radius:24px;background:radial-gradient(ellipse at 100% 0,rgba(243,207,60,.22),transparent 38%),radial-gradient(ellipse at 0 100%,rgba(243,207,60,.07),transparent 40%),linear-gradient(130deg,#201e18,#111114 68%,#19150c);box-shadow:0 18px 46px #0003}
+.ac-top:after{content:"";position:absolute;right:-42px;bottom:-82px;width:220px;height:220px;border:1px solid rgba(229,196,106,.15);border-radius:50%;box-shadow:0 0 0 22px rgba(229,196,106,.025),0 0 0 46px rgba(229,196,106,.02);pointer-events:none}
+.ac-top-copy,.ac-top-meta{position:relative;z-index:1}
+.ac-breadcrumb{font-size:.68rem;letter-spacing:.16em}
+.ac-kicker{padding:7px 10px;border:1px solid rgba(229,196,106,.25);border-radius:999px;background:rgba(229,196,106,.07);font-size:.65rem}
+.ac-kicker:before{width:7px;height:7px;border-radius:50%;box-shadow:0 0 0 4px rgba(229,196,106,.1)}
+.ac-top h1{font-size:clamp(2rem,3.8vw,3.1rem);letter-spacing:-.055em;margin-top:13px}
+.ac-top .muted{font-size:.9rem;max-width:68ch}
+.ac-pill{padding:11px 15px;background:rgba(229,196,106,.12);border-color:rgba(229,196,106,.4)}
+.ac-theme-toggle{padding:11px 15px;border-color:#8c7334;background:linear-gradient(135deg,#342a15,#19160f);box-shadow:0 7px 18px #0003}
+.ac-main .ac-panel,.ac-main .ac-section-card{position:relative;overflow:hidden;padding:clamp(20px,2.2vw,30px);border-radius:22px;border-color:rgba(229,196,106,.23);background:radial-gradient(ellipse at 100% 0,rgba(229,196,106,.045),transparent 44%),linear-gradient(145deg,#1b1b1f,#121214 75%);box-shadow:0 14px 35px rgba(0,0,0,.2)}
+.ac-main .ac-panel h2,.ac-main .ac-section-head h2{font-size:clamp(1.12rem,1.6vw,1.45rem);letter-spacing:-.035em}
+.ac-main .ac-stats{gap:14px;margin:20px 0 24px}
+.ac-main .ac-stats .ac-stat{position:relative;isolation:isolate;min-height:126px;padding:20px;border-radius:19px;border-color:rgba(229,196,106,.28);background:radial-gradient(ellipse at 100% 0,rgba(229,196,106,.13),transparent 52%),linear-gradient(145deg,#201f1b,#141416 80%);box-shadow:0 12px 28px #0002}
+.ac-main .ac-stats .ac-stat:after{content:"";position:absolute;right:-16px;top:-26px;width:90px;height:90px;border:1px solid rgba(229,196,106,.15);border-radius:26px;transform:rotate(24deg);z-index:-1}
+.ac-main .ac-stats .ac-stat>strong{font-size:clamp(1.7rem,2.7vw,2.25rem);line-height:1.1;color:#f4d77d}
+.ac-main .ac-stats .ac-stat>small{display:block;margin-top:10px;font-size:.74rem;letter-spacing:.01em}
+.ac-main .ac-tile{padding:18px;border-radius:17px;border-color:rgba(229,196,106,.22);background:linear-gradient(145deg,#1d1c18,#141416);box-shadow:0 9px 22px #0002}
+.ac-main .ac-tile strong{font-size:.96rem}
+.ac-main .ac-table-wrap{border:1px solid rgba(229,196,106,.16);border-radius:15px}
+.ac-main .ac-table{border-collapse:separate;border-spacing:0}
+.ac-main .ac-table th{padding:14px 13px;background:rgba(229,196,106,.07);font-size:.67rem;letter-spacing:.11em}
+.ac-main .ac-table td{padding:14px 13px}
+.ac-main .ac-table tr:last-child td{border-bottom:0}
+.ac-main .ac-panel input,.ac-main .ac-panel select,.ac-main .ac-panel textarea{border-radius:12px;min-height:44px}
+.ac-main .ac-panel .btn,.ac-main .ac-panel button,.ac-main .ac-panel input[type=submit],.ac-main .ac-panel input[type=button]{min-height:42px;border-radius:12px}
+.ac-main .ac-alert{border-radius:16px;padding:15px 18px;box-shadow:0 10px 24px #0002}
+:root[data-admin-theme="light"] .ac-side{background:radial-gradient(ellipse at 10% 0,#fff0b8,transparent 40%),linear-gradient(165deg,#fffdf7,#f0ead8);border-color:#e5d7ae}
+:root[data-admin-theme="light"] .ac-brand-mark{background:linear-gradient(145deg,#fff0b7,#f4e2a6);color:#654b09;box-shadow:none}
+:root[data-admin-theme="light"] .ac-nav-icon{background:linear-gradient(145deg,#fffdf7,#f1e7cb);border-color:#e4d7b5}
+:root[data-admin-theme="light"] .ac-nav.is-active{background:linear-gradient(105deg,#ffefb4,#fff9e6);box-shadow:inset 3px 0 #b28a19,0 6px 16px #5e4b170d}
+:root[data-admin-theme="light"] .ac-nav.is-active .ac-nav-icon{background:#ffefb4;border-color:#d8bc66}
+:root[data-admin-theme="light"] .ac-desk-intro{background:linear-gradient(125deg,#fff0b7,#fffaf0);border-color:#e4d29a}
+:root[data-admin-theme="light"] .ac-desk-intro strong,:root[data-admin-theme="light"] .ac-desk-orbit{color:#6b4c00}
+:root[data-admin-theme="light"] .ac-top{background:radial-gradient(ellipse at 100% 0,#fff0b8,transparent 40%),linear-gradient(130deg,#fff,#fff9e8);border-color:#e4d39a}
+:root[data-admin-theme="light"] .ac-main .ac-stats .ac-stat{background:radial-gradient(ellipse at 100% 0,#fff1c2,transparent 54%),linear-gradient(145deg,#fff,#faf3df);border-color:#e5d8b3}
+:root[data-admin-theme="light"] .ac-main .ac-stats .ac-stat>strong{color:#8a6500}
+:root[data-admin-theme="light"] .ac-main .ac-panel,:root[data-admin-theme="light"] .ac-main .ac-section-card{background:radial-gradient(ellipse at 100% 0,#fff8df,transparent 44%),linear-gradient(145deg,#fff,#fffaf0);border-color:#e5dbc0}
+:root[data-admin-theme="light"] .ac-main .ac-tile{background:linear-gradient(145deg,#fff,#fbf4e2);border-color:#e5d8b3}
+@media(min-width:821px){.ac-layout{grid-template-columns:258px minmax(0,1fr)}.ac-side{width:auto;padding:18px 14px}.ac-brand{justify-content:flex-start}.ac-brand>span:not(.ac-brand-mark),.ac-desk-intro,.ac-side-search,.ac-side-search-note,.ac-nav-group-label,.ac-secure{display:block}.ac-nav{justify-content:flex-start;gap:10px;padding:9px 10px}.ac-nav b,.ac-nav-arrow,.ac-nav-badge{display:inline-flex}.ac-side:hover,.ac-side:focus-within{width:auto;padding:18px 14px}.ac-side:hover .ac-nav,.ac-side:focus-within .ac-nav{justify-content:flex-start;gap:10px;padding:9px 10px}}
+@media(max-width:820px){.ac-layout{display:block;padding:10px 10px 22px}.ac-side{position:fixed;left:0;top:0;bottom:0;width:min(88vw,340px);max-height:100dvh;height:100dvh;border-radius:0 22px 22px 0;z-index:1200}.ac-top{padding:20px 18px;border-radius:20px}.ac-main .ac-stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ac-main .ac-stats .ac-stat{min-height:112px;padding:15px}.ac-main .ac-panel,.ac-main .ac-section-card{padding:18px;border-radius:18px}}
+@media(max-width:420px){.ac-main .ac-stats{grid-template-columns:1fr 1fr}.ac-main .ac-stats .ac-stat>strong{font-size:1.55rem}.ac-top h1{font-size:1.9rem}.ac-pill{font-size:.58rem;padding:8px 10px}}
+
+@media(prefers-reduced-motion:reduce){.ac-layout *{transition:none!important;animation:none!important}}
 </style><div class="ac-layout" id="adminLayout">
   <div class="ac-mobilebar"><button class="ac-menu-toggle" type="button" id="adminMenuToggle" aria-label="Open admin navigation" aria-expanded="false">☰</button><span class="ac-mobile-title">MONARCH CODEX · ADMIN</span></div>
   <button class="ac-drawer-scrim" type="button" id="adminDrawerScrim" aria-label="Close admin navigation"></button>
