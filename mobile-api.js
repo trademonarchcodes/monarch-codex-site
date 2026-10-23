@@ -933,40 +933,91 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { return next(e); }
   });
   router.get('/admin/members/:id', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
-    const id=Number(req.params.id); if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id',message:'Choose a valid member account.'});
     try {
-      const [[member]]=await pool.execute("SELECT id,monarch_uid AS uid,full_name AS fullName,username,email,phone,created_at AS createdAt,email_verified_at AS emailVerifiedAt,COALESCE(is_blocked,0) AS isBlocked FROM members WHERE id=? LIMIT 1",[id]);
-      if(!member)return res.status(404).json({error:'member_not_found'});
-      const [wallets]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[id]);
-      const [kyc]=await pool.execute('SELECT status,submitted_at AS submittedAt FROM kyc_submissions WHERE member_id=? ORDER BY id DESC LIMIT 5',[id]);
-      res.json({member,wallets,kyc});
-    } catch(e) { next(e); }
+      const [columnRows]=await pool.query('SHOW COLUMNS FROM members');
+      const columns=new Set(columnRows.map(c=>String(c.Field)));
+      const required=['id','username','email'];
+      const missing=required.filter(c=>!columns.has(c));
+      if(missing.length)return res.status(503).json({error:'member_management_schema_required',message:'Member details are unavailable because required columns are missing: '+missing.join(', ')+'.'});
+      const fullName=columns.has('full_name')?'full_name':'NULL';
+      const uid=columns.has('monarch_uid')?'monarch_uid':'NULL';
+      const phone=columns.has('phone')?'phone':'NULL';
+      const created=columns.has('created_at')?'created_at':'NULL';
+      const verified=columns.has('email_verified_at')?'email_verified_at':'NULL';
+      const blocked=columns.has('is_blocked')?'COALESCE(is_blocked,0)':'0';
+      const [members]=await pool.execute('SELECT id,'+uid+' AS uid,'+fullName+' AS fullName,username,email,'+phone+' AS phone,'+created+' AS createdAt,'+verified+' AS emailVerifiedAt,'+blocked+' AS isBlocked FROM members WHERE id=? LIMIT 1',[id]);
+      const member=members[0];
+      if(!member)return res.status(404).json({error:'member_not_found',message:'This member account no longer exists.'});
+      let wallets=[],kyc=[];
+      const [walletTables]=await pool.query("SHOW TABLES LIKE 'member_wallets'");
+      if(walletTables.length) {
+        const [walletRows]=await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?',[id]);
+        wallets=walletRows;
+      }
+      const [kycTables]=await pool.query("SHOW TABLES LIKE 'kyc_submissions'");
+      if(kycTables.length) {
+        const [kycRows]=await pool.execute('SELECT status,submitted_at AS submittedAt FROM kyc_submissions WHERE member_id=? ORDER BY id DESC LIMIT 5',[id]);
+        kyc=kycRows;
+      }
+      return res.json({member,wallets,kyc});
+    } catch(e) {
+      if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'member_management_schema_required',message:'Member details are temporarily unavailable because a required database table is not configured.'});
+      return next(e);
+    }
   });
   router.post('/admin/members/:id/status', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
-    const id=Number(req.params.id), blocked=req.body.blocked===true;
-    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
-    if(id===Number(req.session.memberId))return res.status(400).json({error:'cannot_block_self'});
+    const id=Number(req.params.id), blocked=req.body.blocked===true || String(req.body.blocked)==='true' || String(req.body.blocked)==='1';
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id',message:'Choose a valid member account.'});
+    if(id===Number(req.session.memberId))return res.status(400).json({error:'cannot_block_self',message:'You cannot block or unblock your own account.'});
     try {
-      const [result]=await pool.execute('UPDATE members SET is_blocked=? WHERE id=?',[blocked?1:0,id]);
-      if(!result.affectedRows)return res.status(404).json({error:'member_not_found'});
+      const [[targetAdmin]]=await pool.execute('SELECT member_id FROM admin_users WHERE member_id=? LIMIT 1',[id]);
+      if(targetAdmin)return res.status(403).json({error:'protected_admin_account',message:'Administrator accounts cannot be blocked from member management.'});
+      const [cols]=await pool.query('SHOW COLUMNS FROM members');
+      const columns=new Set(cols.map(c=>String(c.Field)));
+      if(!columns.has('is_blocked'))return res.status(503).json({error:'member_management_schema_required',message:'Account blocking is not configured in the production database. Apply and verify migrations/015_member_account_controls.sql after a database backup.'});
+      const updates=['is_blocked=?'],params=[blocked?1:0];
+      if(columns.has('blocked_at')){updates.push('blocked_at=?');params.push(blocked?new Date():null);}
+      if(columns.has('blocked_by')){updates.push('blocked_by=?');params.push(blocked?Number(req.session.memberId):null);}
+      if(columns.has('block_reason')){updates.push('block_reason=?');params.push(blocked?String(req.body.reason||'').trim().slice(0,500)||null:null);}
+      params.push(id);
+      const [result]=await pool.execute('UPDATE members SET '+updates.join(',')+' WHERE id=?',params);
+      if(!result.affectedRows)return res.status(404).json({error:'member_not_found',message:'This member account no longer exists.'});
       await adminAudit(pool,req.session.memberId,blocked?'member.blocked':'member.unblocked','member',id,{blocked},req.ip);
-      res.json({ok:true,blocked});
-    } catch(e) { if(e.code==='ER_BAD_FIELD_ERROR' && /is_blocked/.test(e.message)) return res.status(503).json({error:'member_management_schema_required',message:'Apply the member status schema migration before blocking accounts.'}); next(e); }
+      return res.json({ok:true,blocked,message:blocked?'Member access has been blocked.':'Member access has been restored.'});
+    } catch(e) { if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'member_management_schema_required',message:'Administrator or account-control tables are not configured.'}); return next(e); }
   });
   router.delete('/admin/members/:id', noStore, apiAuth, requireSuperAdmin, async (req,res,next) => {
     const id=Number(req.params.id);
-    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
-    if(id===Number(req.session.memberId))return res.status(400).json({error:'cannot_delete_self'});
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id',message:'Choose a valid member account.'});
+    if(id===Number(req.session.memberId))return res.status(400).json({error:'cannot_delete_self',message:'You cannot delete your own account.'});
     let conn;
     try {
-      conn=await pool.getConnection(); await conn.beginTransaction();
-      const [[member]]=await conn.execute('SELECT id,username,email FROM members WHERE id=? FOR UPDATE',[id]);
-      if(!member){await conn.rollback();return res.status(404).json({error:'member_not_found'});}
+      conn=await pool.getConnection();
+      await conn.beginTransaction();
+      const [[member]]=await conn.execute('SELECT id,username,email FROM members WHERE id=? LIMIT 1 FOR UPDATE',[id]);
+      if(!member){await conn.rollback();return res.status(404).json({error:'member_not_found',message:'This member account no longer exists.'});}
+      const [[targetAdmin]]=await conn.execute('SELECT member_id FROM admin_users WHERE member_id=? LIMIT 1',[id]);
+      if(targetAdmin){await conn.rollback();return res.status(403).json({error:'protected_admin_account',message:'Administrator accounts cannot be deleted through member management.'});}
+      // Remove only records owned by this member (member_id), not records they
+      // authored or reviewed for other members. Keep the operation transactional.
+      const [ownedTables]=await conn.query("SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND COLUMN_NAME='member_id' AND TABLE_NAME NOT IN ('members','admin_users')");
+      for(const row of ownedTables){
+        const table=String(row.TABLE_NAME||'');
+        if(!/^[a-zA-Z0-9_]+$/.test(table))continue;
+        await conn.execute('DELETE FROM `'+table+'` WHERE member_id=?',[id]);
+      }
       await conn.execute('INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)',[req.session.memberId,'member.deleted','member',String(id),JSON.stringify({username:member.username,email:member.email}),req.ip||null]);
       await conn.execute('DELETE FROM members WHERE id=?',[id]);
-      await conn.commit(); res.json({ok:true});
-    } catch(e) { if(conn)try{await conn.rollback();}catch(_){} next(e); }
-    finally { if(conn)conn.release(); }
+      await conn.commit();
+      return res.json({ok:true,message:'Member account and member-owned records were deleted.'});
+    } catch(e) {
+      if(conn)try{await conn.rollback();}catch(_){}
+      if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'member_management_schema_required',message:'The account-deletion audit or database schema is not configured. No account deletion was committed.'});
+      if(e&&e.code==='ER_ROW_IS_REFERENCED_2')return res.status(409).json({error:'member_has_protected_records',message:'The database has protected records linked to this account. No deletion was committed; review those relationships before retrying.'});
+      return next(e);
+    } finally { if(conn)conn.release(); }
   });
 
   router.get('/admin/overview', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req, res, next) => {

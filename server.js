@@ -769,7 +769,7 @@ function adminControlPage(title, active, content, req) {
   .ac-top h1{margin:9px 0 7px;color:#fff7e5;font-size:clamp(1.8rem,3.2vw,2.65rem);font-weight:850;letter-spacing:-.045em;line-height:1.08;overflow-wrap:anywhere}.ac-top .muted{max-width:62ch;margin:0;color:#9d998d;font-size:.82rem;line-height:1.7}
   .ac-top-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ac-pill{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:10px 13px;border:1px solid #e5c46a40;border-radius:999px;background:#e5c46a10;color:#e8d18a;font-size:.65rem;font-weight:900;letter-spacing:.07em;line-height:1.4}.ac-pill-dot{width:6px;height:6px;flex:0 0 auto;border-radius:50%;background:#8bc79b;box-shadow:0 0 0 4px #8bc79b14}
   .ac-mobilebar,.ac-drawer-scrim{display:none}.ac-main .ac-page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}.ac-main .ac-page-head .ac-pill{white-space:nowrap}
-  .ac-main h2,.ac-main h3{color:#f4eddd;letter-spacing:-.025em}.ac-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  .ac-main .ac-panel p,.ac-main .ac-panel label,.ac-main .ac-panel small,.ac-main .ac-panel td,.ac-main .ac-panel dd{font-weight:400;line-height:1.65}.ac-main .ac-panel strong{font-weight:650}.ac-main .ac-panel label{color:#d7d0c0}.ac-main .ac-panel input,.ac-main .ac-panel textarea,.ac-main .ac-panel select{font-weight:400}.ac-main .ac-panel button,.ac-main .ac-panel .btn{font-weight:600}\n  .ac-main h2,.ac-main h3{color:#f4eddd;letter-spacing:-.025em}.ac-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
   .ac-stat,.ac-panel{min-width:0;border:1px solid #353126;border-radius:17px;background:linear-gradient(145deg,#19191a,#111113 78%);box-shadow:0 10px 30px #0002}
   .ac-stat{position:relative;overflow:hidden;padding:18px;min-height:128px}.ac-stat:after{content:'';position:absolute;right:-28px;top:-37px;width:88px;height:88px;border:1px solid #e5c46a17;border-radius:50%;box-shadow:0 0 0 12px #e5c46a05}
   .ac-stat span{display:flex;align-items:center;gap:8px;color:#b3aea1;font-size:.72rem;font-weight:750;line-height:1.4}.ac-stat span:before{content:'';width:6px;height:6px;flex:0 0 auto;border-radius:2px;background:#cbb05a}
@@ -1386,22 +1386,84 @@ app.get('/admin/roles', requireAdmin, (req,res)=>{
 
 app.get('/admin/members', requireAdmin, requireWebCategoryAccess('members_roles','view'), async (req,res,next)=>{
   try {
-    let blockColumn=false; try { const [blockCols]=await pool.query("SHOW COLUMNS FROM members LIKE 'is_blocked'"); blockColumn=blockCols.length>0; } catch (_) { blockColumn=false; }
-    const [rows] = await pool.query('SELECT m.id,m.username,m.full_name,m.email,m.monarch_uid,au.role,au.is_active,mp.avatar_key'+(blockColumn?',m.is_blocked':' ,0 AS is_blocked')+' FROM members m LEFT JOIN admin_users au ON au.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY m.id DESC LIMIT 200');
-    const table=rows.map(m=>{
-      const photo=m.avatar_key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(m.avatar_key))?'/member-avatar/'+encodeURIComponent(m.avatar_key):'/assets/images/monarch-codex-logo.svg';
-      const isAdmin=Boolean(m.role), isSelf=Number(m.id)===Number(req.session.memberId);
-      const accountActions=isAdmin
-        ? '<span class="muted">Protected admin account</span>'
-        : '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><a class="btn" style="display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 12px;background:#f3cf3c;color:#17130a!important;font-weight:800" href="/admin/members/'+Number(m.id)+'">View profile</a>'+
-          (isSelf?'':'<form method="post" action="/admin/members/'+Number(m.id)+'/block" style="display:inline-flex;gap:6px;align-items:center">'+csrfField(req)+'<input type="hidden" name="reason" value=""><button class="btn" type="submit" style="min-height:42px;padding:9px 12px;background:'+(Number(m.is_blocked)?'#166534':'#854d0e')+';color:#fff">'+(Number(m.is_blocked)?'Unblock member':'Block member')+'</button></form>')+
-          (isSelf?'':'<form method="post" action="/admin/members/'+Number(m.id)+'/delete" data-delete-member data-username="'+esc(m.username)+'" style="display:inline-flex">'+csrfField(req)+'<input type="hidden" name="confirmUsername" value=""><button class="btn" type="submit" style="min-height:42px;padding:9px 12px;background:#7f1d1d;color:#fff">Delete account</button></form>')+'</div>';
-      return '<tr><td>'+esc(m.id)+'</td><td><div style="display:flex;align-items:center;gap:10px"><img src="'+photo+'" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:50%;border:2px solid #dfbd62"><div><strong>'+esc(m.username)+'</strong><br><small>'+esc(m.full_name||'')+'</small></div></div></td><td>'+esc(m.email)+'</td><td>'+esc(m.monarch_uid||'—')+'</td><td>'+esc(m.role?m.role.replace(/_/g,' '):'Member')+'</td><td>'+esc(m.role?(Number(m.is_active)?'Active admin':'Inactive admin'):(Number(m.is_blocked)?'Blocked member':'Active member'))+'</td><td>'+accountActions+'</td></tr>';
+    // Build the member-management view from the live schema instead of assuming
+    // every optional profile/account-control column has already been installed.
+    const [memberColumnRows] = await pool.query('SHOW COLUMNS FROM members');
+    const memberColumns = new Set(memberColumnRows.map(row => String(row.Field)));
+    const required = ['id','username','email'];
+    const missing = required.filter(name => !memberColumns.has(name));
+    if (missing.length) {
+      return res.status(503).send(adminControlPage('Member management','/admin/members',
+        '<section class="ac-panel ac-empty-state"><h2>Member data setup required</h2><p>The member list cannot be loaded because the database is missing required columns: '+esc(missing.join(', '))+'.</p><p>Check the production database schema before applying any migration. No member data has been changed.</p></section>',req));
+    }
+    const [adminTables] = await pool.query("SHOW TABLES LIKE 'admin_users'");
+    const hasAdminTable = adminTables.length > 0;
+    let adminColumns = new Set();
+    if (hasAdminTable) {
+      const [cols] = await pool.query('SHOW COLUMNS FROM admin_users');
+      adminColumns = new Set(cols.map(row => String(row.Field)));
+    }
+    const adminJoin = hasAdminTable && adminColumns.has('member_id');
+    const roleExpr = adminJoin && adminColumns.has('role') ? 'au.role' : 'NULL';
+    const activeExpr = adminJoin && adminColumns.has('is_active') ? 'au.is_active' : '1';
+    const [profileTables] = await pool.query("SHOW TABLES LIKE 'member_profiles'");
+    let profileJoin = false, avatarExpr = 'NULL';
+    if (profileTables.length) {
+      const [cols] = await pool.query('SHOW COLUMNS FROM member_profiles');
+      const profileColumns = new Set(cols.map(row => String(row.Field)));
+      profileJoin = profileColumns.has('member_id');
+      if (profileJoin && profileColumns.has('avatar_key')) avatarExpr = 'mp.avatar_key';
+      else profileJoin = false;
+    }
+    const q = String(req.query.q || '').trim().slice(0,120);
+    const searchFields = ['m.username','m.email'];
+    if (memberColumns.has('full_name')) searchFields.push('m.full_name');
+    if (memberColumns.has('monarch_uid')) searchFields.push('m.monarch_uid');
+    const where = q ? ' WHERE ('+searchFields.map(field => field+' LIKE ?').join(' OR ')+')' : '';
+    const params = q ? searchFields.map(() => '%'+q+'%') : [];
+    const fullNameExpr = memberColumns.has('full_name') ? 'm.full_name' : "''";
+    const uidExpr = memberColumns.has('monarch_uid') ? 'm.monarch_uid' : 'NULL';
+    const blockedExpr = memberColumns.has('is_blocked') ? 'COALESCE(m.is_blocked,0)' : '0';
+    const createdExpr = memberColumns.has('created_at') ? 'm.created_at' : 'NULL';
+    const sql = 'SELECT m.id,m.username,m.email,'+fullNameExpr+' AS full_name,'+uidExpr+' AS monarch_uid,'+createdExpr+' AS created_at,'+blockedExpr+' AS is_blocked,'+roleExpr+' AS admin_role,'+activeExpr+' AS admin_active,'+avatarExpr+' AS avatar_key FROM members m'+(adminJoin?' LEFT JOIN admin_users au ON au.member_id=m.id':'')+(profileJoin?' LEFT JOIN member_profiles mp ON mp.member_id=m.id':'')+where+' ORDER BY m.id DESC LIMIT 200';
+    const [rows] = await pool.execute(sql, params);
+    const cards = rows.map(m => {
+      const id = Number(m.id);
+      const username = String(m.username || '');
+      const isAdmin = Boolean(m.admin_role);
+      const isSelf = id === Number(req.session.memberId);
+      const photo = m.avatar_key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(String(m.avatar_key))
+        ? '/member-avatar/'+encodeURIComponent(m.avatar_key)
+        : '/assets/images/monarch-codex-logo.svg';
+      let actions = '<a class="btn ac-action-view" href="/admin/members/'+id+'">View details</a>';
+      if (isAdmin) {
+        actions += '<span class="ac-status-note">Administrator account protected</span>';
+      } else {
+        if (isSelf) actions += '<span class="ac-status-note">Your account is protected</span>';
+        else {
+          if (memberColumns.has('is_blocked')) {
+            actions += '<form method="post" action="/admin/members/'+id+'/block" class="ac-inline-action">'+csrfField(req)+'<input type="hidden" name="reason" value=""><button class="btn ac-action-block" type="submit">'+(Number(m.is_blocked)===1?'Unblock member':'Block member')+'</button></form>';
+          } else {
+            actions += '<span class="ac-status-note">Blocking requires account-controls database setup</span>';
+          }
+          actions += '<form method="post" action="/admin/members/'+id+'/delete" class="ac-inline-action" data-delete-member data-username="'+esc(username)+'">'+csrfField(req)+'<input type="hidden" name="confirmUsername" value=""><button class="btn ac-action-delete" type="submit">Delete account</button></form>';
+        }
+      }
+      const status = isAdmin ? (Number(m.admin_active)===1?'Administrator · Active':'Administrator · Inactive') : (Number(m.is_blocked)===1?'Blocked':'Active');
+      return '<article class="ac-member-card"><div class="ac-member-identity"><img src="'+photo+'" alt="" loading="lazy"><div class="ac-member-name"><strong>'+esc(username)+'</strong><span>'+esc(m.full_name||'Name not provided')+'</span><small>Member #'+id+'</small></div><span class="ac-member-status '+(Number(m.is_blocked)===1?'is-blocked':isAdmin?'is-admin':'')+'">'+esc(status)+'</span></div><dl class="ac-member-fields"><div><dt>Email</dt><dd>'+esc(m.email||'—')+'</dd></div><div><dt>Monarch ID</dt><dd>'+esc(m.monarch_uid||'Not assigned')+'</dd></div><div><dt>Joined</dt><dd>'+esc(m.created_at||'—')+'</dd></div></dl><div class="ac-member-actions">'+actions+'</div></article>';
     }).join('');
-    const listNotice=req.query.notice==='deleted'?'<div class="notice">The member account and associated member records were deleted.</div>':'';
-    const content='<section class="ac-panel"><h2>Member accounts</h2>'+listNotice+'<p class="muted">View account information and uploaded profile photos for the 200 most recently created accounts. Blocking prevents sign-in and is reversible; deletion is permanent. Administrator accounts and your own account are protected.</p><div class="ac-table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table class="ac-table" style="min-width:1080px;width:100%;table-layout:auto"><thead><tr><th>ID</th><th>Profile</th><th>Email</th><th>Monarch ID</th><th>Role</th><th>Status</th><th>Account actions</th></tr></thead><tbody>'+(table||'<tr><td colspan="7">No accounts found.</td></tr>')+'</tbody></table></div><p class="muted" style="font-size:.8rem">On mobile, swipe the table sideways to see every column.</p></section><script>(function(){document.addEventListener("submit",function(event){const form=event.target.closest("form[data-delete-member]");if(!form)return;const username=form.dataset.username||"";const typed=window.prompt("Permanently delete @"+username+"? This cannot be undone. Type the exact username to continue.");if(typed===null){event.preventDefault();return;}if(typed!==username){event.preventDefault();window.alert("Username did not match. No account was deleted.");return;}if(!window.confirm("Final confirmation: permanently delete @"+username+" and its associated member records?")){event.preventDefault();return;}form.querySelector("[name=confirmUsername]").value=typed;});})();</script>';
-    res.send(adminControlPage('Members','/admin/members',content,req));
-  } catch(e){next(e);}
+    const notice = req.query.notice === 'deleted' ? '<div class="ac-inline-notice" role="status">The member account was deleted successfully.</div>' : '';
+    const content = '<style>'+
+      '.ac-members{display:grid;gap:16px}.ac-members-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:0 0 18px}.ac-members-search{display:flex;gap:8px;flex:1;min-width:min(100%,260px);max-width:620px}.ac-members-search input{flex:1;min-width:0}.ac-members-summary{color:#aaa392;font-size:.82rem}.ac-member-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ac-member-card{min-width:0;padding:18px;border:1px solid #393326;border-radius:17px;background:linear-gradient(145deg,#1a1a1c,#111113);display:grid;gap:16px}.ac-member-identity{display:flex;align-items:center;gap:12px;min-width:0}.ac-member-identity img{width:48px;height:48px;flex:0 0 48px;object-fit:cover;border:1px solid #806b35;border-radius:15px;background:#0d0d0e}.ac-member-name{display:grid;gap:4px;min-width:0;flex:1}.ac-member-name strong{color:#f4e9c8;font-size:.95rem;font-weight:700;overflow-wrap:anywhere}.ac-member-name span,.ac-member-name small{color:#aaa392;font-size:.78rem;overflow-wrap:anywhere}.ac-member-name small{font-size:.7rem}.ac-member-status{flex:0 0 auto;padding:6px 9px;border:1px solid #31543d;border-radius:999px;background:#102519;color:#a8e3b8;font-size:.68rem;font-weight:650}.ac-member-status.is-blocked{border-color:#783e39;background:#2c1716;color:#ffb9ae}.ac-member-status.is-admin{border-color:#6b592d;background:#27200f;color:#f1d580}.ac-member-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}.ac-member-fields div{min-width:0;padding:10px;border-radius:10px;background:#ffffff04}.ac-member-fields dt{margin:0 0 5px;color:#8f897b;font-size:.67rem;text-transform:uppercase;letter-spacing:.08em}.ac-member-fields dd{margin:0;color:#e7e1d2;font-size:.8rem;overflow-wrap:anywhere}.ac-member-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:12px;border-top:1px solid #302d25}.ac-inline-action{display:inline-flex;margin:0}.ac-action-view,.ac-action-block,.ac-action-delete{min-height:38px;padding:9px 12px;font-size:.76rem;font-weight:600}.ac-action-view{background:#f3cf3c;color:#17130a!important}.ac-action-block{background:#5d4614;color:#fff}.ac-action-delete{background:#642725;color:#fff}.ac-status-note{color:#aaa392;font-size:.72rem}.ac-inline-notice{padding:12px 15px;border:1px solid #426e4b;border-radius:12px;background:#102519;color:#b9edc5;font-size:.84rem}@media(max-width:900px){.ac-member-grid{grid-template-columns:1fr}}@media(max-width:520px){.ac-member-card{padding:14px}.ac-member-fields{grid-template-columns:1fr}.ac-member-identity{align-items:flex-start;flex-wrap:wrap}.ac-member-status{margin-left:60px}.ac-members-search{max-width:none}}'+
+      '</style><section class="ac-members"><div class="ac-page-head"><div><p class="ac-kicker">MEMBER OPERATIONS</p><h2>Manage member accounts</h2><p class="muted">Search accounts, review member details, and manage access. Administrator accounts and your own account are protected. Permanent deletion requires an exact username confirmation.</p></div><span class="ac-pill">'+rows.length+' shown · maximum 200</span></div>'+notice+'<div class="ac-members-toolbar"><form class="ac-members-search" method="get" action="/admin/members"><input type="search" name="q" value="'+esc(q)+'" placeholder="Search name, username, email or Monarch ID" aria-label="Search members"><button class="btn" type="submit">Search</button>'+(q?'<a class="btn" href="/admin/members">Clear</a>':'')+'</form><span class="ac-members-summary">'+(q?'Results matching “'+esc(q)+'”':'Most recently created member accounts')+'</span></div><div class="ac-member-grid">'+(cards||'<div class="ac-panel" style="padding:22px"><h3>No members found</h3><p class="muted">'+(q?'Try another name, username, email or Monarch ID.':'New member accounts will appear here.')+'</p></div>')+'</div></section><script>(function(){document.addEventListener("submit",function(event){const form=event.target.closest("form[data-delete-member]");if(!form)return;const username=form.dataset.username||"";const typed=window.prompt("Permanently delete @"+username+"? Type the exact username to continue.");if(typed===null){event.preventDefault();return;}if(typed!==username){event.preventDefault();window.alert("Username did not match. No account was deleted.");return;}if(!window.confirm("Final confirmation: permanently delete @"+username+" and associated member records?")){event.preventDefault();return;}form.querySelector("[name=confirmUsername]").value=typed;});})();</script>';
+    return res.send(adminControlPage('Manage members','/admin/members',content,req));
+  } catch (error) {
+    console.error('[admin member management]', error.code || error.name, error.message);
+    if (error && error.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).send(adminControlPage('Manage members','/admin/members','<section class="ac-panel"><h2>Member database setup required</h2><p>The member-management database is not ready. Verify the configured production database and its required tables before retrying.</p></section>',req));
+    }
+    return next(error);
+  }
 });
 
 app.post('/admin/members/:memberId/block', requireAdmin, requireWebCategoryAccess('members_roles','edit'), (req,res,next)=>{
@@ -2789,14 +2851,18 @@ app.post('/admin/social-links', requireAdmin, requireWebCategoryAccess('social_l
   }catch(e){next(e);}
 });
 
-app.get('/admin/cooperative-connections', requireAdmin, async(req,res,next)=>{
+app.get('/admin/cooperative-connections', requireAdmin, requireWebCategoryAccess('members_roles','view'), async(req,res,next)=>{
   try{
     const [[admin]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
-    if(!admin||admin.role!=='super_admin')return res.status(403).send(page('Access denied','<main><h1>Super Admin access required</h1><p>Only the Monarch Codex Super Admin can approve Online Cooperative connections.</p><a href="/admin">Return to Admin</a></main>'));
+    if(!admin||admin.role!=='super_admin')return res.status(403).send(adminControlPage('Online Cooperative','/admin/cooperative-connections','<section class="ac-panel"><h2>Super Admin access required</h2><p class="muted">Only the Monarch Codex Super Admin can approve or reject Cooperative connection requests.</p><a class="btn" href="/admin">Return to dashboard</a></section>',req));
     const [items]=await pool.query("SELECT c.id,c.member_id,c.registered_name,c.registered_email,c.created_at,m.full_name,m.email AS member_email,m.username FROM online_cooperative_connections c JOIN members m ON m.id=c.member_id WHERE c.status='pending' ORDER BY c.created_at ASC LIMIT 200");
-    const rows=items.map(x=>'<article style="padding:18px;margin:12px 0;border:1px solid #6b5927;border-radius:14px;background:#111216"><h3>'+esc(x.full_name||x.username||'Member')+'</h3><p>Member email: '+esc(x.member_email||'—')+'</p><p>Cooperative registration name: <strong>'+esc(x.registered_name)+'</strong></p><p>Cooperative registration email: <strong>'+esc(x.registered_email)+'</strong></p><small>Submitted '+esc(x.created_at)+'</small><form method="post" action="/admin/cooperative-connections/'+Number(x.id)+'/review" style="display:grid;gap:10px;margin-top:14px">'+csrfField(req)+'<label>Review note (required for rejection)<textarea name="note" maxlength="1000" rows="2"></textarea></label><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" name="decision" value="approve" type="submit">Approve verified connection</button><button class="btn" name="decision" value="reject" type="submit">Reject</button></div></form></article>').join('');
-    res.send(page('Online Cooperative verification','<main style="max-width:850px;margin:28px auto;padding:20px"><h1>Online Cooperative verification</h1><p>Compare the submitted registration name and email with the Cooperative administrator before making a decision. Approve only when the registration is confirmed; otherwise leave the request pending or reject it with a clear reason. Never request a password or OTP.</p><p><a href="/admin">Admin dashboard</a></p>'+(rows||'<p>No pending connection requests.</p>')+'</main>'));
-  }catch(e){if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Verification setup required','<main><h1>Verification setup required</h1><p>Apply migrations/021_platform_completion_foundation.sql after taking a verified database backup.</p></main>'));next(e);}
+    const cards=items.map(x=>'<article class="ac-panel ac-coop-card"><div class="ac-coop-heading"><div><p class="ac-kicker">VERIFICATION REQUEST #'+Number(x.id)+'</p><h3>'+esc(x.full_name||x.username||'Member')+'</h3><p class="muted">@'+esc(x.username||'unknown member')+' · Submitted '+esc(x.created_at)+'</p></div><span class="ac-coop-status">Pending review</span></div><dl class="ac-coop-fields"><div><dt>Member email</dt><dd>'+esc(x.member_email||'—')+'</dd></div><div><dt>Registered name</dt><dd>'+esc(x.registered_name||'—')+'</dd></div><div><dt>Registered email</dt><dd>'+esc(x.registered_email||'—')+'</dd></div></dl><p class="muted">Verify the exact name and email with the Cooperative administrator before approving. Never request passwords or one-time codes.</p><form method="post" action="/admin/cooperative-connections/'+Number(x.id)+'/review" class="ac-coop-review">'+csrfField(req)+'<label>Review note <span class="muted">(required for rejection)</span><textarea name="note" maxlength="1000" rows="3" placeholder="Record the verification result or rejection reason"></textarea></label><div class="ac-coop-actions"><button class="btn ac-coop-approve" name="decision" value="approve" type="submit">Approve verified connection</button><button class="btn ac-coop-reject" name="decision" value="reject" type="submit">Reject request</button></div></form></article>').join('');
+    const content='<style>.ac-coop-list{display:grid;gap:16px;max-width:1100px}.ac-coop-card{padding:clamp(16px,3vw,24px)}.ac-coop-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}.ac-coop-heading h3{margin:7px 0;font-size:1.15rem;font-weight:700}.ac-coop-status{padding:6px 10px;border:1px solid #80652c;border-radius:999px;background:#29200e;color:#f1d580;font-size:.72rem;font-weight:600}.ac-coop-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0}.ac-coop-fields div{min-width:0;padding:12px;border-radius:10px;background:#ffffff05}.ac-coop-fields dt{margin-bottom:6px;color:#8f897b;font-size:.68rem;text-transform:uppercase;letter-spacing:.08em}.ac-coop-fields dd{margin:0;color:#e7e1d2;font-size:.84rem;overflow-wrap:anywhere;font-weight:400}.ac-coop-review{display:grid;gap:12px;padding-top:14px;border-top:1px solid #302d25}.ac-coop-review label{display:grid;gap:8px}.ac-coop-actions{display:flex;gap:9px;flex-wrap:wrap}.ac-coop-approve{background:#31583a;color:#e7ffeb}.ac-coop-reject{background:#642725;color:#fff}@media(max-width:650px){.ac-coop-fields{grid-template-columns:1fr}.ac-coop-actions .btn{flex:1 1 100%}}</style><section class="ac-coop-list"><div class="ac-page-head"><div><p class="ac-kicker">MEMBER VERIFICATION</p><h2>Online Cooperative connections</h2><p class="muted">Review member-submitted registration details and record a decision. Approve only after the Cooperative administrator confirms the registration.</p></div><span class="ac-pill">'+items.length+' pending</span></div>'+(cards||'<div class="ac-panel" style="padding:24px"><h3>No pending requests</h3><p class="muted">New member connection requests will appear here when submitted.</p></div>')+'</section>';
+    return res.send(adminControlPage('Online Cooperative','/admin/cooperative-connections',content,req));
+  }catch(e){
+    if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(adminControlPage('Online Cooperative','/admin/cooperative-connections','<section class="ac-panel"><h2>Verification setup required</h2><p class="muted">The Cooperative review tables are not installed in the configured database. Back up the production database, review migration 021, and apply it only after confirming the target schema.</p></section>',req));
+    next(e);
+  }
 });
 
 app.post('/admin/cooperative-connections/:id/review', requireAdmin, express.urlencoded({extended:false,limit:'5kb'}), csrfCheck, async(req,res,next)=>{
