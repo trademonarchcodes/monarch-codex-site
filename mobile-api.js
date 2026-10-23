@@ -911,12 +911,27 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/admin/members', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
     try {
       const q=String(req.query.q||'').trim().slice(0,120);
+      // Older production databases may not yet have every optional member-management column.
+      // Detect the actual schema so the list remains usable while optional controls default safely.
+      const [columnRows]=await pool.query('SHOW COLUMNS FROM members');
+      const columns=new Set(columnRows.map(c=>String(c.Field)));
+      const requiredColumns=['id','full_name','username','email','created_at'];
+      const missing=requiredColumns.filter(c=>!columns.has(c));
+      if(missing.length) return res.status(503).json({error:'member_management_schema_required',message:'Member listing cannot run because required members columns are missing: '+missing.join(', ')+'.'});
+      const uidExpr=columns.has('monarch_uid')?'m.monarch_uid':'NULL';
+      const phoneExpr=columns.has('phone')?'m.phone':'NULL';
+      const verifiedExpr=columns.has('email_verified_at')?'m.email_verified_at':'NULL';
+      const blockedExpr=columns.has('is_blocked')?'COALESCE(m.is_blocked,0)':'0';
+      const searchFields=['m.full_name','m.username','m.email'];
+      if(columns.has('monarch_uid')) searchFields.push('m.monarch_uid');
+      const searchClause=searchFields.map(field=>field+' LIKE ?').join(' OR ');
+      const params=[q,...searchFields.map(()=>q+'%')];
       const [rows]=await pool.execute(
-        "SELECT m.id,m.monarch_uid AS uid,m.full_name AS fullName,m.username,m.email,m.phone,m.created_at AS createdAt,m.email_verified_at AS emailVerifiedAt,COALESCE(m.is_blocked,0) AS isBlocked FROM members m WHERE (?='' OR m.full_name LIKE ? OR m.username LIKE ? OR m.email LIKE ? OR m.monarch_uid LIKE ?) ORDER BY m.id DESC LIMIT 200",
-        [q,q+'%',q+'%',q+'%',q+'%']
+        'SELECT m.id,'+uidExpr+' AS uid,m.full_name AS fullName,m.username,m.email,'+phoneExpr+' AS phone,m.created_at AS createdAt,'+verifiedExpr+' AS emailVerifiedAt,'+blockedExpr+' AS isBlocked FROM members m WHERE (? = \'\' OR '+searchClause+') ORDER BY m.id DESC LIMIT 200',
+        [q,...params.slice(1)]
       );
-      res.json({items:rows});
-    } catch(e) { if(e.code==='ER_BAD_FIELD_ERROR' && /is_blocked/.test(e.message)) return res.status(503).json({error:'member_management_schema_required',message:'The members table needs the is_blocked column before member controls can be used safely.'}); next(e); }
+      return res.json({items:rows});
+    } catch(e) { return next(e); }
   });
   router.get('/admin/members/:id', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req,res,next) => {
     const id=Number(req.params.id); if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
