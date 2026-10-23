@@ -1289,7 +1289,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/community/posts', noStore, apiAuth, async (req,res,next) => {
     try {
       await ensureFeatureTables();
-      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100");
+      const [items]=await pool.query("SELECT p.id,p.member_id AS memberId,(p.member_id=? ) AS isOwnPost,p.body,p.post_type AS type,p.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,(SELECT COUNT(*) FROM community_comments c WHERE c.post_id=p.id AND c.status='published') AS commentCount,EXISTS(SELECT 1 FROM community_post_media pm WHERE pm.post_id=p.id) AS hasImage,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,pr.last_seen_at AS authorLastSeen FROM community_posts p JOIN members m ON m.id=p.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE p.status='published' ORDER BY p.created_at DESC LIMIT 100",[req.session.memberId]);
       res.json({items});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
   });
@@ -1317,6 +1317,20 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(!post)return res.status(404).json({error:'post_not_found'});
       const [items]=await pool.execute("SELECT c.id,c.body,c.created_at AS createdAt,m.full_name AS authorName,m.username AS authorUsername,IF(pr.online_until>CURRENT_TIMESTAMP,1,0) AS authorOnline,IF(pr.show_status=1,pr.last_seen_at,NULL) AS authorLastSeen FROM community_comments c JOIN members m ON m.id=c.member_id LEFT JOIN member_presence pr ON pr.member_id=m.id AND pr.show_status=1 WHERE c.post_id=? AND c.status='published' ORDER BY c.created_at ASC LIMIT 200",[id]);
       res.json({items});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
+  });
+  // Members may delete only their own community posts. The database check is authoritative.
+  router.delete('/community/posts/:id', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_post_id'});
+    try {
+      const [[post]]=await pool.execute('SELECT id,member_id,post_type,status FROM community_posts WHERE id=? LIMIT 1',[id]);
+      if(!post)return res.status(404).json({error:'post_not_found',message:'This post no longer exists.'});
+      if(Number(post.member_id)!==Number(req.session.memberId))return res.status(403).json({error:'post_delete_forbidden',message:'You can delete only your own posts.'});
+      if(post.status==='deleted')return res.status(404).json({error:'post_not_found',message:'This post has already been deleted.'});
+      await pool.execute("UPDATE community_posts SET status='deleted' WHERE id=? AND member_id=?",[id,req.session.memberId]);
+      await auditPlatformAction(req.session.memberId,'community.post_deleted','community_post',id,{type:post.post_type});
+      return res.json({ok:true,id,message:'Your post has been deleted.'});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'community_setup_required'}); next(e); }
   });
   router.post('/community/posts/:id/comments', noStore, apiAuth, async (req,res,next) => {
