@@ -716,7 +716,7 @@ function adminControlPage(title, active, content, req) {
   const groups = deskOnly ? [
     {label:'Workspace',links:[['/sovereign-admin','Desk overview','◫']]},
     {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/sovereign-admin/roles/request','Founder Partner request','♜'],['/market-movers.html','Live Markets','⌁']]},
-    {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/signal-access','Subscriptions & signal access','◆'],['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/events','Homepage events','◷'],['/sovereign-admin/watchlist','Weekly trade watchlist','▦']]},
+    {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/signal-access','Subscriptions & signal access','◆'],['/sovereign-admin/chat','Member conversations','◉'],['/community','Community feed','◉'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/events','Homepage events','◷'],['/sovereign-admin/watchlist','Weekly trade watchlist','▦']]},
     {label:'Governance',links:[['/sovereign-admin/governance','Governance & concerns','⚖'],['/sovereign-admin/activity','Activity log','◷']]},
     {label:'Your account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
@@ -725,7 +725,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
     {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/cooperative-connections','Online Cooperative','♙'],['/admin/monarchs','Homepage profiles','✦']]},
-    {label:'Community & platform links',links:[['/admin/community-moderation','Community moderation','◉'],['/admin/feedback','Member feedback','✎'],['/admin/social-links','Official social links','↗']]},
+    {label:'Community & platform links',links:[['/community','Community feed','◉'],['/admin/community-moderation','Community moderation','◉'],['/admin/feedback','Member feedback','✎'],['/admin/social-links','Official social links','↗']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
     {label:'Account',links:[['/admin/profile','My admin profile','◎']]}
