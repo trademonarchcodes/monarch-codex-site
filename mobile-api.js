@@ -1784,12 +1784,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         if(!r.affectedRows)return res.status(404).json({error:'governance_item_not_found'});
       } else if(fields.has('decision_text')&&fields.has('decided_by')&&fields.has('decided_at')){
         const [statusRows]=await pool.query("SHOW COLUMNS FROM sovereign_governance_items LIKE 'status'");
-        const enumMatch=String(statusRows[0]?.Type||'').match(/^enum\\((.*)\\)$/i);
-        const supported=enumMatch?Array.from(enumMatch[1].matchAll(/'((?:[^'\\\\]|\\\\.)*)'/g),m=>m[1]):[];
+        const statusType=String(statusRows[0]?.Type||'');
+        const supports=status=>statusType.includes("'"+status+"'");
         let status=requestedStatus;
-        if(status==='under_review'&&!supported.includes(status)&&supported.includes('in_review'))status='in_review';
-        if(status==='closed'&&!supported.includes(status)&&supported.includes('rejected'))status='rejected';
-        if(supported.length&&!supported.includes(status))return res.status(400).json({error:'unsupported_governance_status',message:'This database does not support the requested status.'});
+        if(status==='under_review'&&!supports(status)&&supports('in_review'))status='in_review';
+        if(status==='closed'&&!supports(status)&&supports('rejected'))status='rejected';
+        if(statusType.toLowerCase().startsWith('enum(')&&!supports(status))return res.status(400).json({error:'unsupported_governance_status',message:'This database does not support the requested status.'});
         const [r]=await pool.execute('UPDATE sovereign_governance_items SET status=?,decision_text=?,decided_by=?,decided_at=CURRENT_TIMESTAMP WHERE id=?',[status,note||null,req.session.memberId,id]);
         if(!r.affectedRows)return res.status(404).json({error:'governance_item_not_found'});
       } else {
