@@ -50,3 +50,7 @@ The KYC submission route is implemented, but it remains unavailable until the fo
 - Restrict server and database backups, set a documented retention/deletion policy, publish a reviewed privacy notice, and confirm applicable privacy/legal requirements before production KYC collection.
 
 Uploaded files are encrypted at rest with AES-256-GCM. The admin queue currently exposes submission metadata and status review only; a separately authenticated, audited document-view/download workflow and deletion/retention tooling must be completed before staff can inspect submitted images. Do not treat the KYC system as production-ready until those controls and live tests are complete.
+
+## Android in-app updates
+
+The Android APK is published from the private `trademonarchcodes/monarch-codex-android` repository. The public mobile API exposes a version manifest and streams the APK/checksum without exposing the GitHub credential. Configure the Hostinger environment variable `MONARCH_ANDROID_RELEASE_TOKEN` with a GitHub fine-grained token scoped to the Android repository and **Contents: read-only** (plus repository metadata read). Never put this token in source code or in the Android app. Until the variable is configured, the update endpoint returns a clear service-unavailable response and existing sign-in/dashboard functions continue to work.
