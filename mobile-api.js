@@ -1742,6 +1742,31 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try { const [items]=await pool.execute('SELECT id,title,summary,event_label,starts_at,ends_at,status FROM monarch_site_events ORDER BY starts_at DESC,id DESC LIMIT 100');res.json({items}); }
     catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
+  desk.post('/events', async (req,res,next) => {
+    const title=deskClean(req.body.title,180),summary=deskClean(req.body.summary,1200),label=deskClean(req.body.event_label,100)||'MONARCH CODEX EVENT';
+    const starts=deskClean(req.body.starts_at,30).replace('T',' '),ends=deskClean(req.body.ends_at,30).replace('T',' ');
+    if(!title||!summary||!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$/.test(starts)||!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$/.test(ends)||new Date(ends.replace(' ','T')).getTime()<=new Date(starts.replace(' ','T')).getTime())return res.status(400).json({error:'invalid_event',message:'Enter valid event details and an end time after the start.'});
+    try { const [r]=await pool.execute("INSERT INTO monarch_site_events (title,summary,event_label,starts_at,ends_at,status,created_by,updated_by) VALUES (?,?,?,?,?,'published',?,?)",[title,summary,label,starts,ends,req.session.memberId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/events/:id/status', async (req,res,next) => {
+    const id=String(req.params.id),status=deskClean(req.body.status,12);
+    if(!deskId(id)||!['published','draft','archived'].includes(status))return res.status(400).json({error:'invalid_event_status'});
+    try { const [r]=await pool.execute('UPDATE monarch_site_events SET status=?,updated_by=? WHERE id=?',[status,req.session.memberId,id]);if(!r.affectedRows)return res.status(404).json({error:'event_not_found'});res.json({ok:true}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/governance', async (req,res,next) => {
+    const type=deskClean(req.body.item_type||'concern',20),subject=deskClean(req.body.subject,180),details=deskClean(req.body.details,5000),targetRaw=deskClean(req.body.target_member_id,20),targetId=targetRaw&&deskId(targetRaw)?targetRaw:null;
+    if(!['concern','access_review'].includes(type)||!subject||!details||(targetRaw&&!targetId)||(type==='access_review'&&!targetId))return res.status(400).json({error:'invalid_governance_item',message:'Complete the required governance details.'});
+    try { if(targetId){const [[m]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[targetId]);if(!m)return res.status(404).json({error:'member_not_found'});}const [r]=await pool.execute("INSERT INTO sovereign_governance_items (item_type,subject,details,target_member_id,submitted_by,status) VALUES (?,?,?,?,?,'open')",[type,subject,details,targetId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
+  desk.post('/governance/:id/status', async (req,res,next) => {
+    const id=String(req.params.id),status=deskClean(req.body.status,20),note=deskClean(req.body.resolution_note,2000);
+    if(!deskId(id)||!['open','under_review','resolved','closed'].includes(status))return res.status(400).json({error:'invalid_governance_status'});
+    try { const [r]=await pool.execute('UPDATE sovereign_governance_items SET status=?,resolution_note=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?',[status,note||null,req.session.memberId,id]);if(!r.affectedRows)return res.status(404).json({error:'governance_item_not_found'});res.json({ok:true}); }
+    catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+  });
   desk.get('/watchlist', async (req,res,next) => {
     try { const [items]=await pool.execute("SELECT id,instrument,direction,outcome,trade_date,notes,updated_at FROM sovereign_weekly_trades ORDER BY trade_date DESC,id DESC LIMIT 100");res.json({items}); }
     catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
