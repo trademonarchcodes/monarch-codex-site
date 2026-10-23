@@ -914,20 +914,26 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       // Detect the actual schema so the list remains usable while optional controls default safely.
       const [columnRows]=await pool.query('SHOW COLUMNS FROM members');
       const columns=new Set(columnRows.map(c=>String(c.Field)));
-      const requiredColumns=['id','full_name','username','email','created_at'];
+      const requiredColumns=['id','username','email'];
       const missing=requiredColumns.filter(c=>!columns.has(c));
       if(missing.length) return res.status(503).json({error:'member_management_schema_required',message:'Member listing cannot run because required members columns are missing: '+missing.join(', ')+'.'});
+      // Older production schemas may not have optional profile and timestamp fields.
+      // Use only columns confirmed above so the admin screen can still load safely.
       const uidExpr=columns.has('monarch_uid')?'m.monarch_uid':'NULL';
+      const fullNameExpr=columns.has('full_name')?'m.full_name':'m.username';
       const phoneExpr=columns.has('phone')?'m.phone':'NULL';
+      const createdExpr=columns.has('created_at')?'m.created_at':'NULL';
       const verifiedExpr=columns.has('email_verified_at')?'m.email_verified_at':'NULL';
       const blockedExpr=columns.has('is_blocked')?'COALESCE(m.is_blocked,0)':'0';
-      const searchFields=['m.full_name','m.username','m.email'];
+      const searchFields=[];
+      if(columns.has('full_name')) searchFields.push('m.full_name');
+      searchFields.push('m.username','m.email');
       if(columns.has('monarch_uid')) searchFields.push('m.monarch_uid');
       const searchClause=searchFields.map(field=>field+' LIKE ?').join(' OR ');
       const params=[q,...searchFields.map(()=>q+'%')];
       const [rows]=await pool.execute(
-        'SELECT m.id,'+uidExpr+' AS uid,m.full_name AS fullName,m.username,m.email,'+phoneExpr+' AS phone,m.created_at AS createdAt,'+verifiedExpr+' AS emailVerifiedAt,'+blockedExpr+' AS isBlocked FROM members m WHERE (? = \'\' OR '+searchClause+') ORDER BY m.id DESC LIMIT 200',
-        [q,...params.slice(1)]
+        'SELECT m.id,'+uidExpr+' AS uid,'+fullNameExpr+' AS fullName,m.username,m.email,'+phoneExpr+' AS phone,'+createdExpr+' AS createdAt,'+verifiedExpr+' AS emailVerifiedAt,'+blockedExpr+' AS isBlocked FROM members m WHERE (? = \'\' OR '+searchClause+') ORDER BY m.id DESC LIMIT 200',
+        params
       );
       return res.json({items:rows});
     } catch(e) { return next(e); }
