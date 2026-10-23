@@ -1590,7 +1590,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   const desk = express.Router();
   desk.use(noStore, apiAuth, sovereignAdminApi);
   const deskClean = (v,max) => String(v == null ? '' : v).trim().slice(0,max);
-  const deskId = v => /^\\d{1,20}$/.test(String(v || ''));
+  const deskId = v => /^\d{1,20}$/.test(String(v || ''));
   const deskFail = (res,e) => {
     if (e && ['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR','ER_NO_SUCH_COLUMN'].includes(e.code)) {
       return res.status(503).json({error:'sovereign_setup_required',message:'The Sovereign Desk database schema is incomplete. No change was made.'});
@@ -1745,7 +1745,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   desk.post('/events', async (req,res,next) => {
     const title=deskClean(req.body.title,180),summary=deskClean(req.body.summary,1200),label=deskClean(req.body.event_label,100)||'MONARCH CODEX EVENT';
     const starts=deskClean(req.body.starts_at,30).replace('T',' '),ends=deskClean(req.body.ends_at,30).replace('T',' ');
-    if(!title||!summary||!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$/.test(starts)||!/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$/.test(ends)||new Date(ends.replace(' ','T')).getTime()<=new Date(starts.replace(' ','T')).getTime())return res.status(400).json({error:'invalid_event',message:'Enter valid event details and an end time after the start.'});
+    if(!title||!summary||!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(starts)||!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(ends)||new Date(ends.replace(' ','T')).getTime()<=new Date(starts.replace(' ','T')).getTime())return res.status(400).json({error:'invalid_event',message:'Enter valid event details and an end time after the start.'});
     try { const [r]=await pool.execute("INSERT INTO monarch_site_events (title,summary,event_label,starts_at,ends_at,status,created_by,updated_by) VALUES (?,?,?,?,?,'published',?,?)",[title,summary,label,starts,ends,req.session.memberId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
     catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
@@ -1773,7 +1773,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   });
   desk.post('/watchlist', async (req,res,next) => {
     const instrument=deskClean(req.body.instrument,80),direction=deskClean(req.body.direction,10),outcome=deskClean(req.body.outcome,12),date=deskClean(req.body.trade_date,10),notes=deskClean(req.body.notes,1000);
-    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return res.status(400).json({error:'invalid_trade',message:'Enter instrument, direction, result and trade date.'});
+    if(!instrument||!['buy','sell'].includes(direction)||!['profit','loss','breakeven'].includes(outcome)||!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).json({error:'invalid_trade',message:'Enter instrument, direction, result and trade date.'});
     try { const [r]=await pool.execute('INSERT INTO sovereign_weekly_trades (instrument,direction,outcome,trade_date,notes,created_by,updated_by) VALUES (?,?,?,?,?,?,?)',[instrument,direction,outcome,date,notes||null,req.session.memberId,req.session.memberId]);res.status(201).json({ok:true,id:r.insertId}); }
     catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
