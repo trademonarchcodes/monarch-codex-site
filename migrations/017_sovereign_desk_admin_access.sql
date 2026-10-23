@@ -16,7 +16,7 @@ ON DUPLICATE KEY UPDATE role = 'main_admin', is_active = 1;
 INSERT INTO admin_users (member_id, role, is_active)
 SELECT id, 'sovereign_desk_admin', 1
 FROM members
-WHERE LOWER(TRIM(email)) = LOWER('handsomeprovidence38@gmail.com')
+WHERE LOWER(TRIM(email)) = LOWER('hananny.provy@gmail.com')
 LIMIT 1
 ON DUPLICATE KEY UPDATE role = 'sovereign_desk_admin', is_active = 1;
 
@@ -27,5 +27,5 @@ COMMIT;
 -- FROM members m JOIN admin_users au ON au.member_id = m.id
 -- WHERE LOWER(TRIM(m.email)) IN (
 --   LOWER('trademonarchofficial@gmail.com'),
---   LOWER('handsomeprovidence38@gmail.com')
+--   LOWER('hananny.provy@gmail.com')
 -- );
