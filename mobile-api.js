@@ -590,6 +590,18 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       next(error);
     }
   });
+  router.get('/wallet/recipient/:uid', noStore, apiAuth, async (req, res, next) => {
+    try {
+      const uid = String(req.params.uid || '').trim().toUpperCase();
+      if (!/^MONARCH\\d{6}$/.test(uid)) return res.status(400).json({ error: 'invalid_uid', message: 'Enter a valid Monarch UID.' });
+      const [[recipient]] = await pool.execute('SELECT monarch_uid,full_name,is_blocked FROM members WHERE monarch_uid=? LIMIT 1', [uid]);
+      if (!recipient || Number(recipient.is_blocked) === 1) return res.status(404).json({ error: 'recipient_unavailable', message: 'No eligible member was found for that UID.' });
+      const current = await memberById(req.session.memberId);
+      if (current && String(uid) === String(current.uid || '').toUpperCase()) return res.status(400).json({ error: 'self_transfer', message: 'That is your own UID.' });
+      return res.set('Cache-Control','no-store').json({ uid: recipient.monarch_uid, name: recipient.full_name });
+    } catch (error) { next(error); }
+  });
+
   router.post('/wallet/transfer', noStore, apiAuth, async (req, res, next) => {
     const contentType = String(req.get('content-type') || '').toLowerCase();
     if (!contentType.includes('application/json')) return res.status(415).json({ error: 'json_required', message: 'Send the transfer request as JSON.' });
