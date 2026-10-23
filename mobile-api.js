@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
+const { Readable } = require('node:stream');
 
 function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, depositProofUpload, decryptProfileValue, loginLimiter: sharedLoginLimiter, registrationLimiter: sharedRegistrationLimiter }) {
   const router = express.Router();
@@ -63,6 +64,103 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   };
 
   router.get('/health', noStore, (_req, res) => res.json({ ok: true, service: 'monarch-codex-mobile-api', version: 1 }));
+
+  // Public Android update manifest and asset proxy. The private GitHub release token stays on the server.
+  const loadAndroidRelease = async () => {
+    const token = process.env.MONARCH_ANDROID_RELEASE_TOKEN || process.env.GITHUB_RELEASE_TOKEN;
+    if (!token) {
+      const error = new Error('The Android update service has not been configured by the site administrator.');
+      error.statusCode = 503;
+      throw error;
+    }
+    const response = await fetch('https://api.github.com/repos/trademonarchcodes/monarch-codex-android/releases/tags/latest-apk', {
+      headers: {
+        Authorization: 'Bearer ' + token,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'Monarch-Codex-App-Updater'
+      },
+      signal: AbortSignal.timeout(12000)
+    });
+    if (!response.ok) {
+      const error = new Error('The official Android release could not be reached.');
+      error.statusCode = response.status === 404 ? 503 : 502;
+      throw error;
+    }
+    const release = await response.json();
+    const body = String(release.body || '');
+    const match = body.match(/Version:\s*([0-9]+\.[0-9]+\.[0-9]+\+[0-9]+)/i);
+    const assets = Array.isArray(release.assets) ? release.assets : [];
+    const apk = assets.find(asset => asset.name === 'app-release.apk');
+    const checksum = assets.find(asset => asset.name === 'app-release.apk.sha256');
+    if (!match || !apk || !checksum) {
+      const error = new Error('The latest Android release is missing its version, APK, or checksum.');
+      error.statusCode = 503;
+      throw error;
+    }
+    return { token, release, version: match[1], body, apk, checksum };
+  };
+
+  router.get('/app-update/latest', noStore, async (_req, res) => {
+    try {
+      const { release, version, body } = await loadAndroidRelease();
+      const mandatory = /Mandatory:\s*(true|yes|1)/i.test(body);
+      return res.set('Cache-Control', 'no-store').json({
+        version,
+        mandatory,
+        releaseNotes: body
+          .replace(/Version:\s*[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+/i, '')
+          .replace(/Mandatory:\s*(true|yes|1)/i, '')
+          .trim(),
+        apkUrl: new URL('/api/mobile/app-update/apk', appBaseUrl).toString(),
+        checksumUrl: new URL('/api/mobile/app-update/checksum', appBaseUrl).toString(),
+        publishedAt: release.published_at || null
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 502).json({
+        error: 'android_update_unavailable',
+        message: error.statusCode === 503
+          ? error.message
+          : 'The official Android update service is temporarily unavailable. Please try again later.'
+      });
+    }
+  });
+
+  const streamAndroidReleaseAsset = async (assetName, res) => {
+    const { token, apk, checksum } = await loadAndroidRelease();
+    const asset = assetName === 'app-release.apk' ? apk : checksum;
+    const response = await fetch(asset.url, {
+      headers: {
+        Authorization: 'Bearer ' + token,
+        Accept: 'application/octet-stream',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'Monarch-Codex-App-Updater'
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(90000)
+    });
+    if (!response.ok || !response.body) {
+      const error = new Error('The official update file could not be downloaded.');
+      error.statusCode = 502;
+      throw error;
+    }
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Content-Disposition', 'attachment; filename="' + assetName + '"');
+    res.set('Content-Type', assetName.endsWith('.sha256') ? 'text/plain; charset=utf-8' : 'application/vnd.android.package-archive');
+    if (asset.size) res.set('Content-Length', String(asset.size));
+    Readable.fromWeb(response.body).pipe(res);
+  };
+
+  router.get('/app-update/apk', noStore, async (_req, res) => {
+    try { await streamAndroidReleaseAsset('app-release.apk', res); }
+    catch (error) { if (!res.headersSent) res.status(error.statusCode || 502).json({ error: 'android_apk_download_failed', message: 'The official APK could not be downloaded. Please try again later.' }); }
+  });
+
+  router.get('/app-update/checksum', noStore, async (_req, res) => {
+    try { await streamAndroidReleaseAsset('app-release.apk.sha256', res); }
+    catch (error) { if (!res.headersSent) res.status(error.statusCode || 502).json({ error: 'android_checksum_download_failed', message: 'The APK verification file could not be downloaded. Please try again later.' }); }
+  });
 
   router.post('/auth/login', apiLoginLimiter, noStore, async (req, res, next) => {
     try {
