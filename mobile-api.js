@@ -929,10 +929,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(columns.has('full_name')) searchFields.push('m.full_name');
       searchFields.push('m.username','m.email');
       if(columns.has('monarch_uid')) searchFields.push('m.monarch_uid');
+      // Build the filter only when a search term exists. This avoids an unnecessary
+      // empty-string placeholder and supports partial matches across all available fields.
       const searchClause=searchFields.map(field=>field+' LIKE ?').join(' OR ');
-      const params=[q,...searchFields.map(()=>q+'%')];
+      const whereClause=q?' WHERE ('+searchClause+')':'';
+      const params=q?searchFields.map(()=>'%'+q+'%'):[];
       const [rows]=await pool.execute(
-        'SELECT m.id,'+uidExpr+' AS uid,'+fullNameExpr+' AS fullName,m.username,m.email,'+phoneExpr+' AS phone,'+createdExpr+' AS createdAt,'+verifiedExpr+' AS emailVerifiedAt,'+blockedExpr+' AS isBlocked FROM members m WHERE (? = \'\' OR '+searchClause+') ORDER BY m.id DESC LIMIT 200',
+        'SELECT m.id,'+uidExpr+' AS uid,'+fullNameExpr+' AS fullName,m.username,m.email,'+phoneExpr+' AS phone,'+createdExpr+' AS createdAt,'+verifiedExpr+' AS emailVerifiedAt,'+blockedExpr+' AS isBlocked FROM members m'+whereClause+' ORDER BY m.id DESC LIMIT 200',
         params
       );
       return res.json({items:rows});
