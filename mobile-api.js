@@ -317,18 +317,20 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         pool.execute('SELECT status FROM kyc_submissions WHERE member_id=? ORDER BY submitted_at DESC,id DESC LIMIT 1', [member.id])
       ]);
       const walletRows = walletResult[0], fxRows = fxResult[0], referralRows = referralResult[0], notificationRows = notificationResult[0], kycRows = kycResult[0];
-      let ngn = 0, usd = 0;
+      let actualNgn = 0, actualUsd = 0;
       for (const row of walletRows) {
-        if (row.currency === 'NGN') ngn = Number(row.balance) || 0;
-        if (row.currency === 'USD') usd = Number(row.balance) || 0;
+        if (row.currency === 'NGN') actualNgn = Number(row.balance) || 0;
+        if (row.currency === 'USD') actualUsd = Number(row.balance) || 0;
       }
       const fx = fxRows[0];
       const rate = fx && Number(fx.base_usd_ngn_rate) > 0 ? Number(fx.base_usd_ngn_rate) * (1 + Number(fx.markup_percent || 0) / 100) : null;
+      const ngn = actualNgn + (rate ? actualUsd * rate : 0);
+      const usd = actualUsd + (rate ? actualNgn / rate : 0);
       const kycRaw = kycRows[0] ? String(kycRows[0].status || 'pending') : 'not_submitted';
       const kycLabels = { pending: 'pending', approved: 'approved', rejected: 'rejected', needs_resubmission: 'needs_resubmission' };
       res.json({
         member: { ...publicMember(member), ...(await memberAccess(member.id)) },
-        wallet: { ngn, usd, rate },
+        wallet: { ngn, usd, actualNgn, actualUsd, rate },
         kycStatus: kycLabels[kycRaw] || 'pending',
         referralCount: Number(referralRows[0] && referralRows[0].total) || 0,
         unreadNotifications: Number(notificationRows[0] && notificationRows[0].total) || 0,
@@ -590,11 +592,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/wallet/balances', noStore, apiAuth, async (req, res, next) => {
     try {
       const [rows] = await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
-      let ngn = 0, usd = 0;
-      for (const row of rows) { if (row.currency === 'NGN') ngn = Number(row.balance) || 0; if (row.currency === 'USD') usd = Number(row.balance) || 0; }
+      let actualNgn = 0, actualUsd = 0;
+      for (const row of rows) { if (row.currency === 'NGN') actualNgn = Number(row.balance) || 0; if (row.currency === 'USD') actualUsd = Number(row.balance) || 0; }
       const [[fx]] = await pool.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
       const rate = fx && Number(fx.base_usd_ngn_rate) > 0 ? Number(fx.base_usd_ngn_rate) * (1 + Number(fx.markup_percent || 0) / 100) : null;
-      return res.json({ ngn, usd, rate });
+      const ngn = actualNgn + (rate ? actualUsd * rate : 0);
+      const usd = actualUsd + (rate ? actualNgn / rate : 0);
+      return res.json({ ngn, usd, actualNgn, actualUsd, rate });
     } catch (error) {
       if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'database_setup_required', message: 'Wallet data is not configured yet.' });
       next(error);
@@ -621,20 +625,20 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     const currency = String(req.body.currency || '').trim().toUpperCase();
     const amountText = String(req.body.amount || '').trim();
     const idempotencyKey = String(req.body.idempotencyKey || '').trim();
-    if (!/^MONARCH\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
-        !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/.test(amountText) ||
+    if (!/^MONARCH\\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
+        !/^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,8})?$/.test(amountText) ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
       return res.status(400).json({ error: 'invalid_transfer', message: 'Enter a valid recipient UID, currency, amount and transfer request key.' });
     }
     const amount = Number(amountText);
-    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'invalid_amount', message: 'Transfer amount must be greater than zero.' });
-    if (amount > 1000000000000) return res.status(400).json({ error: 'amount_limit', message: 'This amount exceeds the supported transfer limit.' });
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000000000) return res.status(400).json({ error: 'invalid_amount', message: 'Enter a valid transfer amount greater than zero.' });
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
       const [[prior]] = await connection.execute('SELECT reference,recipient_member_id,currency,amount FROM member_wallet_transfers WHERE sender_member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE', [req.session.memberId,idempotencyKey]);
       if (prior) {
-        if (Number(prior.recipient_member_id) !== Number((await connection.execute('SELECT id FROM members WHERE monarch_uid=? LIMIT 1',[recipientUid]))[0][0]?.id) || String(prior.currency) !== currency || Math.abs(Number(prior.amount)-amount)>0.00000001) {
+        const [[priorRecipient]] = await connection.execute('SELECT id FROM members WHERE monarch_uid=? LIMIT 1', [recipientUid]);
+        if (Number(prior.recipient_member_id) !== Number(priorRecipient && priorRecipient.id) || String(prior.currency) !== currency || Math.abs(Number(prior.amount)-amount)>0.00000001) {
           await connection.rollback();
           return res.status(409).json({ error: 'idempotency_conflict', message: 'This transfer key was already used for a different request. Refresh and try again.' });
         }
@@ -655,46 +659,70 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await connection.rollback();
         return res.status(403).json({ error: 'recipient_verification_required', message: 'The recipient must complete account verification before receiving wallet transfers.' });
       }
-      await connection.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0)', [req.session.memberId,currency,recipient.id,currency]);
-      const [walletRows] = await connection.execute('SELECT id,member_id,balance FROM member_wallets WHERE member_id IN (?,?) AND currency=? ORDER BY member_id FOR UPDATE', [req.session.memberId,recipient.id,currency]);
-      const wallets = new Map(walletRows.map(row => [Number(row.member_id),row]));
-      const senderWallet = wallets.get(Number(req.session.memberId));
-      const recipientWallet = wallets.get(Number(recipient.id));
-      if (!senderWallet || !recipientWallet) {
+      const [[fx]] = await connection.execute('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+      const rate = fx && Number(fx.base_usd_ngn_rate) > 0 ? Number(fx.base_usd_ngn_rate) * (1 + Number(fx.markup_percent || 0) / 100) : 0;
+      await connection.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0),(?,?,0)', [req.session.memberId,'NGN',req.session.memberId,'USD',recipient.id,currency]);
+      const [walletRows] = await connection.execute('SELECT id,member_id,currency,balance FROM member_wallets WHERE (member_id=? OR member_id=?) AND (currency=? OR currency=?) ORDER BY member_id,currency FOR UPDATE', [req.session.memberId,recipient.id,'NGN','USD']);
+      const senderWallets = new Map(walletRows.filter(row => Number(row.member_id) === Number(req.session.memberId)).map(row => [String(row.currency),row]));
+      const recipientWallet = walletRows.find(row => Number(row.member_id) === Number(recipient.id) && String(row.currency) === currency);
+      if (!senderWallets.has('NGN') || !senderWallets.has('USD') || !recipientWallet) {
         await connection.rollback();
-        return res.status(503).json({ error: 'wallet_unavailable', message: 'One of the wallets is not available. No funds were moved.' });
+        return res.status(503).json({ error: 'wallet_unavailable', message: 'A required wallet is not available. No funds were moved.' });
       }
-      if (Number(senderWallet.balance) + 1e-8 < amount) {
-        await connection.rollback();
-        return res.status(409).json({ error: 'insufficient_balance', message: 'Your ' + currency + ' wallet does not have enough available funds.' });
+      const native = senderWallets.get(currency);
+      const otherCurrency = currency === 'NGN' ? 'USD' : 'NGN';
+      const other = senderWallets.get(otherCurrency);
+      const nativeBalance = Math.max(0, Number(native.balance) || 0);
+      const nativeDebit = Math.min(nativeBalance, amount);
+      const shortage = Math.max(0, amount - nativeDebit);
+      let otherDebit = 0;
+      if (shortage > 0) {
+        if (!(rate > 0)) {
+          await connection.rollback();
+          return res.status(503).json({ error: 'fx_rate_unavailable', message: 'Currency conversion is temporarily unavailable. No funds were moved.' });
+        }
+        const rawOther = currency === 'NGN' ? shortage / rate : shortage * rate;
+        otherDebit = Math.ceil((rawOther - 1e-10) * 1e8) / 1e8;
       }
-      const [debit] = await connection.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?', [amount,senderWallet.id,amount]);
-      if (debit.affectedRows !== 1) {
+      if (otherDebit > (Number(other.balance) || 0) + 1e-8) {
         await connection.rollback();
-        return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance changed. Refresh and try again.' });
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for this transfer at the current conversion rate.' });
+      }
+      const debits = [];
+      for (const [wallet, debitAmount] of [[native,nativeDebit],[other,otherDebit]]) {
+        if (debitAmount <= 0) continue;
+        const [debit] = await connection.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?', [debitAmount,wallet.id,debitAmount]);
+        if (debit.affectedRows !== 1) {
+          await connection.rollback();
+          return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance changed. Refresh and try again.' });
+        }
+        const [tx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [req.session.memberId,'wallet_transfer_sent',wallet.currency,-debitAmount,'MCT-'+crypto.randomUUID().replace(/-/g,'').toUpperCase()+'-S']);
+        debits.push({ wallet, amount: debitAmount, transactionId: tx.insertId });
       }
       await connection.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?', [amount,recipientWallet.id]);
       const reference = 'MCT-' + crypto.randomUUID().replace(/-/g,'').toUpperCase();
-      const [senderTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [req.session.memberId,'wallet_transfer_sent',currency,-amount,reference+'-S']);
       const [recipientTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [recipient.id,'wallet_transfer_received',currency,amount,reference+'-R']);
-      await connection.execute('INSERT INTO member_wallet_transfers (sender_member_id,recipient_member_id,currency,amount,reference,idempotency_key,sender_transaction_id,recipient_transaction_id) VALUES (?,?,?,?,?,?,?,?)', [req.session.memberId,recipient.id,currency,amount,reference,idempotencyKey,senderTx.insertId,recipientTx.insertId]);
+      const [transfer] = await connection.execute('INSERT INTO member_wallet_transfers (sender_member_id,recipient_member_id,currency,amount,reference,idempotency_key,sender_transaction_id,recipient_transaction_id) VALUES (?,?,?,?,?,?,?,?)', [req.session.memberId,recipient.id,currency,amount,reference,idempotencyKey,debits[0].transactionId,recipientTx.insertId]);
+      for (const debit of debits) {
+        await connection.execute('INSERT INTO member_wallet_transfer_debits (transfer_id,sender_transaction_id,source_currency,source_amount,target_currency,target_amount,rate_used) VALUES (?,?,?,?,?,?,?)', [transfer.insertId,debit.transactionId,debit.wallet.currency,debit.amount,currency,debit.wallet.currency===currency?debit.amount:(currency==='NGN'?debit.amount*rate:debit.amount/rate),rate || null]);
+      }
       try {
         await connection.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?),(?,?,?,?,?,?)', [
-          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+amount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+').','/transactions','wallet-transfer-sent:'+reference,
+          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+amount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+'). The debit may use both wallets at the configured conversion rate.','/transactions','wallet-transfer-sent:'+reference,
           recipient.id,'wallet_transfer','Wallet transfer received','You received '+currency+' '+amount.toFixed(2)+' from a Monarch Codex member.','/transactions','wallet-transfer-received:'+reference
         ]);
       } catch (notificationError) { if (notificationError.code !== 'ER_NO_SUCH_TABLE') throw notificationError; }
-      const [[balance]] = await connection.execute('SELECT balance FROM member_wallets WHERE id=? LIMIT 1', [senderWallet.id]);
+      const [remainingRows] = await connection.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
+      const remaining = Object.fromEntries(remainingRows.map(row => [String(row.currency), Number(row.balance) || 0]));
       await connection.commit();
-      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), balance: String(balance.balance), message: 'Transfer completed successfully.' });
+      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), balances: remaining, rate: rate || null, message: 'Transfer completed successfully.' });
     } catch (error) {
       try { await connection.rollback(); } catch (_) {}
-      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'transfer_setup_required', message: 'Member transfers are not configured yet. Apply migrations/024_member_wallet_transfers.sql after migrations 006, 011 and 016.' });
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'transfer_setup_required', message: 'Member transfers are not configured yet. Apply migrations/024_member_wallet_transfers.sql and migrations/025_combined_wallet_transfers.sql after the existing wallet migrations.' });
       if (error && error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'duplicate_transfer', message: 'This transfer request has already been processed. Refresh your transaction history.' });
       return next(error);
     } finally { connection.release(); }
   });
-
 
 
   // Native transaction APIs reuse the same database ledger and review queues as the website.
