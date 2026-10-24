@@ -1585,6 +1585,7 @@ app.post('/academy/access/purchase', requireAuth, csrfCheck, async (req,res,next
   const conn=await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.execute('SELECT id FROM members WHERE id=? LIMIT 1 FOR UPDATE',[req.session.memberId]);
     const [[access]]=await conn.execute("SELECT id,status,access_source FROM academy_access WHERE member_id=? LIMIT 1 FOR UPDATE",[req.session.memberId]);
     if(access && access.status==='approved'){await conn.rollback();return res.redirect('/academy?access=active');}
     await academyCharge(conn,Number(req.session.memberId),10,'academy_access_purchase',null,'ACCESS-'+crypto.randomUUID());
