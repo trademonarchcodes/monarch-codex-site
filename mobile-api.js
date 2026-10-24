@@ -726,6 +726,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         const [tx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [req.session.memberId,'wallet_transfer_sent',wallet.currency,-debitAmount,'MCT-'+crypto.randomUUID().replace(/-/g,'').toUpperCase()+'-S']);
         debits.push({ wallet, amount: debitAmount, transactionId: tx.insertId });
       }
+      // A positive transfer must have at least one persisted source debit.
+      // Abort before crediting the recipient if wallet selection ever produces none.
+      if (!debits.length) {
+        await connection.rollback();
+        return res.status(409).json({ error: 'transfer_debit_missing', message: 'No wallet debit was created, so the transfer was cancelled. No funds were moved.' });
+      }
       await connection.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?', [amount,recipientWallet.id]);
       const reference = 'MCT-' + crypto.randomUUID().replace(/-/g,'').toUpperCase();
       const [recipientTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [recipient.id,'wallet_transfer_received',currency,amount,reference+'-R']);
