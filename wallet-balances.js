@@ -6,13 +6,15 @@
   var note = document.getElementById('balanceConversionNote');
   if (!selector || !total) return;
 
-  var state = { ngn: 0, usd: 0, rate: null };
+  // Display only the real balance of the selected currency wallet.
+  // Do not add the other currency's converted value to this amount.
+  var state = { actualNgn: null, actualUsd: null, loaded: false };
 
   function format(amount, currency) {
     return new Intl.NumberFormat(currency === 'NGN' ? 'en-NG' : 'en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(Number(amount) || 0);
+    }).format(amount);
   }
 
   var currencyButtons = Array.prototype.slice.call(
@@ -28,31 +30,26 @@
   }
 
   function render() {
-    var rate = Number(state.rate);
-    var hasRate = Number.isFinite(rate) && rate > 0;
-
-    if (hasRate) {
-      // Treat the NGN and USD wallet amounts as one combined value,
-      // expressed in whichever display currency the member selects.
-      var totalNgn = state.ngn + (state.usd * rate);
-      var totalUsd = totalNgn / rate;
-
-      if (selector.value === 'USD') {
-        total.textContent = '$' + format(totalUsd, 'USD');
-      } else {
-        total.textContent = '₦' + format(totalNgn, 'NGN');
-      }
-
-      if (note) {
-        note.textContent = 'Your total wallet value, shown in the selected currency. Switching currencies changes the display only.';
-      }
+    if (!state.loaded) {
+      total.textContent = '—';
+      if (note) note.textContent = 'Loading your wallet balance…';
       return;
     }
 
-    // Do not silently show an incomplete conversion when the FX rate is unavailable.
-    total.textContent = '—';
+    var currency = selector.value === 'USD' ? 'USD' : 'NGN';
+    var amount = currency === 'USD' ? state.actualUsd : state.actualNgn;
+
+    if (amount === null || !Number.isFinite(amount) || amount < 0) {
+      total.textContent = '—';
+      if (note) note.textContent = 'The selected wallet balance is unavailable. Please refresh or contact support.';
+      return;
+    }
+
+    total.textContent = (currency === 'USD' ? '$' : '₦') + format(amount, currency);
     if (note) {
-      note.textContent = 'Your wallet value will appear when the exchange rate is available.';
+      note.textContent = currency === 'USD'
+        ? 'Showing your actual USD wallet balance. Your NGN wallet is separate.'
+        : 'Showing your actual NGN wallet balance. Your USD wallet is separate.';
     }
   }
 
@@ -70,6 +67,7 @@
   });
 
   syncCurrencyToggle();
+  render();
 
   fetch('/api/wallet-balances', {
     credentials: 'same-origin',
@@ -80,13 +78,18 @@
       return response.json();
     })
     .then(function (data) {
-      state.ngn = Number(data.ngn) || 0;
-      state.usd = Number(data.usd) || 0;
-      state.rate = Number(data.rate) > 0 ? Number(data.rate) : null;
+      // The API supplies actualNgn/actualUsd alongside any combined equivalents.
+      // Refuse to substitute combined values if actual balances are missing.
+      state.actualNgn = data.actualNgn === null || data.actualNgn === undefined || data.actualNgn === ''
+        ? null : Number(data.actualNgn);
+      state.actualUsd = data.actualUsd === null || data.actualUsd === undefined || data.actualUsd === ''
+        ? null : Number(data.actualUsd);
+      state.loaded = true;
       render();
     })
     .catch(function () {
+      state.loaded = false;
       total.textContent = '—';
-      if (note) note.textContent = 'Wallet value is temporarily unavailable. Please refresh and try again.';
+      if (note) note.textContent = 'Wallet balance is temporarily unavailable. Please refresh and try again.';
     });
 })();
