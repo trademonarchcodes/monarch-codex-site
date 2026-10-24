@@ -6,9 +6,9 @@
   var note = document.getElementById('balanceConversionNote');
   if (!selector || !total) return;
 
-  // Display only the real balance of the selected currency wallet.
-  // Do not add the other currency's converted value to this amount.
-  var state = { actualNgn: null, actualUsd: null, loaded: false };
+  // NGN and USD are two converted views of the same combined wallet value.
+  // The API also supplies actualNgn/actualUsd for audit and account detail views.
+  var state = { ngn: null, usd: null, loaded: false };
 
   function format(amount, currency) {
     return new Intl.NumberFormat(currency === 'NGN' ? 'en-NG' : 'en-US', {
@@ -37,7 +37,7 @@
     }
 
     var currency = selector.value === 'USD' ? 'USD' : 'NGN';
-    var amount = currency === 'USD' ? state.actualUsd : state.actualNgn;
+    var amount = currency === 'USD' ? state.usd : state.ngn;
 
     if (amount === null || !Number.isFinite(amount) || amount < 0) {
       total.textContent = '—';
@@ -48,8 +48,8 @@
     total.textContent = (currency === 'USD' ? '$' : '₦') + format(amount, currency);
     if (note) {
       note.textContent = currency === 'USD'
-        ? 'Showing your actual USD wallet balance. Your NGN wallet is separate.'
-        : 'Showing your actual NGN wallet balance. Your USD wallet is separate.';
+        ? 'Showing the combined wallet value converted to USD. This is not an additional balance.'
+        : 'Showing the combined wallet value converted to NGN. This is not an additional balance.';
     }
   }
 
@@ -78,12 +78,12 @@
       return response.json();
     })
     .then(function (data) {
-      // The API supplies actualNgn/actualUsd alongside any combined equivalents.
-      // Refuse to substitute combined values if actual balances are missing.
-      state.actualNgn = data.actualNgn === null || data.actualNgn === undefined || data.actualNgn === ''
-        ? null : Number(data.actualNgn);
-      state.actualUsd = data.actualUsd === null || data.actualUsd === undefined || data.actualUsd === ''
-        ? null : Number(data.actualUsd);
+      // Display the combined equivalent in the selected currency.
+      // Never show zero as a valid balance if wallet setup is unavailable.
+      state.ngn = data.configured === false || data.ngn === null || data.ngn === undefined || data.ngn === ''
+        ? null : Number(data.ngn);
+      state.usd = data.configured === false || data.usd === null || data.usd === undefined || data.usd === ''
+        ? null : Number(data.usd);
       state.loaded = true;
       render();
     })
