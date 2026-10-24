@@ -80,8 +80,10 @@
       return response.json();
     })
     .then(function (data) {
-      state.ngn = Number(data.ngn) || 0;
-      state.usd = Number(data.usd) || 0;
+      // The API's ngn/usd fields are already combined equivalents. Use actual stored
+      // currency balances here so render() combines each wallet exactly once.
+      state.ngn = Number(data.actualNgn !== undefined ? data.actualNgn : data.ngn) || 0;
+      state.usd = Number(data.actualUsd !== undefined ? data.actualUsd : data.usd) || 0;
       state.rate = Number(data.rate) > 0 ? Number(data.rate) : null;
       render();
     })
