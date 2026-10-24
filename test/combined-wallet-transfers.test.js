@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const api = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
+const balanceUi = fs.readFileSync(path.join(__dirname, '..', 'wallet-balances.js'), 'utf8');
 const transferMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '025_combined_wallet_transfers.sql'), 'utf8');
 const withdrawalMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '026_combined_withdrawal_reservations.sql'), 'utf8');
 
@@ -11,6 +12,11 @@ test('wallet balance responses distinguish combined equivalents from actual stor
   assert.match(api, /const ngn = actualNgn \+ \(rate \? actualUsd \* rate : 0\)/);
   assert.match(api, /const usd = actualUsd \+ \(rate \? actualNgn \/ rate : 0\)/);
   assert.match(api, /actualNgn, actualUsd, rate/);
+});
+
+test('website total balance combines actual stored wallet balances exactly once', () => {
+  assert.match(balanceUi, /data\.actualNgn !== undefined \? data\.actualNgn : data\.ngn/);
+  assert.match(balanceUi, /data\.actualUsd !== undefined \? data\.actualUsd : data\.usd/);
 });
 
 test('idempotent transfer retries return wallet balances and never create an empty debit ledger', () => {
