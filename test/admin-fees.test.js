@@ -34,3 +34,9 @@ test('admin fees are idempotently credited to the active Super Admin wallet with
   assert.match(migration, /uq_admin_fee_source_type/);
   assert.match(migration, /admin_fee_revenue/);
 });
+
+test('fee migration preserves Academy transaction types when both migrations are deployed', () => {
+  for (const type of ['admin_fee_revenue', 'academy_access_purchase', 'academy_replay_fee']) {
+    assert.ok(migration.includes("'" + type + "'"), 'missing transaction type: ' + type);
+  }
+});
