@@ -1493,6 +1493,120 @@ app.post('/admin/academy/lessons/:id/status', requireAdmin, express.urlencoded({
     res.redirect('/admin/academy');
   } catch(e) { if(e.code === 'ER_NO_SUCH_TABLE') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
 });
+
+function academyMoney(value) { return Number(value || 0).toFixed(8); }
+async function academyCharge(conn, memberId, feeUsd, type, lessonId, idempotencyKey) {
+  const [[prior]] = await conn.execute('SELECT id FROM academy_lesson_replays WHERE member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE',[memberId,idempotencyKey]);
+  if (prior) return { already: true };
+  const [[access]] = await conn.execute("SELECT id,status FROM academy_access WHERE member_id=? LIMIT 1 FOR UPDATE",[memberId]);
+  if (type === 'academy_replay_fee' && access && access.status === 'approved') return { entitled: true };
+  const [[pricing]] = await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+  const rate = Number(pricing && pricing.base_usd_ngn_rate) * (1 + Number(pricing && pricing.markup_percent || 0) / 100);
+  if (!Number.isFinite(rate) || rate <= 0) throw Object.assign(new Error('Academy pricing is unavailable. No funds were deducted.'),{academyStatus:503});
+  const [[usdWallet]] = await conn.execute("SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='USD' LIMIT 1 FOR UPDATE",[memberId]);
+  const [[ngnWallet]] = await conn.execute("SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='NGN' LIMIT 1 FOR UPDATE",[memberId]);
+  const usdBalance = Number(usdWallet && usdWallet.balance || 0);
+  const ngnBalance = Number(ngnWallet && ngnWallet.balance || 0);
+  let currency, wallet, debit, usedRate;
+  if (usdWallet && usdBalance + 1e-8 >= feeUsd) { currency='USD'; wallet=usdWallet; debit=feeUsd; usedRate=1; }
+  else if (ngnWallet && ngnBalance + 1e-8 >= feeUsd * rate) { currency='NGN'; wallet=ngnWallet; debit=Math.round(feeUsd * rate * 100) / 100; usedRate=rate; }
+  else throw Object.assign(new Error('Insufficient combined wallet balance for this Academy fee.'),{academyStatus:409});
+  const [[admin]] = await conn.execute("SELECT member_id FROM admin_users WHERE role='super_admin' AND is_active=1 ORDER BY member_id LIMIT 1 FOR UPDATE");
+  if (!admin) throw Object.assign(new Error('Academy fee collection is not configured. No funds were deducted.'),{academyStatus:503});
+  const [[adminWallet]] = await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[admin.member_id,currency]);
+  if (!adminWallet) await conn.execute('INSERT INTO member_wallets (member_id,currency,balance) VALUES (?,?,0) ON DUPLICATE KEY UPDATE member_id=VALUES(member_id)',[admin.member_id,currency]);
+  const [[lockedAdminWallet]] = await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[admin.member_id,currency]);
+  const [debitResult] = await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',[debit,wallet.id,debit]);
+  if (debitResult.affectedRows !== 1) throw Object.assign(new Error('Insufficient wallet balance. No funds were deducted.'),{academyStatus:409});
+  await conn.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?',[debit,lockedAdminWallet.id]);
+  const reference = 'ACAD-' + crypto.randomUUID().replace(/-/g,'').toUpperCase();
+  const [memberTx] = await conn.execute('INSERT INTO financial_transactions (member_id,admin_member_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,?,?, ?,?,?,?)',[memberId,admin.member_id,type,currency,(-debit).toFixed(8),reference,type==='academy_access_purchase'?'Full Academy access fee; USD-equivalent $10.00': 'Previous Academy video replay fee; USD-equivalent $2.00']);
+  const [adminTx] = await conn.execute('INSERT INTO financial_transactions (member_id,admin_member_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,?,?,?,?,?,?)',[admin.member_id,admin.member_id,type,currency,debit.toFixed(8),reference+'-ADMIN','Academy fee collected from member #'+memberId]);
+  if (type === 'academy_replay_fee') {
+    await conn.execute('INSERT INTO academy_lesson_replays (member_id,lesson_id,transaction_id,idempotency_key,fee_usd,currency,amount_debited,exchange_rate) VALUES (?,?,?,?,?,?,?,?)',[memberId,lessonId,memberTx.insertId,idempotencyKey,feeUsd,currency,debit.toFixed(8),usedRate]);
+  } else {
+    await conn.execute("INSERT INTO academy_access (member_id,status,access_source,granted_by,payment_transaction_id,paid_amount,paid_currency,exchange_rate,reason,expires_at) VALUES (?,'approved','payment',?,?,?,?,?,'Purchased full Academy access',NULL) ON DUPLICATE KEY UPDATE status='approved',access_source='payment',granted_by=VALUES(granted_by),payment_transaction_id=VALUES(payment_transaction_id),paid_amount=VALUES(paid_amount),paid_currency=VALUES(paid_currency),exchange_rate=VALUES(exchange_rate),reason='Purchased full Academy access',expires_at=NULL",[memberId,admin.member_id,memberTx.insertId,feeUsd,currency,usedRate]);
+  }
+  return { currency, debit, reference, memberTransactionId: memberTx.insertId, adminTransactionId: adminTx.insertId };
+}
+
+app.get('/academy', requireAuth, async (req,res,next) => {
+  try {
+    const m = await getMemberForPage(req,res); if (!m) return;
+    const [[access]] = await pool.execute("SELECT id,status,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[m.id]);
+    const [lessons] = await pool.execute("SELECT id,title,description,video_url,access_level,status,sort_order FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
+    const [progress] = await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[m.id]);
+    const [replays] = await pool.execute('SELECT lesson_id,COUNT(*) AS total FROM academy_lesson_replays WHERE member_id=? GROUP BY lesson_id',[m.id]);
+    const completed = new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+    const replayCount = new Map(replays.map(p=>[Number(p.lesson_id),Number(p.total)||0]));
+    const canFull = Boolean(access);
+    const firstIncomplete = lessons.find(l=>!completed.has(Number(l.id)));
+    const cards = lessons.map((l,index)=>{
+      const id=Number(l.id), done=completed.has(id), premium=l.access_level==='premium';
+      const previous = done && (!firstIncomplete || lessons.indexOf(l)<lessons.indexOf(firstIncomplete));
+      const canOpen = (!premium || canFull) && (!firstIncomplete || id===Number(firstIncomplete.id) || done);
+      const needsReplay = previous && canOpen;
+      const unlockedReplay = !needsReplay || Number(replayCount.get(id)||0)>0;
+      const video = canOpen && (!needsReplay || unlockedReplay) && l.video_url ? '<a class="academy-video-link" href="'+esc(l.video_url)+'" target="_blank" rel="noopener noreferrer">Open lesson video ↗</a>' : '';
+      const action = canOpen && !done ? '<form method="post" action="/academy/lessons/'+id+'/complete">'+csrfField(req)+'<button class="academy-action" type="submit">Mark video finished</button></form>' : '';
+      const replay = needsReplay && !unlockedReplay ? '<form method="post" action="/academy/lessons/'+id+'/replay">'+csrfField(req)+'<input type="hidden" name="idempotency_key" value="'+crypto.randomUUID()+'"><button class="academy-action" type="submit">Pay $2 to replay</button></form>' : '';
+      const status = !canOpen ? (premium&&!canFull?'Full Academy access required': 'Finish the current lesson first') : (needsReplay&&!unlockedReplay?'Replay fee: $2':'');
+      return '<article class="academy-card"><div class="academy-number">'+String(index+1).padStart(2,'0')+'</div><div class="academy-card-main"><div class="academy-tags"><span>'+esc(premium?'Premium':'Open lesson')+'</span>'+(done?'<span>Completed</span>':'')+'</div><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||'')+'</p><p class="academy-status">'+esc(status)+'</p><div class="academy-actions">'+video+action+replay+'</div></div></article>';
+    }).join('');
+    const content = '<style>.academy-wrap{display:grid;gap:18px}.academy-hero{padding:24px;border:1px solid #665326;border-radius:20px;background:radial-gradient(ellipse at top right,#e5c46a1b,transparent 44%),linear-gradient(145deg,#201c11,#111113)}.academy-hero h2{margin:0 0 8px;font-size:clamp(1.6rem,4vw,2.2rem)}.academy-hero p{color:#d5d0c3;line-height:1.65}.academy-pill{display:inline-flex;padding:7px 10px;border:1px solid #78612b;border-radius:99px;color:#f3d477;font-size:.78rem;font-weight:800}.academy-grid{display:grid;gap:12px}.academy-card{display:flex;gap:14px;padding:18px;border:1px solid #373226;border-radius:16px;background:#151518}.academy-number{display:grid;place-items:center;flex:0 0 44px;height:44px;border-radius:13px;background:#2b230f;color:#f3d477;font-weight:900}.academy-card-main{min-width:0;flex:1}.academy-tags,.academy-actions{display:flex;gap:8px;flex-wrap:wrap}.academy-tags span{font-size:.72rem;padding:5px 8px;border:1px solid #514326;border-radius:99px;color:#e9d28d}.academy-card h3{margin:10px 0 6px}.academy-card p{color:#aaa7af;line-height:1.55}.academy-status{font-size:.83rem}.academy-action,.academy-video-link{display:inline-flex;align-items:center;justify-content:center;padding:11px 14px;border:0;border-radius:10px;background:linear-gradient(110deg,#f3d76b,#d6ad38);color:#17140a;font:inherit;font-weight:850;text-decoration:none;cursor:pointer}.academy-empty{padding:22px;border:1px dashed #665326;border-radius:16px;color:#aaa7af}.academy-access-form{display:flex;gap:10px;flex-wrap:wrap}.academy-access-form button{padding:12px 16px;border:0;border-radius:10px;background:#f3d76b;color:#17140a;font-weight:900}@media(max-width:560px){.academy-card{padding:14px}.academy-number{flex-basis:36px;height:36px}}</style><div class="academy-wrap"><section class="academy-hero"><span class="academy-pill">MONARCH CODEX ACADEMY</span><h2>Learn. Practice. Build your kingdom.</h2><p>Full Academy access is $10, or an administrator can grant it to you for free. Complete the current lesson before moving forward. Replaying a previous lesson costs $2 per replay.</p><p>'+(canFull?'<strong>Full access active</strong>':'<strong>Full access not active</strong>')+'</p>'+(canFull?'':'<form method="post" action="/academy/access/purchase">'+csrfField(req)+'<button class="academy-action" type="submit">Unlock the full Academy · $10</button></form>')+'</section><section class="academy-grid">'+(cards||'<div class="academy-empty">Lessons are being prepared. Please check back soon.</div>')+'</section></div>';
+    res.send(memberPage('Academy','/academy',m,content,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR') return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql and migrations/028_academy_access_and_replay_fees.sql')); next(e); }
+});
+
+app.post('/academy/access/purchase', requireAuth, csrfCheck, async (req,res,next) => {
+  const conn=await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[access]]=await conn.execute("SELECT id,status,access_source FROM academy_access WHERE member_id=? LIMIT 1 FOR UPDATE",[req.session.memberId]);
+    if(access && access.status==='approved'){await conn.rollback();return res.redirect('/academy?access=active');}
+    await academyCharge(conn,Number(req.session.memberId),10,'academy_access_purchase',null,'ACCESS-'+crypto.randomUUID());
+    await conn.commit(); return res.redirect('/academy?access=success');
+  } catch(e) { try{await conn.rollback();}catch(_){} if(e.academyStatus)return res.status(e.academyStatus).send(formError('Academy access not purchased',e.message,'/academy')); if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Academy setup required','migrations/028_academy_access_and_replay_fees.sql')); next(e); }
+  finally{conn.release();}
+});
+
+app.post('/academy/lessons/:id/complete', requireAuth, csrfCheck, async (req,res,next) => {
+  const id=String(req.params.id||''); if(!/^\\d{1,20}$/.test(id))return res.status(400).send(formError('Lesson not updated','Invalid lesson ID.','/academy'));
+  try {
+    const [[access]]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+    const [lessons]=await pool.execute("SELECT id,access_level FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
+    const current=lessons.find(l=>!((Number(l.id)===Number(id))?false:false));
+    const target=lessons.find(l=>Number(l.id)===Number(id));
+    if(!target)return res.status(404).send(formError('Lesson not found','This lesson is not published.','/academy'));
+    if(target.access_level==='premium'&&!access)return res.status(403).send(formError('Full access required','Unlock the full Academy or ask an administrator to grant access.','/academy'));
+    const [progress]=await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+    const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+    const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
+    if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id)))return res.status(409).send(formError('Finish the current lesson first','Complete the current video before moving forward.','/academy'));
+    await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
+    return res.redirect('/academy?lesson=completed');
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Academy setup required','migrations/005_member_dashboard_and_sovereign_desk.sql')); next(e); }
+});
+
+app.post('/academy/lessons/:id/replay', requireAuth, csrfCheck, async (req,res,next) => {
+  const id=String(req.params.id||''),key=String(req.body.idempotency_key||'');
+  if(!/^\\d{1,20}$/.test(id)||!/^\\d{1,20}$/.test(id)||!/^([0-9a-f-]{36}|ACCESS-[0-9A-F]{32})$/i.test(key))return res.status(400).send(formError('Replay not purchased','Refresh the Academy page and try again.','/academy'));
+  const conn=await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[lesson]]=await conn.execute("SELECT id,access_level FROM academy_lessons WHERE id=? AND status='published' LIMIT 1 FOR UPDATE",[id]);
+    if(!lesson){await conn.rollback();return res.status(404).send(formError('Lesson unavailable','This lesson is not published.','/academy'));}
+    const [[access]]=await conn.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+    const [progress]=await conn.execute('SELECT completed_at FROM academy_progress WHERE member_id=? AND lesson_id=? LIMIT 1',[req.session.memberId,id]);
+    if(!progress.length||!progress[0].completed_at){await conn.rollback();return res.status(409).send(formError('Replay unavailable','Finish this lesson before paying to replay it.','/academy'));}
+    if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).send(formError('Full access required','Unlock the full Academy first.','/academy'));}
+    await academyCharge(conn,Number(req.session.memberId),2,'academy_replay_fee',Number(id),key);
+    await conn.commit();return res.redirect('/academy?replay=success');
+  } catch(e) { try{await conn.rollback();}catch(_){} if(e.academyStatus)return res.status(e.academyStatus).send(formError('Replay not purchased',e.message,'/academy')); if(e.code==='ER_DUP_ENTRY')return res.redirect('/academy?replay=already'); if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Academy setup required','migrations/028_academy_access_and_replay_fees.sql')); next(e); }
+  finally{conn.release();}
+});
+
+
 app.get('/admin/sovereign-desk', requireAdmin, (req,res) => {
   if (req.adminRole === 'sovereign_desk_admin') return res.redirect('/sovereign-admin');
   res.redirect('/sovereign-admin');
