@@ -433,70 +433,64 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const principal = String(amounts.principal);
       const fee = String(amounts.fee);
       const total = String(amounts.total);
-      let walletCurrency = pkg.currency;
-      let wallet = null;
-      let debitAmount = Number(total);
-      let conversionRate = 1;
-
-      const [[nativeWallet]] = await conn.execute(
-        'SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',
-        [req.session.memberId, pkg.currency]
-      );
-      if (nativeWallet && Number(nativeWallet.balance) + 1e-8 >= Number(total)) {
-        wallet = nativeWallet;
-      } else {
-        const [[pricing]] = await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
-        conversionRate = Number(pricing && pricing.base_usd_ngn_rate) * (1 + Number(pricing && pricing.markup_percent || 0) / 100);
+      const targetCurrency = String(pkg.currency);
+      const targetAmount = Number(total);
+      const [[pricing]] = await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+      const conversionRate = Number(pricing && pricing.base_usd_ngn_rate) * (1 + Number(pricing && pricing.markup_percent || 0) / 100);
+      await conn.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0)', [req.session.memberId,'NGN',req.session.memberId,'USD']);
+      const [walletRows] = await conn.execute('SELECT id,currency,balance FROM member_wallets WHERE member_id=? AND currency IN (?,?) ORDER BY currency FOR UPDATE', [req.session.memberId,'NGN','USD']);
+      const wallets = new Map(walletRows.map(row => [String(row.currency),row]));
+      const native = wallets.get(targetCurrency);
+      const otherCurrency = targetCurrency === 'NGN' ? 'USD' : 'NGN';
+      const other = wallets.get(otherCurrency);
+      if (!native || !other) {
+        await conn.rollback();
+        return res.status(503).json({ error: 'wallet_unavailable', message: 'Both wallet currencies must be configured before purchasing. No funds were deducted.' });
+      }
+      let nativeDebit = Math.min(Math.max(0, Number(native.balance) || 0), targetAmount);
+      const shortage = Math.max(0, targetAmount - nativeDebit);
+      let otherDebit = 0;
+      if (shortage > 0) {
         if (!Number.isFinite(conversionRate) || conversionRate <= 0) {
           await conn.rollback();
           return res.status(503).json({ error: 'exchange_rate_unavailable', message: 'The configured exchange rate is unavailable. No funds were deducted.' });
         }
-        if (pkg.currency === 'USD') {
-          walletCurrency = 'NGN';
-          debitAmount = Math.round(Number(total) * conversionRate * 100) / 100;
-          const [[otherWallet]] = await conn.execute(
-            "SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='NGN' LIMIT 1 FOR UPDATE",
-            [req.session.memberId]
-          );
-          if (otherWallet && Number(otherWallet.balance) + 1e-8 >= debitAmount) wallet = otherWallet;
-        } else if (pkg.currency === 'NGN') {
-          walletCurrency = 'USD';
-          debitAmount = Math.round((Number(total) / conversionRate) * 100) / 100;
-          const [[otherWallet]] = await conn.execute(
-            "SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='USD' LIMIT 1 FOR UPDATE",
-            [req.session.memberId]
-          );
-          if (otherWallet && Number(otherWallet.balance) + 1e-8 >= debitAmount) wallet = otherWallet;
+        const converted = targetCurrency === 'NGN' ? shortage / conversionRate : shortage * conversionRate;
+        otherDebit = Math.ceil((converted - 1e-10) * 1e8) / 1e8;
+      }
+      if (otherDebit > (Number(other.balance) || 0) + 1e-8) {
+        await conn.rollback();
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for the package price plus the 1% fee at the current conversion rate. No funds were deducted.' });
+      }
+      const walletDebits = [];
+      for (const [wallet, debitAmount] of [[native,nativeDebit],[other,otherDebit]]) {
+        if (debitAmount <= 0) continue;
+        const [debit] = await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?', [debitAmount,wallet.id,debitAmount]);
+        if (debit.affectedRows !== 1) {
+          await conn.rollback();
+          return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance changed. Refresh and try again. No funds were deducted.' });
         }
+        walletDebits.push({ currency: String(wallet.currency), amount: debitAmount });
       }
-      if (!wallet) {
-        await conn.rollback();
-        return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance is not enough for the package price plus the 1% fee. No funds were deducted.' });
-      }
-
-      const [debit] = await conn.execute(
-        'UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',
-        [debitAmount, wallet.id, debitAmount]
-      );
-      if (debit.affectedRows !== 1) {
-        await conn.rollback();
-        return res.status(409).json({ error: 'insufficient_balance', message: 'Your available balance changed. Refresh your wallet and try again. No funds were deducted.' });
-      }
+      const walletCurrency = walletDebits.length === 1 ? walletDebits[0].currency : targetCurrency;
+      const debitAmount = walletDebits.reduce((sum, debit) => sum + debit.amount, 0);
 
       const reference = 'INV-' + crypto.randomUUID().replace(/-/g, '').toUpperCase();
       const [created] = await conn.execute(
         "INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",
         [req.session.memberId, pkg.id, pkg.name, pkg.currency, principal, fee, total, pkg.duration_days, pkg.terms || '', reference, key, pkg.duration_days, pkg.duration_days]
       );
-      const walletDebitReference = walletCurrency === pkg.currency ? reference : reference + '-FX';
-      const adminNote = walletCurrency === pkg.currency ? null :
-        (pkg.currency === 'USD'
-          ? 'USD package converted to NGN at ' + conversionRate.toFixed(6) + ' NGN per USD; package total ' + total + ' USD'
-          : 'NGN package converted to USD at ' + conversionRate.toFixed(6) + ' NGN per USD; package total ' + total + ' NGN');
-      await conn.execute(
-        "INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",
-        [req.session.memberId, created.insertId, walletCurrency, (-debitAmount).toFixed(8), walletDebitReference, adminNote]
-      );
+      for (let index = 0; index < walletDebits.length; index++) {
+        const debit = walletDebits[index];
+        const walletDebitReference = reference + (walletDebits.length > 1 || debit.currency !== targetCurrency ? '-D' + (index + 1) : '');
+        const adminNote = debit.currency === targetCurrency
+          ? 'Investment package debit in target currency ' + targetCurrency + '; package total ' + total + ' ' + targetCurrency
+          : 'Investment package split-currency debit. Target total ' + total + ' ' + targetCurrency + '; source debit ' + debit.amount.toFixed(8) + ' ' + debit.currency + '; configured rate ' + conversionRate.toFixed(8) + ' NGN per USD.';
+        await conn.execute(
+          "INSERT INTO financial_transactions (member_id,deposit_request_id,investment_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,NULL,?,'investment_purchase',?,?,?,?)",
+          [req.session.memberId, created.insertId, debit.currency, (-debit.amount).toFixed(8), walletDebitReference, adminNote]
+        );
+      }
       await conn.execute(
         'INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
         [req.session.memberId, 'investment_purchase', 'Investment package purchased',
@@ -512,7 +506,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
           principalAmount: principal, feeAmount: fee, totalCharged: total, status: 'active',
           durationDays: pkg.duration_days
         },
-        walletDebit: { currency: walletCurrency, amount: debitAmount.toFixed(8) },
+        walletDebit: { currency: targetCurrency, amount: targetAmount.toFixed(8), debits: walletDebits.map(debit => ({ currency: debit.currency, amount: debit.amount.toFixed(8) })), rate: conversionRate > 0 ? conversionRate : null },
         message: 'Investment purchase recorded successfully.'
       });
     } catch (error) {
