@@ -753,8 +753,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       });
       try {
         await connection.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?),(?,?,?,?,?,?)', [
-          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+amount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+'). The debit may use both wallets at the configured conversion rate.','/transactions','wallet-transfer-sent:'+reference,
-          recipient.id,'wallet_transfer','Wallet transfer received','You received '+currency+' '+amount.toFixed(2)+' from a Monarch Codex member.','/transactions','wallet-transfer-received:'+reference
+          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+recipientAmount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+'). Gross debit: '+currency+' '+amount.toFixed(2)+' including the 5% fee.','/transactions','wallet-transfer-sent:'+reference,
+          recipient.id,'wallet_transfer','Wallet transfer received','You received '+currency+' '+recipientAmount.toFixed(2)+' from a Monarch Codex member after the 5% transfer fee.','/transactions','wallet-transfer-received:'+reference
         ]);
       } catch (notificationError) { if (notificationError.code !== 'ER_NO_SUCH_TABLE') throw notificationError; }
       const [remainingRows] = await connection.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
