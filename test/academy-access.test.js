@@ -23,7 +23,7 @@ test('each previous-lesson replay costs USD-equivalent $2 and creates a one-time
 });
 
 test('lesson order and administrator-granted full access are enforced server-side', () => {
-  assert.match(server, /Finish the current video before moving forward/);
+  assert.match(server, /Complete the current video before moving forward/);
   assert.match(server, /app\.post\('\/admin\/academy\/access', requireAdmin/);
   assert.match(server, /app\.post\('\/admin\/academy\/access\/revoke', requireAdmin/);
   assert.match(migration, /access_source ENUM\('admin','payment'\)/);
