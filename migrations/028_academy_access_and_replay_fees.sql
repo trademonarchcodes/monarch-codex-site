@@ -1,5 +1,5 @@
 -- Monarch Codex Academy full-access and per-replay billing.
--- Apply only after a verified database backup and after migration 005 and 016/024.
+-- Apply only after a verified database backup and after migrations 005, 011, 016, and 024.
 -- This additive migration preserves existing lessons, progress, wallets, and ledger rows.
 -- Keep admin_fee_revenue and Academy transaction types together regardless of migration order.
 ALTER TABLE financial_transactions
@@ -15,6 +15,10 @@ ALTER TABLE financial_transactions
     'academy_access_purchase',
     'academy_replay_fee'
   ) NOT NULL DEFAULT 'deposit_credit';
+
+-- Keep the persisted fee percentage default aligned with the enforced purchase calculation.
+ALTER TABLE member_investments
+  MODIFY COLUMN fee_percent DECIMAL(5,2) NOT NULL DEFAULT 10.00;
 
 ALTER TABLE academy_progress
   ADD COLUMN last_started_at TIMESTAMP NULL DEFAULT NULL AFTER completed_at;
