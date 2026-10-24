@@ -860,13 +860,17 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         catch (_) { return { id: row.id, label: 'Saved payout account' }; }
       });
       const [walletRows] = await pool.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
-      const [reservedRows] = await pool.execute("SELECT currency,COALESCE(SUM(amount),0) AS reserved FROM withdrawal_requests WHERE member_id=? AND status IN ('pending','approved') GROUP BY currency", [req.session.memberId]);
+      const [reservationRows] = await pool.execute("SELECT r.source_currency AS currency,COALESCE(SUM(r.source_amount),0) AS reserved FROM withdrawal_wallet_reservations r JOIN withdrawal_requests w ON w.id=r.withdrawal_request_id WHERE r.member_id=? AND w.status IN ('pending','approved') GROUP BY r.source_currency", [req.session.memberId]);
+      const [legacyRows] = await pool.execute("SELECT w.currency,COALESCE(SUM(w.amount),0) AS reserved FROM withdrawal_requests w WHERE w.member_id=? AND w.status IN ('pending','approved') AND NOT EXISTS (SELECT 1 FROM withdrawal_wallet_reservations r WHERE r.withdrawal_request_id=w.id) GROUP BY w.currency", [req.session.memberId]);
       const balances = { NGN: 0, USD: 0 }, reserved = { NGN: 0, USD: 0 };
       for (const row of walletRows) if (Object.prototype.hasOwnProperty.call(balances, row.currency)) balances[row.currency] = Number(row.balance) || 0;
-      for (const row of reservedRows) if (Object.prototype.hasOwnProperty.call(reserved, row.currency)) reserved[row.currency] = Number(row.reserved) || 0;
-      return res.json({ accounts, balances, reserved, available: { NGN: Math.max(0, balances.NGN-reserved.NGN), USD: Math.max(0, balances.USD-reserved.USD) } });
+      for (const row of [...reservationRows, ...legacyRows]) if (Object.prototype.hasOwnProperty.call(reserved, row.currency)) reserved[row.currency] += Number(row.reserved) || 0;
+      const available = { NGN: Math.max(0, balances.NGN-reserved.NGN), USD: Math.max(0, balances.USD-reserved.USD) };
+      const [[fx]] = await pool.execute('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+      const rate = fx && Number(fx.base_usd_ngn_rate)>0 ? Number(fx.base_usd_ngn_rate)*(1+Number(fx.markup_percent||0)/100) : null;
+      return res.json({ accounts, balances, reserved, available, combined: { NGN: available.NGN+(rate?available.USD*rate:0), USD: available.USD+(rate?available.NGN/rate:0) }, rate });
     } catch (error) {
-      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'withdrawal_setup_required', message: 'Withdrawal requests are not configured yet.' });
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'withdrawal_setup_required', message: 'Apply migrations/025_combined_wallet_transfers.sql and 026_combined_withdrawal_reservations.sql before using combined withdrawals.' });
       return next(error);
     }
   });
@@ -887,17 +891,41 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await connection.beginTransaction();
       const [[bank]] = await connection.execute('SELECT id,details_ciphertext FROM member_bank_accounts WHERE id=? AND member_id=? AND deleted_at IS NULL LIMIT 1 FOR UPDATE', [bankId,req.session.memberId]);
       if (!bank) { await connection.rollback(); return res.status(400).json({ error: 'payout_account_unavailable', message: 'Choose one of your active saved payout accounts.' }); }
-      const [[wallet]] = await connection.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE', [req.session.memberId,currency]);
-      const [[reserved]] = await connection.execute("SELECT COALESCE(SUM(amount),0) AS total FROM withdrawal_requests WHERE member_id=? AND currency=? AND status IN ('pending','approved')", [req.session.memberId,currency]);
-      const available = Math.max(0,(wallet ? Number(wallet.balance) : 0)-(reserved ? Number(reserved.total) : 0));
-      if (amount > available + 1e-8) { await connection.rollback(); return res.status(400).json({ error: 'insufficient_available_balance', message: 'The amount exceeds your available balance after pending withdrawal reservations.' }); }
-      const [created] = await connection.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')", [req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,note || null]);
+      await connection.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0)', [req.session.memberId,'NGN',req.session.memberId,'USD']);
+      const [walletRows] = await connection.execute('SELECT id,currency,balance FROM member_wallets WHERE member_id=? AND currency IN (?,?) ORDER BY currency FOR UPDATE', [req.session.memberId,'NGN','USD']);
+      const wallets = new Map(walletRows.map(row => [String(row.currency),row]));
+      if (!wallets.has('NGN') || !wallets.has('USD')) { await connection.rollback(); return res.status(503).json({ error: 'wallet_unavailable', message: 'Both wallet currencies must be configured before combined withdrawals.' }); }
+      const [reservationRows] = await connection.execute("SELECT r.source_currency AS currency,r.source_amount AS reserved FROM withdrawal_wallet_reservations r JOIN withdrawal_requests w ON w.id=r.withdrawal_request_id WHERE r.member_id=? AND w.status IN ('pending','approved')", [req.session.memberId]);
+      const [legacyRows] = await connection.execute("SELECT w.currency, w.amount AS reserved FROM withdrawal_requests w WHERE w.member_id=? AND w.status IN ('pending','approved') AND NOT EXISTS (SELECT 1 FROM withdrawal_wallet_reservations r WHERE r.withdrawal_request_id=w.id)", [req.session.memberId]);
+      const reserved = { NGN: 0, USD: 0 };
+      for (const row of [...reservationRows,...legacyRows]) if (Object.prototype.hasOwnProperty.call(reserved,row.currency)) reserved[row.currency] += Number(row.reserved)||0;
+      const available = { NGN: Math.max(0,Number(wallets.get('NGN').balance)-reserved.NGN), USD: Math.max(0,Number(wallets.get('USD').balance)-reserved.USD) };
+      const nativeDebit = Math.min(available[currency],amount);
+      const shortage = Math.max(0,amount-nativeDebit);
+      let otherDebit = 0, rate = null;
+      const otherCurrency = currency === 'NGN' ? 'USD' : 'NGN';
+      if (shortage > 0) {
+        const [[fx]] = await connection.execute('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+        rate = fx && Number(fx.base_usd_ngn_rate)>0 ? Number(fx.base_usd_ngn_rate)*(1+Number(fx.markup_percent||0)/100) : null;
+        if (!(rate>0)) { await connection.rollback(); return res.status(503).json({error:'fx_rate_unavailable',message:'Currency conversion is temporarily unavailable. No withdrawal was reserved.'}); }
+        const raw = currency==='NGN' ? shortage/rate : shortage*rate;
+        otherDebit = Math.ceil((raw-1e-10)*1e8)/1e8;
+      }
+      if (otherDebit > available[otherCurrency]+1e-8) { await connection.rollback(); return res.status(400).json({error:'insufficient_available_balance',message:'The requested withdrawal exceeds your combined available funds after existing reservations.'}); }
+      const [created] = await connection.execute("INSERT INTO withdrawal_requests (member_id,bank_account_id,bank_details_ciphertext,currency,amount,member_note,status) VALUES (?,?,?,?,?,?,'pending')", [req.session.memberId,bank.id,bank.details_ciphertext,currency,amount,note||null]);
+      const reservations = [];
+      if (nativeDebit > 0) reservations.push({currency,amount:nativeDebit});
+      if (otherDebit > 0) reservations.push({currency:otherCurrency,amount:otherDebit});
+      for (const reservation of reservations) {
+        const targetAmount = reservation.currency===currency ? reservation.amount : (currency==='NGN' ? reservation.amount*rate : reservation.amount/rate);
+        await connection.execute('INSERT INTO withdrawal_wallet_reservations (withdrawal_request_id,member_id,source_currency,source_amount,target_currency,target_amount,rate_used) VALUES (?,?,?,?,?,?,?)', [created.insertId,req.session.memberId,reservation.currency,reservation.amount,currency,targetAmount,rate]);
+      }
       await connection.commit();
       await notifyActiveAdmins({type:'withdrawal_pending',title:'Withdrawal awaiting review',body:'A member submitted a withdrawal request for review.',targetUrl:'/admin/withdrawals',dedupePrefix:'withdrawal_pending_'+created.insertId});
-      return res.status(201).json({ ok: true, requestId: created.insertId, status: 'pending', message: 'Withdrawal request submitted for review. This is not an automatic payout.' });
+      return res.status(201).json({ ok:true, requestId:created.insertId, status:'pending', reservedFrom:reservations.map(item=>({currency:item.currency,amount:item.amount.toFixed(8)})), rate, message:'Withdrawal request submitted for review. The requested amount is reserved across your wallets until approved, rejected or paid.' });
     } catch (error) {
       if (connection) { try { await connection.rollback(); } catch (_) {} }
-      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'withdrawal_setup_required', message: 'Withdrawals are temporarily unavailable. No request was created.' });
+      if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error:'withdrawal_setup_required', message:'Apply migrations/025_combined_wallet_transfers.sql and 026_combined_withdrawal_reservations.sql before using combined withdrawals.' });
       return next(error);
     } finally { if (connection) connection.release(); }
   });
@@ -996,9 +1024,24 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await conn.execute("UPDATE withdrawal_requests SET status='rejected',reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?",[req.session.memberId,note,id]);
       } else {
         if(w.status!=='approved'){await conn.rollback();return res.status(409).json({error:'approval_required',message:'Approve the withdrawal before recording payment.'});}
-        const [[wallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[w.member_id,w.currency]);
-        if(!wallet||Number(wallet.balance)+1e-8<Number(w.amount)){await conn.rollback();return res.status(409).json({error:'insufficient_balance',message:'The wallet no longer contains enough funds.'});}
-        await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=?',[w.amount,wallet.id]);
+        const [reservationRows]=await conn.execute('SELECT source_currency,source_amount,target_currency,target_amount,rate_used FROM withdrawal_wallet_reservations WHERE withdrawal_request_id=? ORDER BY source_currency FOR UPDATE',[w.id]);
+        if(reservationRows.length) {
+          const [walletRows]=await conn.execute('SELECT id,currency,balance FROM member_wallets WHERE member_id=? AND currency IN (?,?) ORDER BY currency FOR UPDATE',[w.member_id,'NGN','USD']);
+          const wallets=new Map(walletRows.map(row=>[String(row.currency),row]));
+          for(const reservation of reservationRows) {
+            const wallet=wallets.get(String(reservation.source_currency));
+            const debitAmount=Number(reservation.source_amount);
+            if(!wallet||Number(wallet.balance)+1e-8<debitAmount){await conn.rollback();return res.status(409).json({error:'insufficient_balance',message:'A reserved wallet balance is no longer available. No payout was recorded.'});}
+          }
+          for(const reservation of reservationRows) {
+            const wallet=wallets.get(String(reservation.source_currency));
+            await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',[reservation.source_amount,wallet.id,reservation.source_amount]);
+          }
+        } else {
+          const [[wallet]]=await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[w.member_id,w.currency]);
+          if(!wallet||Number(wallet.balance)+1e-8<Number(w.amount)){await conn.rollback();return res.status(409).json({error:'insufficient_balance',message:'The wallet no longer contains enough funds.'});}
+          await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=?',[w.amount,wallet.id]);
+        }
         await conn.execute('INSERT INTO withdrawal_ledger_entries (withdrawal_request_id,member_id,currency,amount,payment_reference) VALUES (?,?,?,?,?)',[w.id,w.member_id,w.currency,w.amount,reference]);
         await conn.execute("UPDATE withdrawal_requests SET status='paid',payment_reference=?,reviewer_member_id=?,reviewer_note=?,reviewed_at=CURRENT_TIMESTAMP,paid_at=CURRENT_TIMESTAMP WHERE id=?",[reference,req.session.memberId,note||null,id]);
       }
