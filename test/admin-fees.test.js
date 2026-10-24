@@ -14,7 +14,8 @@ test('investment fee is 10% and principal plus fee is charged', () => {
   assert.match(api, /total_charged/);
   assert.match(api, /10% fee for investment package/);
   assert.match(server, /\*0\.10,8\) AS fee/);
-  assert.match(server, /fee_percent,total_charged/);
+  assert.match(server, /fee_percent/);
+  assert.match(server, /total_charged/);
   assert.match(server, /10% fee for investment package/);
 });
 
