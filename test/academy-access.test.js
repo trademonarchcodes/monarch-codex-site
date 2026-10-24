@@ -30,3 +30,9 @@ test('lesson order and administrator-granted full access are enforced server-sid
   assert.match(server, /app\.post\('\/admin\/academy\/access\/revoke', requireAdmin/);
   assert.match(migration, /access_source ENUM\('admin','payment'\)/);
 });
+
+test('Academy migration preserves admin fee transaction type when both migrations are deployed', () => {
+  for (const type of ['admin_fee_revenue', 'academy_access_purchase', 'academy_replay_fee']) {
+    assert.ok(migration.includes("'" + type + "'"), 'missing transaction type: ' + type);
+  }
+});
