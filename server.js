@@ -1536,9 +1536,9 @@ app.get('/academy', requireAuth, async (req,res,next) => {
     const [[access]] = await pool.execute("SELECT id,status,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[m.id]);
     const [lessons] = await pool.execute("SELECT id,title,description,video_url,access_level,status,sort_order FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
     const [progress] = await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[m.id]);
-    const [replays] = await pool.execute('SELECT lesson_id,COUNT(*) AS total FROM academy_lesson_replays WHERE member_id=? GROUP BY lesson_id',[m.id]);
+    const [replays] = await pool.execute('SELECT lesson_id,MAX(consumed_at IS NULL) AS has_unconsumed,COUNT(*) AS total FROM academy_lesson_replays WHERE member_id=? GROUP BY lesson_id',[m.id]);
     const completed = new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
-    const replayCount = new Map(replays.map(p=>[Number(p.lesson_id),Number(p.total)||0]));
+    const unconsumedReplay = new Map(replays.map(p=>[Number(p.lesson_id),Number(p.has_unconsumed)===1]));
     const canFull = Boolean(access);
     const firstIncomplete = lessons.find(l=>!completed.has(Number(l.id)));
     const cards = lessons.map((l,index)=>{
@@ -1546,8 +1546,8 @@ app.get('/academy', requireAuth, async (req,res,next) => {
       const previous = done && (!firstIncomplete || lessons.indexOf(l)<lessons.indexOf(firstIncomplete));
       const canOpen = (!premium || canFull) && (!firstIncomplete || id===Number(firstIncomplete.id) || done);
       const needsReplay = previous && canOpen;
-      const unlockedReplay = !needsReplay || Number(replayCount.get(id)||0)>0;
-      const video = canOpen && (!needsReplay || unlockedReplay) && l.video_url ? '<a class="academy-video-link" href="'+esc(l.video_url)+'" target="_blank" rel="noopener noreferrer">Open lesson video ↗</a>' : '';
+      const unlockedReplay = !needsReplay || Boolean(unconsumedReplay.get(id));
+      const video = canOpen && (!needsReplay || unlockedReplay) && l.video_url ? '<a class="academy-video-link" href="/academy/lessons/'+id+'/watch">Open lesson video ↗</a>' : '';
       const action = canOpen && !done ? '<form method="post" action="/academy/lessons/'+id+'/complete">'+csrfField(req)+'<button class="academy-action" type="submit">Mark video finished</button></form>' : '';
       const replay = needsReplay && !unlockedReplay ? '<form method="post" action="/academy/lessons/'+id+'/replay">'+csrfField(req)+'<input type="hidden" name="idempotency_key" value="'+crypto.randomUUID()+'"><button class="academy-action" type="submit">Pay $2 to replay</button></form>' : '';
       const status = !canOpen ? (premium&&!canFull?'Full Academy access required': 'Finish the current lesson first') : (needsReplay&&!unlockedReplay?'Replay fee: $2':'');
@@ -1567,6 +1567,32 @@ app.post('/academy/access/purchase', requireAuth, csrfCheck, async (req,res,next
     await academyCharge(conn,Number(req.session.memberId),10,'academy_access_purchase',null,'ACCESS-'+crypto.randomUUID());
     await conn.commit(); return res.redirect('/academy?access=success');
   } catch(e) { try{await conn.rollback();}catch(_){} if(e.academyStatus)return res.status(e.academyStatus).send(formError('Academy access not purchased',e.message,'/academy')); if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Academy setup required','migrations/028_academy_access_and_replay_fees.sql')); next(e); }
+  finally{conn.release();}
+});
+
+app.get('/academy/lessons/:id/watch', requireAuth, async (req,res,next) => {
+  const id=String(req.params.id||''); if(!/^\d{1,20}$/.test(id))return res.status(400).send(formError('Lesson unavailable','Invalid lesson ID.','/academy'));
+  const conn=await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[lesson]]=await conn.execute("SELECT id,video_url,access_level FROM academy_lessons WHERE id=? AND status='published' LIMIT 1 FOR UPDATE",[id]);
+    if(!lesson||!lesson.video_url){await conn.rollback();return res.status(404).send(formError('Lesson unavailable','This lesson has no published video.','/academy'));}
+    const [[access]]=await conn.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+    const [lessons]=await conn.execute("SELECT id FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
+    const [progress]=await conn.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+    const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+    const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
+    if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).send(formError('Full access required','Unlock the full Academy or ask an administrator to grant access.','/academy'));}
+    if(firstIncomplete && Number(firstIncomplete.id)!==Number(id) && !completed.has(Number(id))){await conn.rollback();return res.status(409).send(formError('Finish the current lesson first','Complete the current video before moving forward.','/academy'));}
+    if(completed.has(Number(id))){
+      const [[replay]]=await conn.execute('SELECT id FROM academy_lesson_replays WHERE member_id=? AND lesson_id=? AND consumed_at IS NULL ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE',[req.session.memberId,id]);
+      if(!replay){await conn.rollback();return res.status(402).send(formError('Replay fee required','Pay $2 to open this previously completed video again.','/academy'));}
+      await conn.execute('UPDATE academy_lesson_replays SET consumed_at=CURRENT_TIMESTAMP WHERE id=? AND consumed_at IS NULL',[replay.id]);
+    }
+    await conn.commit();
+    res.set('Cache-Control','no-store, private');
+    return res.redirect(303,lesson.video_url);
+  } catch(e){try{await conn.rollback();}catch(_){} if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(dbSetupNotice('Academy setup required','migrations/028_academy_access_and_replay_fees.sql'));next(e);}
   finally{conn.release();}
 });
 
