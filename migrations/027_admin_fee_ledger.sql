@@ -1,3 +1,17 @@
+-- Extend the transaction ledger with a distinct auditable admin-fee revenue type.
+-- Existing enum values and historical transactions remain valid.
+ALTER TABLE financial_transactions
+  MODIFY COLUMN transaction_type ENUM(
+    'deposit_credit',
+    'investment_purchase',
+    'admin_bonus',
+    'investment_profit',
+    'loss_adjustment',
+    'wallet_transfer_sent',
+    'wallet_transfer_received',
+    'admin_fee_revenue'
+  ) NOT NULL DEFAULT 'deposit_credit';
+
 -- Monarch Codex auditable admin fee revenue.
 -- Apply after the existing member_wallets, admin_users and financial_transactions tables exist.
 -- Additive only: does not alter historical balances or transactions.
