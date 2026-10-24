@@ -644,8 +644,25 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
           await connection.rollback();
           return res.status(409).json({ error: 'idempotency_conflict', message: 'This transfer key was already used for a different request. Refresh and try again.' });
         }
+        // Return the same response shape as a fresh transfer. The website client
+        // refreshes wallet totals from balances and must not fail on safe retries.
+        const [priorBalanceRows] = await connection.execute(
+          'SELECT currency,balance FROM member_wallets WHERE member_id=?',
+          [req.session.memberId]
+        );
+        const priorBalances = Object.fromEntries(
+          priorBalanceRows.map(row => [String(row.currency), Number(row.balance) || 0])
+        );
         await connection.commit();
-        return res.json({ ok: true, alreadyProcessed: true, reference: prior.reference, currency: prior.currency, amount: String(prior.amount), message: 'This transfer was already completed. Your wallet was not charged again.' });
+        return res.set('Cache-Control','no-store').json({
+          ok: true,
+          alreadyProcessed: true,
+          reference: prior.reference,
+          currency: prior.currency,
+          amount: String(prior.amount),
+          balances: priorBalances,
+          message: 'This transfer was already completed. Your wallet was not charged again.'
+        });
       }
       const [[recipient]] = await connection.execute('SELECT id,monarch_uid,full_name,is_blocked,email_verified_at FROM members WHERE monarch_uid=? LIMIT 1 FOR UPDATE', [recipientUid]);
       if (!recipient || Number(recipient.is_blocked) === 1 || !recipient.email_verified_at) {
@@ -708,6 +725,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         }
         const [tx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [req.session.memberId,'wallet_transfer_sent',wallet.currency,-debitAmount,'MCT-'+crypto.randomUUID().replace(/-/g,'').toUpperCase()+'-S']);
         debits.push({ wallet, amount: debitAmount, transactionId: tx.insertId });
+      }
+      // A positive transfer must have at least one persisted source debit.
+      // Abort before crediting the recipient if wallet selection ever produces none.
+      if (!debits.length) {
+        await connection.rollback();
+        return res.status(409).json({ error: 'transfer_debit_missing', message: 'No wallet debit was created, so the transfer was cancelled. No funds were moved.' });
       }
       await connection.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?', [amount,recipientWallet.id]);
       const reference = 'MCT-' + crypto.randomUUID().replace(/-/g,'').toUpperCase();
