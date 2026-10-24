@@ -15,6 +15,9 @@ ALTER TABLE financial_transactions
     'academy_replay_fee'
   ) NOT NULL DEFAULT 'deposit_credit';
 
+ALTER TABLE academy_progress
+  ADD COLUMN last_started_at TIMESTAMP NULL DEFAULT NULL AFTER completed_at;
+
 ALTER TABLE academy_access
   ADD COLUMN access_source ENUM('admin','payment') NOT NULL DEFAULT 'admin' AFTER status,
   ADD COLUMN payment_transaction_id BIGINT UNSIGNED NULL AFTER granted_by,
