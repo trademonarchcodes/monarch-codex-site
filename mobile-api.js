@@ -1345,7 +1345,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/cooperative/status', noStore, apiAuth, async (req,res,next) => {
     try {
       const [items]=await pool.execute('SELECT id,registered_name AS registeredName,registered_email AS registeredEmail,status,review_note AS reviewNote,created_at AS createdAt,reviewed_at AS reviewedAt FROM online_cooperative_connections WHERE member_id=? ORDER BY created_at DESC LIMIT 10',[req.session.memberId]);
-      res.json({registrationUrl:'https://airdrop.myturntech.com/register?ref=53',items,connection:items.find(x=>x.status==='approved')||null});
+      const connection = items.find(x=>x.status==='approved') || null;
+      res.json({
+        registrationUrl: connection ? null : 'https://airdrop.myturntech.com/register?ref=53',
+        loginUrl: 'https://airdrop.myturntech.com/login',
+        items,
+        connection,
+        connected: Boolean(connection)
+      });
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'cooperative_setup_required',message:'Apply migrations/021_platform_completion_foundation.sql first.'}); next(e); }
   });
   router.post('/cooperative/connections', noStore, apiAuth, async (req,res,next) => {
