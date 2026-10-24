@@ -46,3 +46,14 @@ test('withdrawal requests reserve source-currency amounts and settle from those 
   assert.match(withdrawalMigration, /FOREIGN KEY \(withdrawal_request_id\) REFERENCES withdrawal_requests\(id\)/);
   assert.match(withdrawalMigration, /source_currency ENUM\('NGN','USD'\)/);
 });
+
+
+test('website dashboard displays the combined wallet equivalent while retaining actual balances', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const display = fs.readFileSync(path.join(__dirname, '..', 'wallet-balances.js'), 'utf8');
+  assert.match(server, /const ngn=actualNgn\+\(rate\?actualUsd\*rate:0\)/);
+  assert.match(server, /const usd=actualUsd\+\(rate\?actualNgn\/rate:0\)/);
+  assert.match(server, /res\.json\(\{ngn,usd,actualNgn,actualUsd,rate\}\)/);
+  assert.match(display, /state\.ngn = data\.configured === false/);
+  assert.match(display, /This is not an additional balance/);
+});
