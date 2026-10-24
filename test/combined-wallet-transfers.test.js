@@ -13,6 +13,11 @@ test('wallet balance responses distinguish combined equivalents from actual stor
   assert.match(api, /actualNgn, actualUsd, rate/);
 });
 
+test('idempotent transfer retries return wallet balances and never create an empty debit ledger', () => {
+  assert.match(api, /alreadyProcessed: true,[\\s\\S]*?balances: priorBalances/);
+  assert.match(api, /if \\(!debits\\.length\\)[\\s\\S]*?transfer_debit_missing/);
+});
+
 test('transfers debit source wallets atomically and preserve conversion audit records', () => {
   assert.match(api, /ORDER BY member_id,currency FOR UPDATE/);
   assert.match(api, /member_wallet_transfer_debits/);
