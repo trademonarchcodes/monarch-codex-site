@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS academy_lesson_replays (
   currency ENUM('NGN','USD') NOT NULL,
   amount_debited DECIMAL(20,8) NOT NULL,
   exchange_rate DECIMAL(20,8) NOT NULL DEFAULT 1.00000000,
+  consumed_at TIMESTAMP NULL DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_academy_replay_member_key (member_id,idempotency_key),
