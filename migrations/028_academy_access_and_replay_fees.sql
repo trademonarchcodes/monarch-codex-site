@@ -1,7 +1,7 @@
 -- Monarch Codex Academy full-access and per-replay billing.
 -- Apply only after a verified database backup and after migration 005 and 016/024.
--- This migration is additive: it preserves existing lessons, progress, wallets, and ledger rows.
-
+-- This additive migration preserves existing lessons, progress, wallets, and ledger rows.
+-- Keep admin_fee_revenue and Academy transaction types together regardless of migration order.
 ALTER TABLE financial_transactions
   MODIFY COLUMN transaction_type ENUM(
     'deposit_credit',
@@ -11,6 +11,7 @@ ALTER TABLE financial_transactions
     'loss_adjustment',
     'wallet_transfer_sent',
     'wallet_transfer_received',
+    'admin_fee_revenue',
     'academy_access_purchase',
     'academy_replay_fee'
   ) NOT NULL DEFAULT 'deposit_credit';
