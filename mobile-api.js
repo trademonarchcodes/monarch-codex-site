@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const rateLimit = require('express-rate-limit');
+const { creditAdminFee } = require('./lib/admin-fees');
 const multer = require('multer');
 const { Readable } = require('node:stream');
 
@@ -427,7 +428,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
 
       const [[amounts]] = await conn.execute(
-        'SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.01,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.01,8),8) AS total',
+        'SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.10,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.10,8),8) AS total',
         [pkg.price, pkg.price, pkg.price, pkg.price]
       );
       const principal = String(amounts.principal);
@@ -468,7 +469,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
       if (otherDebit > available[otherCurrency] + 1e-8) {
         await conn.rollback();
-        return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for the package price plus the 1% fee at the current conversion rate. No funds were deducted.' });
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for the package price plus the 10% fee at the current conversion rate. No funds were deducted.' });
       }
       const walletDebits = [];
       for (const [wallet, debitAmount] of [[native,nativeDebit],[other,otherDebit]]) {
@@ -485,7 +486,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
 
       const reference = 'INV-' + crypto.randomUUID().replace(/-/g, '').toUpperCase();
       const [created] = await conn.execute(
-        "INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",
+        "INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,10.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",
         [req.session.memberId, pkg.id, pkg.name, pkg.currency, principal, fee, total, pkg.duration_days, pkg.terms || '', reference, key, pkg.duration_days, pkg.duration_days]
       );
       for (let index = 0; index < walletDebits.length; index++) {
@@ -499,11 +500,15 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
           [req.session.memberId, created.insertId, debit.currency, (-debit.amount).toFixed(8), walletDebitReference, adminNote]
         );
       }
+      await creditAdminFee(conn, {
+        payerMemberId: req.session.memberId, feeType: 'investment_fee', currency: targetCurrency,
+        amount: fee, sourceReference: reference, description: '10% fee for investment package ' + pkg.name
+      });
       await conn.execute(
         'INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
         [req.session.memberId, 'investment_purchase', 'Investment package purchased',
           'Your ' + pkg.name + ' package purchase was recorded. Package price: ' + principal + ' ' + pkg.currency +
-          '; 1% fee: ' + fee + ' ' + pkg.currency + '; total wallet deduction: ' + total + ' ' + pkg.currency + '.',
+          '; 10% fee: ' + fee + ' ' + pkg.currency + '; total wallet deduction: ' + total + ' ' + pkg.currency + '.',
           '/investments', 'investment-purchase:' + created.insertId]
       );
       await conn.commit();
@@ -634,6 +639,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
     const amount = Number(amountText);
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000000000) return res.status(400).json({ error: 'invalid_amount', message: 'Enter a valid transfer amount greater than zero.' });
+    const transferFee = Math.round(amount * 0.05 * 1e8) / 1e8;
+    const recipientAmount = Math.round((amount - transferFee) * 1e8) / 1e8;
+    if (recipientAmount <= 0) return res.status(400).json({ error: 'invalid_amount', message: 'Transfer amount is too small after the 5% fee.' });
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
@@ -732,23 +740,27 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await connection.rollback();
         return res.status(409).json({ error: 'transfer_debit_missing', message: 'No wallet debit was created, so the transfer was cancelled. No funds were moved.' });
       }
-      await connection.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?', [amount,recipientWallet.id]);
+      await connection.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?', [recipientAmount,recipientWallet.id]);
       const reference = 'MCT-' + crypto.randomUUID().replace(/-/g,'').toUpperCase();
-      const [recipientTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [recipient.id,'wallet_transfer_received',currency,amount,reference+'-R']);
+      const [recipientTx] = await connection.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)', [recipient.id,'wallet_transfer_received',currency,recipientAmount,reference+'-R']);
       const [transfer] = await connection.execute('INSERT INTO member_wallet_transfers (sender_member_id,recipient_member_id,currency,amount,reference,idempotency_key,sender_transaction_id,recipient_transaction_id) VALUES (?,?,?,?,?,?,?,?)', [req.session.memberId,recipient.id,currency,amount,reference,idempotencyKey,debits[0].transactionId,recipientTx.insertId]);
       for (const debit of debits) {
         await connection.execute('INSERT INTO member_wallet_transfer_debits (transfer_id,sender_transaction_id,source_currency,source_amount,target_currency,target_amount,rate_used) VALUES (?,?,?,?,?,?,?)', [transfer.insertId,debit.transactionId,debit.wallet.currency,debit.amount,currency,debit.wallet.currency===currency?debit.amount:(currency==='NGN'?debit.amount*rate:debit.amount/rate),rate || null]);
       }
+      await creditAdminFee(connection, {
+        payerMemberId: req.session.memberId, feeType: 'transfer_fee', currency,
+        amount: transferFee, sourceReference: reference, description: '5% wallet transfer fee; gross debit ' + amount.toFixed(8) + ' ' + currency + ', recipient received ' + recipientAmount.toFixed(8) + ' ' + currency
+      });
       try {
         await connection.execute('INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?),(?,?,?,?,?,?)', [
-          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+amount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+'). The debit may use both wallets at the configured conversion rate.','/transactions','wallet-transfer-sent:'+reference,
-          recipient.id,'wallet_transfer','Wallet transfer received','You received '+currency+' '+amount.toFixed(2)+' from a Monarch Codex member.','/transactions','wallet-transfer-received:'+reference
+          req.session.memberId,'wallet_transfer','Transfer sent','You sent '+currency+' '+recipientAmount.toFixed(2)+' to '+recipient.full_name+' ('+recipient.monarch_uid+'). Gross debit: '+currency+' '+amount.toFixed(2)+' including the 5% fee. Any cross-currency debit used the configured conversion rate.','/transactions','wallet-transfer-sent:'+reference,
+          recipient.id,'wallet_transfer','Wallet transfer received','You received '+currency+' '+recipientAmount.toFixed(2)+' from a Monarch Codex member after the 5% transfer fee.','/transactions','wallet-transfer-received:'+reference
         ]);
       } catch (notificationError) { if (notificationError.code !== 'ER_NO_SUCH_TABLE') throw notificationError; }
       const [remainingRows] = await connection.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
       const remaining = Object.fromEntries(remainingRows.map(row => [String(row.currency), Number(row.balance) || 0]));
       await connection.commit();
-      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), balances: remaining, rate: rate || null, message: 'Transfer completed successfully.' });
+      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), recipientAmount: recipientAmount.toFixed(8), fee: transferFee.toFixed(8), balances: remaining, rate: rate || null, message: 'Transfer completed. Recipient received ' + currency + ' ' + recipientAmount.toFixed(2) + '; 5% fee of ' + currency + ' ' + transferFee.toFixed(2) + ' was credited to the Super Admin.' });
     } catch (error) {
       try { await connection.rollback(); } catch (_) {}
       if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'transfer_setup_required', message: 'Member transfers are not configured yet. Apply migrations/024_member_wallet_transfers.sql and migrations/025_combined_wallet_transfers.sql after the existing wallet migrations.' });

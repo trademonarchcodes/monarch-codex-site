@@ -15,8 +15,8 @@ test('members can reach investments from the dashboard and package page', () => 
   assert.match(server, /name="idempotency_key"/);
 });
 
-test('investment purchase charges 1 percent on top of package principal', () => {
-  assert.match(server, /ROUND\(CAST\(\? AS DECIMAL\(20,8\)\)\*0\.01,8\) AS fee/);
+test('investment purchase charges 10 percent on top of package principal', () => {
+  assert.match(server, /ROUND\(CAST\(\? AS DECIMAL\(20,8\)\)\*0\.10,8\) AS fee/);
   assert.match(server, /balance=balance-\? WHERE id=\? AND balance>=\?/);
   assert.match(server, /total wallet deduction/);
   assert.match(migration, /fee_percent DECIMAL\(5,2\) NOT NULL DEFAULT 1\.00/);
