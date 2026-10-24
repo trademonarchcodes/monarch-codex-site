@@ -427,7 +427,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
 
       const [[amounts]] = await conn.execute(
-        'SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.10,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.10,8),8) AS total',
+        'SELECT CAST(? AS DECIMAL(20,8)) AS principal,ROUND(CAST(? AS DECIMAL(20,8))*0.01,8) AS fee,ROUND(CAST(? AS DECIMAL(20,8))+ROUND(CAST(? AS DECIMAL(20,8))*0.01,8),8) AS total',
         [pkg.price, pkg.price, pkg.price, pkg.price]
       );
       const principal = String(amounts.principal);
@@ -468,7 +468,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
       if (otherDebit > available[otherCurrency] + 1e-8) {
         await conn.rollback();
-        return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for the package price plus the 10% fee at the current conversion rate. No funds were deducted.' });
+        return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for the package price plus the 1% fee at the current conversion rate. No funds were deducted.' });
       }
       const walletDebits = [];
       for (const [wallet, debitAmount] of [[native,nativeDebit],[other,otherDebit]]) {
@@ -485,7 +485,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
 
       const reference = 'INV-' + crypto.randomUUID().replace(/-/g, '').toUpperCase();
       const [created] = await conn.execute(
-        "INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,10.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",
+        "INSERT INTO member_investments (member_id,package_id,package_name_snapshot,currency,principal_amount,fee_percent,fee_amount,total_charged,duration_days,terms_snapshot,status,purchase_reference,idempotency_key,starts_at,matures_at) VALUES (?,?,?,?,?,1.00,?,?,?,?, 'active',?,?,CURRENT_TIMESTAMP,IF(? IS NULL,NULL,DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY)))",
         [req.session.memberId, pkg.id, pkg.name, pkg.currency, principal, fee, total, pkg.duration_days, pkg.terms || '', reference, key, pkg.duration_days, pkg.duration_days]
       );
       for (let index = 0; index < walletDebits.length; index++) {
@@ -503,7 +503,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         'INSERT INTO member_notifications (member_id,notification_type,title,body,target_url,dedupe_key) VALUES (?,?,?,?,?,?)',
         [req.session.memberId, 'investment_purchase', 'Investment package purchased',
           'Your ' + pkg.name + ' package purchase was recorded. Package price: ' + principal + ' ' + pkg.currency +
-          '; 10% fee: ' + fee + ' ' + pkg.currency + '; total wallet deduction: ' + total + ' ' + pkg.currency + '.',
+          '; 1% fee: ' + fee + ' ' + pkg.currency + '; total wallet deduction: ' + total + ' ' + pkg.currency + '.',
           '/investments', 'investment-purchase:' + created.insertId]
       );
       await conn.commit();
