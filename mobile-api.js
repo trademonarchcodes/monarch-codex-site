@@ -760,7 +760,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [remainingRows] = await connection.execute('SELECT currency,balance FROM member_wallets WHERE member_id=?', [req.session.memberId]);
       const remaining = Object.fromEntries(remainingRows.map(row => [String(row.currency), Number(row.balance) || 0]));
       await connection.commit();
-      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), recipientAmount: recipientAmount.toFixed(8), fee: transferFee.toFixed(8), balances: remaining, rate: rate || null, message: 'Transfer completed successfully. The 5% fee was credited to the Super Admin.' });
+      return res.status(201).json({ ok: true, reference, recipient: { uid: recipient.monarch_uid, name: recipient.full_name }, currency, amount: amount.toFixed(8), recipientAmount: recipientAmount.toFixed(8), fee: transferFee.toFixed(8), balances: remaining, rate: rate || null, message: 'Transfer completed. Recipient received ' + currency + ' ' + recipientAmount.toFixed(2) + '; 5% fee of ' + currency + ' ' + transferFee.toFixed(2) + ' was credited to the Super Admin.' });
     } catch (error) {
       try { await connection.rollback(); } catch (_) {}
       if (error && error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: 'transfer_setup_required', message: 'Member transfers are not configured yet. Apply migrations/024_member_wallet_transfers.sql and migrations/025_combined_wallet_transfers.sql after the existing wallet migrations.' });
