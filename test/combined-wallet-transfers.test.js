@@ -27,6 +27,13 @@ test('investment purchases support split-currency debits in a single transaction
   assert.match(api, /await conn\.rollback\(\)/);
 });
 
+test('pending withdrawal reservations are excluded from all combined spending availability', () => {
+  assert.match(api, /SELECT r\.source_currency AS currency,r\.source_amount AS reserved FROM withdrawal_wallet_reservations/);
+  assert.match(api, /const available = \{/);
+  assert.match(api, /available\[targetCurrency\]/);
+  assert.match(api, /available\[currency\]/);
+});
+
 test('withdrawal requests reserve source-currency amounts and settle from those same wallets', () => {
   assert.match(api, /INSERT INTO withdrawal_wallet_reservations/);
   assert.match(api, /SELECT source_currency,source_amount,target_currency,target_amount,rate_used FROM withdrawal_wallet_reservations/);
