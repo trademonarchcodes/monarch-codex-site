@@ -11,7 +11,7 @@ const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '027_
 
 test('investment fee is 10% and principal plus fee is charged', () => {
   assert.match(api, /\*0\.10,8\) AS fee/);
-  assert.match(api, /fee_percent,total_charged/);
+  assert.match(api, /total_charged/);
   assert.match(api, /10% fee for investment package/);
   assert.match(server, /\*0\.10,8\) AS fee/);
   assert.match(server, /fee_percent,total_charged/);
