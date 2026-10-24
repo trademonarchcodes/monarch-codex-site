@@ -1557,9 +1557,10 @@ app.get('/academy', requireAuth, async (req,res,next) => {
     const m = await getMemberForPage(req,res); if (!m) return;
     const [[access]] = await pool.execute("SELECT id,status,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[m.id]);
     const [lessons] = await pool.execute("SELECT id,title,description,video_url,access_level,status,sort_order FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
-    const [progress] = await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[m.id]);
+    const [progress] = await pool.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[m.id]);
     const [replays] = await pool.execute('SELECT lesson_id,MAX(consumed_at IS NULL) AS has_unconsumed,COUNT(*) AS total FROM academy_lesson_replays WHERE member_id=? GROUP BY lesson_id',[m.id]);
     const completed = new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+    const started = new Set(progress.filter(p=>p.last_started_at).map(p=>Number(p.lesson_id)));
     const unconsumedReplay = new Map(replays.map(p=>[Number(p.lesson_id),Number(p.has_unconsumed)===1]));
     const canFull = Boolean(access);
     const firstIncomplete = lessons.find(l=>!completed.has(Number(l.id)));
@@ -1570,7 +1571,7 @@ app.get('/academy', requireAuth, async (req,res,next) => {
       const needsReplay = previous && canOpen;
       const unlockedReplay = !needsReplay || Boolean(unconsumedReplay.get(id));
       const video = canOpen && (!needsReplay || unlockedReplay) && l.video_url ? '<a class="academy-video-link" href="/academy/lessons/'+id+'/watch">Open lesson video ↗</a>' : '';
-      const action = canOpen && !done ? '<form method="post" action="/academy/lessons/'+id+'/complete">'+csrfField(req)+'<button class="academy-action" type="submit">Mark video finished</button></form>' : '';
+      const action = canOpen && !done && started.has(id) ? '<form method="post" action="/academy/lessons/'+id+'/complete">'+csrfField(req)+'<button class="academy-action" type="submit">Mark video finished</button></form>' : '';
       const replay = needsReplay && !unlockedReplay ? '<form method="post" action="/academy/lessons/'+id+'/replay">'+csrfField(req)+'<input type="hidden" name="idempotency_key" value="'+crypto.randomUUID()+'"><button class="academy-action" type="submit">Pay $2 to replay</button></form>' : '';
       const status = !canOpen ? (premium&&!canFull?'Full Academy access required': 'Finish the current lesson first') : (needsReplay&&!unlockedReplay?'Replay fee: $2':'');
       return '<article class="academy-card"><div class="academy-number">'+String(index+1).padStart(2,'0')+'</div><div class="academy-card-main"><div class="academy-tags"><span>'+esc(premium?'Premium':'Open lesson')+'</span>'+(done?'<span>Completed</span>':'')+'</div><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||'')+'</p><p class="academy-status">'+esc(status)+'</p><div class="academy-actions">'+video+action+replay+'</div></div></article>';
@@ -1601,7 +1602,7 @@ app.get('/academy/lessons/:id/watch', requireAuth, async (req,res,next) => {
     if(!lesson||!lesson.video_url){await conn.rollback();return res.status(404).send(formError('Lesson unavailable','This lesson has no published video.','/academy'));}
     const [[access]]=await conn.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
     const [lessons]=await conn.execute("SELECT id FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
-    const [progress]=await conn.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+    const [progress]=await conn.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
     const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
     const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
     if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).send(formError('Full access required','Unlock the full Academy or ask an administrator to grant access.','/academy'));}
@@ -1611,6 +1612,7 @@ app.get('/academy/lessons/:id/watch', requireAuth, async (req,res,next) => {
       if(!replay){await conn.rollback();return res.status(402).send(formError('Replay fee required','Pay $2 to open this previously completed video again.','/academy'));}
       await conn.execute('UPDATE academy_lesson_replays SET consumed_at=CURRENT_TIMESTAMP WHERE id=? AND consumed_at IS NULL',[replay.id]);
     }
+    await conn.execute('INSERT INTO academy_progress (member_id,lesson_id,last_started_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE last_started_at=CURRENT_TIMESTAMP',[req.session.memberId,id]);
     await conn.commit();
     res.set('Cache-Control','no-store, private');
     return res.redirect(303,lesson.video_url);
@@ -1623,12 +1625,12 @@ app.post('/academy/lessons/:id/complete', requireAuth, csrfCheck, async (req,res
   try {
     const [[access]]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
     const [lessons]=await pool.execute("SELECT id,access_level FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
-    const current=lessons.find(l=>!((Number(l.id)===Number(id))?false:false));
     const target=lessons.find(l=>Number(l.id)===Number(id));
     if(!target)return res.status(404).send(formError('Lesson not found','This lesson is not published.','/academy'));
     if(target.access_level==='premium'&&!access)return res.status(403).send(formError('Full access required','Unlock the full Academy or ask an administrator to grant access.','/academy'));
-    const [progress]=await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+    const [progress]=await pool.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
     const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+    if(!progress.some(p=>Number(p.lesson_id)===Number(id)&&p.last_started_at))return res.status(409).send(formError('Open the video first','Open the lesson video before marking it finished.','/academy'));
     const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
     if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id)))return res.status(409).send(formError('Finish the current lesson first','Complete the current video before moving forward.','/academy'));
     await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
