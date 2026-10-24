@@ -1181,7 +1181,7 @@ app.get('/admin/earnings', requireFinanceAdmin, requireWebCategoryAccess('financ
       '<label class="wide">Member<select name="member_id" required><option value="">Choose a member</option>'+options+'</select></label>'+
       '<label>Adjustment type<select name="operation" required><option value="admin_bonus">Bonus credit</option><option value="investment_profit">Approved profit credit</option><option value="loss_adjustment">Loss adjustment (deduct)</option></select></label>'+
       '<label>Wallet currency<select name="currency" required><option value="USD">USD · US dollar</option><option value="NGN">NGN · Naira</option></select></label>'+
-      '<label>Amount<input name="amount" inputmode="decimal" pattern="\d{1,12}(\\.\d{1,8})?" required placeholder="0.00"></label>'+
+      '<label>Amount<input name="amount" inputmode="decimal" pattern="\\d{1,12}(\\.\\d{1,8})?" required placeholder="0.00"></label>'+
       '<label class="wide">Reason / note<textarea name="note" rows="2" maxlength="500" required placeholder="Explain the authorised adjustment"></textarea></label>'+
       '<div class="wide"><button class="copy-btn" type="submit">Record adjustment securely</button></div></form>'+
       '<h3>Recorded profit, bonus &amp; loss entries</h3>'+
