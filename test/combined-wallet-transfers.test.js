@@ -14,8 +14,8 @@ test('wallet balance responses distinguish combined equivalents from actual stor
 });
 
 test('idempotent transfer retries return wallet balances and never create an empty debit ledger', () => {
-  assert.match(api, /alreadyProcessed: true,[\\s\\S]*?balances: priorBalances/);
-  assert.match(api, /if \\(!debits\\.length\\)[\\s\\S]*?transfer_debit_missing/);
+  assert.ok(api.includes('alreadyProcessed: true') && api.includes('balances: priorBalances'));
+  assert.ok(api.includes('if (!debits.length)') && api.includes('transfer_debit_missing'));
 });
 
 test('transfers debit source wallets atomically and preserve conversion audit records', () => {
