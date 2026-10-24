@@ -92,8 +92,18 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       signal: AbortSignal.timeout(12000)
     });
     if (!response.ok) {
-      const error = new Error('The official Android release could not be reached.');
-      error.statusCode = response.status === 404 ? 503 : 502;
+      // GitHub commonly returns 404 for a private repository when the token
+      // is valid but does not have access to that repository.
+      const status = Number(response.status);
+      const message = status === 401
+        ? 'Android updates are not authorized. Replace MONARCH_ANDROID_RELEASE_TOKEN in Hostinger with a valid GitHub token.'
+        : status === 403
+          ? 'Android update access is forbidden. Give the Hostinger token Contents: Read-only access to trademmonarchcodes/monarch-codex-android.'
+          : status === 404
+            ? 'GitHub could not find the release for the configured token. Confirm the Hostinger token can access trademmonarchcodes/monarch-codex-android and that the latest-apk release exists.'
+            : 'The official Android release could not be reached. Please try again later.';
+      const error = new Error(message);
+      error.statusCode = [401, 403, 404].includes(status) ? 503 : 502;
       throw error;
     }
     const release = await response.json();
