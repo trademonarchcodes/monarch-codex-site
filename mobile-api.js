@@ -2146,12 +2146,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try {
       const [[access]]=await pool.execute("SELECT id,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
       const [lessons]=await pool.execute("SELECT id,title,description,video_url,access_level,sort_order FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
-      const [progress]=await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+      const [progress]=await pool.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
       const [replays]=await pool.execute('SELECT lesson_id,MAX(consumed_at IS NULL) AS has_unconsumed FROM academy_lesson_replays WHERE member_id=? GROUP BY lesson_id',[req.session.memberId]);
       const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
       const replayReady=new Set(replays.filter(p=>Number(p.has_unconsumed)===1).map(p=>Number(p.lesson_id)));
       const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
-      res.json({fullAccess:Boolean(access),accessSource:access?.access_source||null,lessons:lessons.map((l,index)=>({id:Number(l.id),title:l.title,description:l.description||'',accessLevel:l.access_level,order:index+1,completed:completed.has(Number(l.id)),isCurrent:Boolean(firstIncomplete&&Number(firstIncomplete.id)===Number(l.id)),canOpen:(l.access_level!=='premium'||Boolean(access))&&(!firstIncomplete||Number(firstIncomplete.id)===Number(l.id)||completed.has(Number(l.id))),requiresReplayFee:completed.has(Number(l.id))&&!replayReady.has(Number(l.id)),replayReady:replayReady.has(Number(l.id)),hasVideo:Boolean(l.video_url)}))});
+      res.json({fullAccess:Boolean(access),accessSource:access?.access_source||null,lessons:lessons.map((l,index)=>({id:Number(l.id),title:l.title,description:l.description||'',accessLevel:l.access_level,order:index+1,completed:completed.has(Number(l.id)),started:progress.some(p=>Number(p.lesson_id)===Number(l.id)&&p.last_started_at),isCurrent:Boolean(firstIncomplete&&Number(firstIncomplete.id)===Number(l.id)),canOpen:(l.access_level!=='premium'||Boolean(access))&&(!firstIncomplete||Number(firstIncomplete.id)===Number(l.id)||completed.has(Number(l.id))),requiresReplayFee:completed.has(Number(l.id))&&!replayReady.has(Number(l.id)),replayReady:replayReady.has(Number(l.id)),hasVideo:Boolean(l.video_url)}))});
     } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Apply the reviewed Academy migrations after a verified database backup.'});next(e); }
   });
 
@@ -2195,7 +2195,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(!lesson||!lesson.video_url){await conn.rollback();return res.status(404).json({error:'lesson_video_unavailable'});}
       const [[access]]=await conn.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
       const [lessons]=await conn.execute("SELECT id FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
-      const [progress]=await conn.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+      const [progress]=await conn.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
       const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
       const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
       if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).json({error:'full_access_required'});}
@@ -2205,6 +2205,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         if(!replay){await conn.rollback();return res.status(402).json({error:'replay_fee_required',message:'Pay $2 to replay this previous video.'});}
         await conn.execute('UPDATE academy_lesson_replays SET consumed_at=CURRENT_TIMESTAMP WHERE id=? AND consumed_at IS NULL',[replay.id]);
       }
+      await conn.execute('INSERT INTO academy_progress (member_id,lesson_id,last_started_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE last_started_at=CURRENT_TIMESTAMP',[req.session.memberId,id]);
       await conn.commit();return res.json({ok:true,videoUrl:lesson.video_url});
     }catch(e){try{await conn.rollback();}catch(_){}if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});next(e);}
     finally{conn.release();}
@@ -2218,8 +2219,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const target=lessons.find(l=>Number(l.id)===Number(id));
       if(!target)return res.status(404).json({error:'lesson_not_found'});
       if(target.access_level==='premium'&&!access)return res.status(403).json({error:'full_access_required'});
-      const [progress]=await pool.execute('SELECT lesson_id,completed_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+      const [progress]=await pool.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
       const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+      if(!progress.some(p=>Number(p.lesson_id)===Number(id)&&p.last_started_at))return res.status(409).json({error:'open_video_first',message:'Open the lesson video before marking it finished.'});
       const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
       if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id)))return res.status(409).json({error:'finish_current_lesson_first'});
       await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
