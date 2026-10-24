@@ -625,8 +625,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     const currency = String(req.body.currency || '').trim().toUpperCase();
     const amountText = String(req.body.amount || '').trim();
     const idempotencyKey = String(req.body.idempotencyKey || '').trim();
-    if (!/^MONARCH\\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
-        !/^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,8})?$/.test(amountText) ||
+    if (!/^MONARCH\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
+        !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/.test(amountText) ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
       return res.status(400).json({ error: 'invalid_transfer', message: 'Enter a valid recipient UID, currency, amount and transfer request key.' });
     }
