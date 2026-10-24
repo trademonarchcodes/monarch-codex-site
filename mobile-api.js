@@ -2104,6 +2104,131 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       res.status(201).json({ok:true});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
+
+  // Academy APIs mirror the website rules: $10 USD-equivalent for full access,
+  // and a fresh $2 USD-equivalent charge for each replay of a completed lesson.
+  const academyChargeMobile = async (conn, memberId, feeUsd, type, lessonId, idempotencyKey) => {
+    if (type === 'academy_replay_fee') {
+      const [[prior]] = await conn.execute('SELECT id FROM academy_lesson_replays WHERE member_id=? AND idempotency_key=? LIMIT 1 FOR UPDATE',[memberId,idempotencyKey]);
+      if (prior) return { already: true };
+    }
+    const [[pricing]] = await conn.query('SELECT base_usd_ngn_rate,markup_percent FROM deposit_pricing_settings WHERE id=1');
+    const rate = Number(pricing && pricing.base_usd_ngn_rate) * (1 + Number(pricing && pricing.markup_percent || 0) / 100);
+    if (!Number.isFinite(rate) || rate <= 0) throw Object.assign(new Error('Academy pricing is unavailable. No funds were deducted.'),{statusCode:503});
+    const [[usdWallet]] = await conn.execute("SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='USD' LIMIT 1 FOR UPDATE",[memberId]);
+    const [[ngnWallet]] = await conn.execute("SELECT id,balance FROM member_wallets WHERE member_id=? AND currency='NGN' LIMIT 1 FOR UPDATE",[memberId]);
+    let currency, wallet, debit, usedRate;
+    if (usdWallet && Number(usdWallet.balance) + 1e-8 >= feeUsd) { currency='USD';wallet=usdWallet;debit=feeUsd;usedRate=1; }
+    else if (ngnWallet && Number(ngnWallet.balance) + 1e-8 >= feeUsd*rate) { currency='NGN';wallet=ngnWallet;debit=Math.round(feeUsd*rate*100)/100;usedRate=rate; }
+    else throw Object.assign(new Error('Insufficient combined wallet balance for this Academy fee.'),{statusCode:409});
+    const [[admin]] = await conn.execute("SELECT member_id FROM admin_users WHERE role='super_admin' AND is_active=1 ORDER BY member_id LIMIT 1 FOR UPDATE");
+    if (!admin) throw Object.assign(new Error('Academy fee collection is not configured. No funds were deducted.'),{statusCode:503});
+    let [[adminWallet]] = await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[admin.member_id,currency]);
+    if (!adminWallet) {
+      await conn.execute('INSERT INTO member_wallets (member_id,currency,balance) VALUES (?,?,0) ON DUPLICATE KEY UPDATE member_id=VALUES(member_id)',[admin.member_id,currency]);
+      [[adminWallet]] = await conn.execute('SELECT id,balance FROM member_wallets WHERE member_id=? AND currency=? LIMIT 1 FOR UPDATE',[admin.member_id,currency]);
+    }
+    const [debited] = await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE id=? AND balance>=?',[debit,wallet.id,debit]);
+    if (debited.affectedRows!==1) throw Object.assign(new Error('Insufficient wallet balance. No funds were deducted.'),{statusCode:409});
+    await conn.execute('UPDATE member_wallets SET balance=balance+? WHERE id=?',[debit,adminWallet.id]);
+    const reference='ACAD-'+crypto.randomUUID().replace(/-/g,'').toUpperCase();
+    const [memberTx]=await conn.execute('INSERT INTO financial_transactions (member_id,admin_member_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,?,?,?,?,?,?)',[memberId,admin.member_id,type,currency,(-debit).toFixed(8),reference,type==='academy_access_purchase'?'Full Academy access fee; USD-equivalent $10.00':'Previous Academy video replay fee; USD-equivalent $2.00']);
+    await conn.execute('INSERT INTO financial_transactions (member_id,admin_member_id,transaction_type,currency,amount,reference,admin_note) VALUES (?,?,?,?,?,?,?)',[admin.member_id,admin.member_id,type,currency,debit.toFixed(8),reference+'-ADMIN','Academy fee collected from member #'+memberId]);
+    if(type==='academy_replay_fee') {
+      await conn.execute('INSERT INTO academy_lesson_replays (member_id,lesson_id,transaction_id,idempotency_key,fee_usd,currency,amount_debited,exchange_rate) VALUES (?,?,?,?,?,?,?,?)',[memberId,lessonId,memberTx.insertId,idempotencyKey,feeUsd,currency,debit.toFixed(8),usedRate]);
+    } else {
+      await conn.execute("INSERT INTO academy_access (member_id,status,access_source,granted_by,payment_transaction_id,paid_amount,paid_currency,exchange_rate,reason,expires_at) VALUES (?,'approved','payment',?,?,?,?,?,'Purchased full Academy access',NULL) ON DUPLICATE KEY UPDATE status='approved',access_source='payment',granted_by=VALUES(granted_by),payment_transaction_id=VALUES(payment_transaction_id),paid_amount=VALUES(paid_amount),paid_currency=VALUES(paid_currency),exchange_rate=VALUES(exchange_rate),reason='Purchased full Academy access',expires_at=NULL",[memberId,admin.member_id,memberTx.insertId,debit.toFixed(8),currency,usedRate]);
+    }
+    return {currency,amount:debit,exchangeRate:usedRate,reference};
+  };
+
+  router.get('/academy', noStore, apiAuth, async (req,res,next) => {
+    try {
+      const [[access]]=await pool.execute("SELECT id,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+      const [lessons]=await pool.execute("SELECT id,title,description,video_url,access_level,sort_order FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
+      const [progress]=await pool.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+      const [replays]=await pool.execute('SELECT lesson_id,MAX(consumed_at IS NULL) AS has_unconsumed FROM academy_lesson_replays WHERE member_id=? GROUP BY lesson_id',[req.session.memberId]);
+      const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+      const replayReady=new Set(replays.filter(p=>Number(p.has_unconsumed)===1).map(p=>Number(p.lesson_id)));
+      const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
+      res.json({fullAccess:Boolean(access),accessSource:access?.access_source||null,lessons:lessons.map((l,index)=>({id:Number(l.id),title:l.title,description:l.description||'',accessLevel:l.access_level,order:index+1,completed:completed.has(Number(l.id)),started:progress.some(p=>Number(p.lesson_id)===Number(l.id)&&p.last_started_at),isCurrent:Boolean(firstIncomplete&&Number(firstIncomplete.id)===Number(l.id)),canOpen:(l.access_level!=='premium'||Boolean(access))&&(!firstIncomplete||Number(firstIncomplete.id)===Number(l.id)||completed.has(Number(l.id))),requiresReplayFee:completed.has(Number(l.id))&&!replayReady.has(Number(l.id)),replayReady:replayReady.has(Number(l.id)),hasVideo:Boolean(l.video_url)}))});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Apply the reviewed Academy migrations after a verified database backup.'});next(e); }
+  });
+
+  router.post('/academy/access/purchase', noStore, apiAuth, async (req,res,next) => {
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute('SELECT id FROM members WHERE id=? LIMIT 1 FOR UPDATE',[req.session.memberId]);
+      const [[access]]=await conn.execute("SELECT id,status FROM academy_access WHERE member_id=? LIMIT 1 FOR UPDATE",[req.session.memberId]);
+      if(access&&access.status==='approved'){await conn.rollback();return res.json({ok:true,alreadyActive:true});}
+      const result=await academyChargeMobile(conn,Number(req.session.memberId),10,'academy_access_purchase',null,'ACCESS-'+crypto.randomUUID());
+      await conn.commit();return res.json({ok:true,fullAccess:true,payment:result});
+    } catch(e){try{await conn.rollback();}catch(_){}if(e.statusCode)return res.status(e.statusCode).json({error:'academy_payment_failed',message:e.message});if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Academy payment setup is incomplete; no funds were changed.'});next(e);}
+    finally{conn.release();}
+  });
+
+  router.post('/academy/lessons/:id/replay', noStore, apiAuth, async (req,res,next) => {
+    const id=String(req.params.id||''),key=String(req.body?.idempotencyKey||'');
+    if(!/^\d{1,20}$/.test(id)||!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key))return res.status(400).json({error:'invalid_replay_request'});
+    const conn=await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[lesson]]=await conn.execute("SELECT id,access_level FROM academy_lessons WHERE id=? AND status='published' LIMIT 1 FOR UPDATE",[id]);
+      if(!lesson){await conn.rollback();return res.status(404).json({error:'lesson_not_found'});}
+      const [[access]]=await conn.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+      if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).json({error:'full_access_required',message:'Unlock the full Academy first.'});}
+      const [[progress]]=await conn.execute('SELECT completed_at FROM academy_progress WHERE member_id=? AND lesson_id=? LIMIT 1',[req.session.memberId,id]);
+      if(!progress||!progress.completed_at){await conn.rollback();return res.status(409).json({error:'replay_not_allowed',message:'Finish the lesson before paying to replay it.'});}
+      const payment=await academyChargeMobile(conn,Number(req.session.memberId),2,'academy_replay_fee',Number(id),key);
+      await conn.commit();return res.json({ok:true,replayReady:true,payment});
+    }catch(e){try{await conn.rollback();}catch(_){}if(e.statusCode)return res.status(e.statusCode).json({error:'replay_payment_failed',message:e.message});if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'replay_already_paid'});if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Academy replay setup is incomplete; no funds were changed.'});next(e);}
+    finally{conn.release();}
+  });
+
+  router.post('/academy/lessons/:id/watch', noStore, apiAuth, async (req,res,next) => {
+    const id=String(req.params.id||'');if(!/^\d{1,20}$/.test(id))return res.status(400).json({error:'invalid_lesson_id'});
+    const conn=await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [[lesson]]=await conn.execute("SELECT id,video_url,access_level FROM academy_lessons WHERE id=? AND status='published' LIMIT 1 FOR UPDATE",[id]);
+      if(!lesson||!lesson.video_url){await conn.rollback();return res.status(404).json({error:'lesson_video_unavailable'});}
+      const [[access]]=await conn.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+      const [lessons]=await conn.execute("SELECT id FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
+      const [progress]=await conn.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+      const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+      const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
+      if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).json({error:'full_access_required'});}
+      if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id))){await conn.rollback();return res.status(409).json({error:'finish_current_lesson_first'});}
+      if(completed.has(Number(id))){
+        const [[replay]]=await conn.execute('SELECT id FROM academy_lesson_replays WHERE member_id=? AND lesson_id=? AND consumed_at IS NULL ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE',[req.session.memberId,id]);
+        if(!replay){await conn.rollback();return res.status(402).json({error:'replay_fee_required',message:'Pay $2 to replay this previous video.'});}
+        await conn.execute('UPDATE academy_lesson_replays SET consumed_at=CURRENT_TIMESTAMP WHERE id=? AND consumed_at IS NULL',[replay.id]);
+      }
+      await conn.execute('INSERT INTO academy_progress (member_id,lesson_id,last_started_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE last_started_at=CURRENT_TIMESTAMP',[req.session.memberId,id]);
+      await conn.commit();return res.json({ok:true,videoUrl:lesson.video_url});
+    }catch(e){try{await conn.rollback();}catch(_){}if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});next(e);}
+    finally{conn.release();}
+  });
+
+  router.post('/academy/lessons/:id/complete', noStore, apiAuth, async (req,res,next) => {
+    const id=String(req.params.id||'');if(!/^\d{1,20}$/.test(id))return res.status(400).json({error:'invalid_lesson_id'});
+    try{
+      const [[access]]=await pool.execute("SELECT id FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
+      const [lessons]=await pool.execute("SELECT id,access_level FROM academy_lessons WHERE status='published' ORDER BY sort_order ASC,id ASC");
+      const target=lessons.find(l=>Number(l.id)===Number(id));
+      if(!target)return res.status(404).json({error:'lesson_not_found'});
+      if(target.access_level==='premium'&&!access)return res.status(403).json({error:'full_access_required'});
+      const [progress]=await pool.execute('SELECT lesson_id,completed_at,last_started_at FROM academy_progress WHERE member_id=?',[req.session.memberId]);
+      const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
+      if(!progress.some(p=>Number(p.lesson_id)===Number(id)&&p.last_started_at))return res.status(409).json({error:'open_video_first',message:'Open the lesson video before marking it finished.'});
+      const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
+      if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id)))return res.status(409).json({error:'finish_current_lesson_first'});
+      await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
+      res.json({ok:true,completed:true});
+    }catch(e){if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});next(e);}
+  });
+
   router.use('/sovereign', desk);
 
   return router;
