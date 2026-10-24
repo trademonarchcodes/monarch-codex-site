@@ -593,7 +593,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/wallet/recipient/:uid', noStore, apiAuth, async (req, res, next) => {
     try {
       const uid = String(req.params.uid || '').trim().toUpperCase();
-      if (!/^MONARCH\\d{6}$/.test(uid)) return res.status(400).json({ error: 'invalid_uid', message: 'Enter a valid Monarch UID.' });
+      if (!/^MONARCH\d{6}$/.test(uid)) return res.status(400).json({ error: 'invalid_uid', message: 'Enter a valid Monarch UID.' });
       const [[recipient]] = await pool.execute('SELECT monarch_uid,full_name,is_blocked,email_verified_at FROM members WHERE monarch_uid=? LIMIT 1', [uid]);
       if (!recipient || Number(recipient.is_blocked) === 1 || !recipient.email_verified_at) return res.status(404).json({ error: 'recipient_unavailable', message: 'No eligible verified member was found for that UID.' });
       const [[kyc]] = await pool.execute("SELECT id FROM kyc_submissions WHERE member_id=(SELECT id FROM members WHERE monarch_uid=? LIMIT 1) AND status='approved' ORDER BY submitted_at DESC,id DESC LIMIT 1", [uid]);
@@ -611,8 +611,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     const currency = String(req.body.currency || '').trim().toUpperCase();
     const amountText = String(req.body.amount || '').trim();
     const idempotencyKey = String(req.body.idempotencyKey || '').trim();
-    if (!/^MONARCH\\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
-        !/^(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,8})?$/.test(amountText) ||
+    if (!/^MONARCH\d{6}$/.test(recipientUid) || !['NGN','USD'].includes(currency) ||
+        !/^(?:0|[1-9]\d{0,11})(?:\.\d{1,8})?$/.test(amountText) ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
       return res.status(400).json({ error: 'invalid_transfer', message: 'Enter a valid recipient UID, currency, amount and transfer request key.' });
     }
