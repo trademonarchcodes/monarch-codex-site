@@ -1,5 +1,5 @@
 -- Monarch Codex Academy full-access and per-replay billing.
--- Apply only after a verified database backup and after migrations 005, 011, 016, and 024.
+-- Apply only after a verified database backup and after migrations 016, 024, and 026_academy_base_tables.sql.
 -- This additive migration preserves existing lessons, progress, wallets, and ledger rows.
 -- Keep admin_fee_revenue and Academy transaction types together regardless of migration order.
 ALTER TABLE financial_transactions
