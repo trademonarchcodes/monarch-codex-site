@@ -440,6 +440,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await conn.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0),(?,?,0)', [req.session.memberId,'NGN',req.session.memberId,'USD']);
       const [walletRows] = await conn.execute('SELECT id,currency,balance FROM member_wallets WHERE member_id=? AND currency IN (?,?) ORDER BY currency FOR UPDATE', [req.session.memberId,'NGN','USD']);
       const wallets = new Map(walletRows.map(row => [String(row.currency),row]));
+      const [reservationRows] = await conn.execute("SELECT r.source_currency AS currency,r.source_amount AS reserved FROM withdrawal_wallet_reservations r JOIN withdrawal_requests w ON w.id=r.withdrawal_request_id WHERE r.member_id=? AND w.status IN ('pending','approved')", [req.session.memberId]);
+      const [legacyReservationRows] = await conn.execute("SELECT w.currency,w.amount AS reserved FROM withdrawal_requests w WHERE w.member_id=? AND w.status IN ('pending','approved') AND NOT EXISTS (SELECT 1 FROM withdrawal_wallet_reservations r WHERE r.withdrawal_request_id=w.id)", [req.session.memberId]);
+      const reserved = { NGN: 0, USD: 0 };
+      for (const row of [...reservationRows,...legacyReservationRows]) if (Object.prototype.hasOwnProperty.call(reserved,row.currency)) reserved[row.currency] += Number(row.reserved)||0;
+      const available = {
+        NGN: Math.max(0,(Number(wallets.get('NGN') && wallets.get('NGN').balance)||0)-reserved.NGN),
+        USD: Math.max(0,(Number(wallets.get('USD') && wallets.get('USD').balance)||0)-reserved.USD)
+      };
       const native = wallets.get(targetCurrency);
       const otherCurrency = targetCurrency === 'NGN' ? 'USD' : 'NGN';
       const other = wallets.get(otherCurrency);
@@ -447,7 +455,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await conn.rollback();
         return res.status(503).json({ error: 'wallet_unavailable', message: 'Both wallet currencies must be configured before purchasing. No funds were deducted.' });
       }
-      let nativeDebit = Math.min(Math.max(0, Number(native.balance) || 0), targetAmount);
+      let nativeDebit = Math.min(available[targetCurrency], targetAmount);
       const shortage = Math.max(0, targetAmount - nativeDebit);
       let otherDebit = 0;
       if (shortage > 0) {
@@ -458,7 +466,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         const converted = targetCurrency === 'NGN' ? shortage / conversionRate : shortage * conversionRate;
         otherDebit = Math.ceil((converted - 1e-10) * 1e8) / 1e8;
       }
-      if (otherDebit > (Number(other.balance) || 0) + 1e-8) {
+      if (otherDebit > available[otherCurrency] + 1e-8) {
         await conn.rollback();
         return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for the package price plus the 1% fee at the current conversion rate. No funds were deducted.' });
       }
@@ -659,6 +667,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [walletRows] = await connection.execute('SELECT id,member_id,currency,balance FROM member_wallets WHERE (member_id=? OR member_id=?) AND (currency=? OR currency=?) ORDER BY member_id,currency FOR UPDATE', [req.session.memberId,recipient.id,'NGN','USD']);
       const senderWallets = new Map(walletRows.filter(row => Number(row.member_id) === Number(req.session.memberId)).map(row => [String(row.currency),row]));
       const recipientWallet = walletRows.find(row => Number(row.member_id) === Number(recipient.id) && String(row.currency) === currency);
+      const [reservationRows] = await connection.execute("SELECT r.source_currency AS currency,r.source_amount AS reserved FROM withdrawal_wallet_reservations r JOIN withdrawal_requests w ON w.id=r.withdrawal_request_id WHERE r.member_id=? AND w.status IN ('pending','approved')", [req.session.memberId]);
+      const [legacyReservationRows] = await connection.execute("SELECT w.currency,w.amount AS reserved FROM withdrawal_requests w WHERE w.member_id=? AND w.status IN ('pending','approved') AND NOT EXISTS (SELECT 1 FROM withdrawal_wallet_reservations r WHERE r.withdrawal_request_id=w.id)", [req.session.memberId]);
+      const reserved = { NGN: 0, USD: 0 };
+      for (const row of [...reservationRows,...legacyReservationRows]) if (Object.prototype.hasOwnProperty.call(reserved,row.currency)) reserved[row.currency] += Number(row.reserved)||0;
+      const available = {
+        NGN: Math.max(0,(Number(senderWallets.get('NGN') && senderWallets.get('NGN').balance)||0)-reserved.NGN),
+        USD: Math.max(0,(Number(senderWallets.get('USD') && senderWallets.get('USD').balance)||0)-reserved.USD)
+      };
       if (!senderWallets.has('NGN') || !senderWallets.has('USD') || !recipientWallet) {
         await connection.rollback();
         return res.status(503).json({ error: 'wallet_unavailable', message: 'A required wallet is not available. No funds were moved.' });
@@ -666,7 +682,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const native = senderWallets.get(currency);
       const otherCurrency = currency === 'NGN' ? 'USD' : 'NGN';
       const other = senderWallets.get(otherCurrency);
-      const nativeBalance = Math.max(0, Number(native.balance) || 0);
+      const nativeBalance = available[currency];
       const nativeDebit = Math.min(nativeBalance, amount);
       const shortage = Math.max(0, amount - nativeDebit);
       let otherDebit = 0;
@@ -678,7 +694,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         const rawOther = currency === 'NGN' ? shortage / rate : shortage * rate;
         otherDebit = Math.ceil((rawOther - 1e-10) * 1e8) / 1e8;
       }
-      if (otherDebit > (Number(other.balance) || 0) + 1e-8) {
+      if (otherDebit > available[otherCurrency] + 1e-8) {
         await connection.rollback();
         return res.status(409).json({ error: 'insufficient_balance', message: 'Your combined wallet balance is not enough for this transfer at the current conversion rate.' });
       }
