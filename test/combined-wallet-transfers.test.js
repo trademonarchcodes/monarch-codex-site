@@ -1,20 +1,36 @@
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const api = fs.readFileSync(require.resolve('../mobile-api.js'), 'utf8');
-const migration = fs.readFileSync(require.resolve('../migrations/025_combined_wallet_transfers.sql'), 'utf8');
+const path = require('node:path');
+const api = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
+const transferMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '025_combined_wallet_transfers.sql'), 'utf8');
+const withdrawalMigration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '026_combined_withdrawal_reservations.sql'), 'utf8');
 
-test('wallet API returns combined equivalent balances while preserving actual stored balances', () => {
+test('wallet balance responses distinguish combined equivalents from actual stored balances', () => {
   assert.match(api, /const ngn = actualNgn \+ \(rate \? actualUsd \* rate : 0\)/);
   assert.match(api, /const usd = actualUsd \+ \(rate \? actualNgn \/ rate : 0\)/);
   assert.match(api, /actualNgn, actualUsd, rate/);
 });
 
-test('combined wallet transfers lock both currencies, debit atomically and audit each source debit', () => {
+test('transfers debit source wallets atomically and preserve conversion audit records', () => {
   assert.match(api, /ORDER BY member_id,currency FOR UPDATE/);
   assert.match(api, /member_wallet_transfer_debits/);
-  assert.match(api, /await connection\.rollback\(\)/);
   assert.match(api, /configured conversion rate/);
-  assert.match(migration, /source_currency ENUM\('NGN','USD'\)/);
-  assert.match(migration, /FOREIGN KEY \(transfer_id\) REFERENCES member_wallet_transfers\(id\)/);
+  assert.match(transferMigration, /source_currency ENUM\('NGN','USD'\)/);
+});
+
+test('investment purchases support split-currency debits in a single transaction', () => {
+  assert.match(api, /const walletDebits = \[\]/);
+  assert.match(api, /Investment package split-currency debit/);
+  assert.match(api, /debits: walletDebits\.map/);
+  assert.match(api, /await conn\.rollback\(\)/);
+});
+
+test('withdrawal requests reserve source-currency amounts and settle from those same wallets', () => {
+  assert.match(api, /INSERT INTO withdrawal_wallet_reservations/);
+  assert.match(api, /SELECT source_currency,source_amount,target_currency,target_amount,rate_used FROM withdrawal_wallet_reservations/);
+  assert.match(api, /NOT EXISTS \(SELECT 1 FROM withdrawal_wallet_reservations/);
+  assert.match(withdrawalMigration, /FOREIGN KEY \(withdrawal_request_id\) REFERENCES withdrawal_requests\(id\)/);
+  assert.match(withdrawalMigration, /source_currency ENUM\('NGN','USD'\)/);
 });
