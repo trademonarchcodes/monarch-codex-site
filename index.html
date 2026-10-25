@@ -90,6 +90,18 @@
       </div>
     </section>
 
+    <section id="free-signals-event" class="section-wrap section-pad">
+      <div class="event-card event-featured" style="border-color:rgba(240,199,65,.65)">
+        <p class="partner-kicker">THE SOVEREIGN DESK · LIMITED EVENT</p>
+        <h2>Free Signals — First 20 Members</h2>
+        <p>Request access during the event window. Only the first 20 eligible member requests can reserve a slot. Requests are reviewed before access is activated. Trading involves risk; results are not guaranteed.</p>
+        <p id="freeSignalSlots" aria-live="polite">Loading available slots…</p>
+        <h3 id="freeSignalCountdown" aria-live="polite">Loading countdown…</h3>
+        <a class="button button-login" href="/login">Log in to request access →</a>
+        <a class="text-link" href="/sovereign-desk.html">Explore The Sovereign Desk ↗</a>
+      </div>
+    </section>
+
     <section id="partners" class="section-wrap section-pad">
       <div class="section-heading centered"><p class="eyebrow">OUR PARTNER SPOTLIGHT</p><h2>Know the difference.<br>Choose with clarity.</h2><p class="section-intro">These are distinct areas associated with the Monarch Codex community. Their participation rules and services are not automatically the same.</p></div>
       <div class="partner-grid">
@@ -224,6 +236,29 @@
   })();
   </script>
   
+  <script>
+  (function(){
+    const slots=document.getElementById('freeSignalSlots'), clock=document.getElementById('freeSignalCountdown');
+    let endAt=null, offset=0;
+    async function refresh(){
+      try{
+        const r=await fetch('/api/mobile/sovereign/free-signals-event',{cache:'no-store'});
+        if(!r.ok)throw new Error('unavailable');
+        const d=await r.json(); endAt=Date.parse(d.endsAt); offset=Date.parse(d.serverTime)-Date.now();
+        slots.textContent=d.remaining+' of '+d.limit+' Free Signals slots remaining ('+d.claimed+' claimed).';
+        if(!d.open) clock.textContent=Date.now()+offset>=endAt?'Event closed.':'All 20 slots have been claimed.';
+      }catch(e){slots.textContent='Free Signals event status is temporarily unavailable.';clock.textContent='Please check again shortly.';}
+    }
+    function tick(){
+      if(!endAt)return;
+      const ms=endAt-(Date.now()+offset);
+      if(ms<=0){clock.textContent='Event closed.';return;}
+      const days=Math.floor(ms/86400000),hours=Math.floor(ms%86400000/3600000),mins=Math.floor(ms%3600000/60000),secs=Math.floor(ms%60000/1000);
+      clock.textContent='Time remaining: '+days+'d '+hours+'h '+mins+'m '+secs+'s';
+    }
+    refresh().then(tick);setInterval(tick,1000);setInterval(refresh,60000);
+  })();
+  </script>
   <script src="assets/js/main.js"></script>
 </body>
 </html>
