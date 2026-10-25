@@ -1906,6 +1906,37 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   });
 
 
+  // First-20 Free Signals event. One shared server-side deadline is used by web and Android.
+  const FREE_SIGNAL_EVENT_END = new Date('2026-11-22T23:59:59Z');
+  router.get('/sovereign/free-signals-event', noStore, async (_req,res,next) => {
+    try {
+      const [[slot]] = await pool.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
+      const [[counts]] = await pool.execute("SELECT COUNT(*) AS claimed FROM sovereign_signal_access WHERE access_type='event_free' AND status IN ('pending','approved')");
+      const claimed = Math.max(Number(slot && slot.claimed_count)||0, Number(counts && counts.claimed)||0);
+      const now = new Date();
+      res.json({eventStartedAt:'2026-10-24T00:00:00Z',endsAt:FREE_SIGNAL_EVENT_END.toISOString(),serverTime:now.toISOString(),limit:20,claimed:Math.min(claimed,20),remaining:Math.max(0,20-claimed),open:now<FREE_SIGNAL_EVENT_END && claimed<20});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'free_signals_event_setup_required'}); next(e); }
+  });
+  router.post('/sovereign/free-signals-event/request', noStore, apiAuth, async (req,res,next) => {
+    const conn=await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const now = new Date();
+      if(now>=FREE_SIGNAL_EVENT_END){await conn.rollback();return res.status(410).json({error:'event_closed',message:'The Free Signals event has ended.'});}
+      const [[existing]]=await conn.execute("SELECT id,status FROM sovereign_signal_access WHERE member_id=? AND access_type='event_free' LIMIT 1",[req.session.memberId]);
+      if(existing){await conn.rollback();return res.status(409).json({error:'already_requested',status:existing.status,message:'You have already requested a Free Signals slot.'});}
+      const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
+      const [[counts]]=await conn.execute("SELECT COUNT(*) AS claimed FROM sovereign_signal_access WHERE access_type='event_free' AND status IN ('pending','approved')");
+      const claimed=Math.max(Number(slot && slot.claimed_count)||0,Number(counts && counts.claimed)||0);
+      if(claimed>=20){await conn.rollback();return res.status(409).json({error:'event_full',message:'All 20 Free Signals event slots have been claimed.'});}
+      await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,requested_at) VALUES (?,'event_free','pending',CURRENT_TIMESTAMP)",[req.session.memberId]);
+      await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=? WHERE id=1',[claimed+1]);
+      await conn.commit();
+      res.status(201).json({ok:true,status:'pending',claimed:claimed+1,remaining:Math.max(0,19-claimed),message:'Your request is submitted for review.'});
+    } catch(e) { await conn.rollback().catch(()=>{}); if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'already_requested'}); if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'free_signals_event_setup_required'}); next(e); }
+    finally { conn.release(); }
+  });
+
   // Native Sovereign Desk API. The Android app uses the same authenticated session
   // and the same production database as the website; no database credentials leave the server.
   const sovereignAdminApi = async (req,res,next) => {
