@@ -40,7 +40,7 @@ test('mobile Academy API includes category identifiers and names for dynamically
 });
 
 test('mobile Academy progression is scoped to the selected lesson category', () => {
-  assert.match(mobileApi, /categoryLessons=lessons\.filter\(item=>String\(item\.category_id\?\?'\'\)===String\(l\.category_id\?\?'\'\)\)/);
+  assert.ok(mobileApi.includes("categoryLessons=lessons.filter(item=>String(item.category_id??'')===String(l.category_id??''))"));
   assert.match(mobileApi, /SELECT id,category_id,video_url,access_level FROM academy_lessons/);
   assert.match(mobileApi, /WHERE status='published' AND category_id <=> \?/);
   assert.match(mobileApi, /const lessons=allLessons\.filter\(l=>l\.category_id===target\.category_id/);
