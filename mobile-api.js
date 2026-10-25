@@ -127,7 +127,22 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     return callTelegramWorker(req, res, '/telegram/admin-action', 'POST', req.body || {});
   });
 
-  router.get('/health', noStore, (_req, res) => res.json({ ok: true, service: 'monarch-codex-mobile-api', version: 1 }));
+  // Read-only readiness probe: distinguishes an API process that is alive from one
+  // that can reach its database. Never expose SQL errors, hostnames, or credentials.
+  router.get('/health', noStore, async (_req, res) => {
+    try {
+      await pool.query('SELECT 1 AS ready');
+      return res.json({ ok: true, ready: true, service: 'monarch-codex-mobile-api', version: 1 });
+    } catch (_error) {
+      return res.status(503).json({
+        ok: false,
+        ready: false,
+        service: 'monarch-codex-mobile-api',
+        version: 1,
+        message: 'The API is running but its database dependency is unavailable.'
+      });
+    }
+  });
 
   // Public Android update manifest and asset proxy. The private GitHub release token stays on the server.
   const loadAndroidRelease = async () => {
