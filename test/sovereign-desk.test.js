@@ -7,6 +7,16 @@ const routerSource = fs.readFileSync(path.join(__dirname, '..', 'sovereign-desk.
 const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '010_sovereign_desk_announcements.sql'), 'utf8');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
+test('mobile API failures return JSON support references and correlate to sanitized request IDs', () => {
+  assert.match(server, /req\.get\('X-Request-ID'\)/);
+  assert.match(server, /\[a-zA-Z0-9\._:-\]\{1,80\}/);
+  assert.match(server, /req\.path\.startsWith\('\/api\/mobile\/'\)/);
+  assert.match(server, /res\.status\(500\)\.json\(/);
+  assert.match(server, /requestId/);
+  assert.match(server, /stack: err && err\.stack/);
+  assert.match(server, /res\.setHeader\('X-Request-ID', requestId\)/);
+});
+
 test('Sovereign Desk has real member and administrator routes for its core workflows', () => {
   for (const route of [
     "router.get('/sovereign-admin'",
