@@ -2142,6 +2142,104 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     return {currency,amount:debit,exchangeRate:usedRate,reference};
   };
 
+
+  // Native Android admin Academy workspace. All writes require authenticated admin manage permission.
+  router.get('/admin/academy', noStore, apiAuth, requireCategoryAccess('invest_market','view'), async (req,res,next) => {
+    try {
+      const [categories] = await pool.query('SELECT id,name,slug,description,sort_order,is_active FROM academy_categories ORDER BY sort_order ASC,name ASC');
+      const [lessons] = await pool.query('SELECT l.id,l.title,l.description,l.video_url,l.access_level,l.status,l.sort_order,l.category_id,c.name AS category_name,l.created_at FROM academy_lessons l LEFT JOIN academy_categories c ON c.id=l.category_id ORDER BY COALESCE(c.sort_order,999999) ASC,c.name ASC,l.sort_order ASC,l.id ASC LIMIT 500');
+      return res.json({categories:categories.map(c=>({id:Number(c.id),name:c.name,slug:c.slug,description:c.description||'',sortOrder:Number(c.sort_order)||0,isActive:Boolean(Number(c.is_active))})),lessons:lessons.map(l=>({id:Number(l.id),title:l.title,description:l.description||'',videoUrl:l.video_url||'',accessLevel:l.access_level,status:l.status,sortOrder:Number(l.sort_order)||0,categoryId:l.category_id===null?null:Number(l.category_id),categoryName:l.category_name||'Unassigned',createdAt:l.created_at}))});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code)) return res.status(503).json({error:'academy_setup_required',message:'Academy tables are not configured; no data was changed.'}); return next(e); }
+  });
+
+  router.post('/admin/academy/categories', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const name=String(req.body?.name||'').trim().replace(/\\s+/g,' ').slice(0,100);
+    const description=String(req.body?.description||'').trim().slice(0,500);
+    const sortOrder=Number(req.body?.sortOrder??0);
+    if(!name||!Number.isInteger(sortOrder)||sortOrder<0||sortOrder>999999) return res.status(400).json({error:'invalid_category',message:'Enter a category name and valid display order.'});
+    const slug=name.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,100);
+    if(!slug) return res.status(400).json({error:'invalid_category',message:'Category name must contain letters or numbers.'});
+    try {
+      const [result]=await pool.execute('INSERT INTO academy_categories (name,slug,description,sort_order,is_active) VALUES (?,?,?,?,1)',[name,slug,description,sortOrder]);
+      return res.status(201).json({ok:true,id:Number(result.insertId),message:'Category created.'});
+    } catch(e) { if(e.code==='ER_DUP_ENTRY') return res.status(409).json({error:'category_exists',message:'A category with that name or slug already exists.'}); if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'academy_setup_required',message:'Academy categories are not configured.'}); return next(e); }
+  });
+
+  router.post('/admin/academy/categories/:id/toggle', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const id=String(req.params.id||'');
+    if(!/^\\d{1,20}$/.test(id)) return res.status(400).json({error:'invalid_category'});
+    try {
+      const [result]=await pool.execute('UPDATE academy_categories SET is_active=IF(is_active=1,0,1) WHERE id=?',[id]);
+      if(!result.affectedRows) return res.status(404).json({error:'category_not_found'});
+      return res.json({ok:true,message:'Category visibility updated.'});
+    } catch(e) { if(e.code==='ER_NO_SUCH_TABLE') return res.status(503).json({error:'academy_setup_required'}); return next(e); }
+  });
+
+  router.post('/admin/academy/lessons', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const title=String(req.body?.title||'').trim().slice(0,180);
+    const description=String(req.body?.description||'').trim().slice(0,1000);
+    const content=String(req.body?.content||'').trim().slice(0,50000);
+    const accessLevel=['free','premium'].includes(String(req.body?.accessLevel))?String(req.body.accessLevel):'free';
+    const status=['draft','published'].includes(String(req.body?.status))?String(req.body.status):'draft';
+    const sortOrder=Number(req.body?.sortOrder??0);
+    const categoryRaw=req.body?.categoryId==null||req.body.categoryId===''?'':String(req.body.categoryId);
+    const rawVideoUrl=String(req.body?.videoUrl||'').trim().slice(0,1000);
+    if(!title||!content||!Number.isInteger(sortOrder)||sortOrder<0||sortOrder>999999) return res.status(400).json({error:'invalid_lesson',message:'Title, lesson content and a valid display order are required.'});
+    let videoUrl=null;
+    if(rawVideoUrl){try{const u=new URL(rawVideoUrl);if(!['https:','http:'].includes(u.protocol))throw new Error('bad protocol');videoUrl=u.toString();}catch(_){return res.status(400).json({error:'invalid_video_url',message:'Enter a valid HTTP or HTTPS video URL.'});}}
+    try {
+      let categoryId=null;
+      if(categoryRaw){if(!/^\\d{1,20}$/.test(categoryRaw))return res.status(400).json({error:'invalid_category'});const [[c]]=await pool.execute('SELECT id FROM academy_categories WHERE id=? AND is_active=1 LIMIT 1',[categoryRaw]);if(!c)return res.status(400).json({error:'invalid_category',message:'Choose an active category.'});categoryId=Number(c.id);}
+      const [result]=await pool.execute('INSERT INTO academy_lessons (title,description,content,video_url,access_level,status,sort_order,category_id,created_by) VALUES (?,?,?,?,?,?,?,?,?)',[title,description,content,videoUrl,accessLevel,status,sortOrder,categoryId,req.session.memberId]);
+      return res.status(201).json({ok:true,id:Number(result.insertId),message:'Lesson created.'});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Academy lesson schema is not configured.'});return next(e); }
+  });
+
+  router.post('/admin/academy/lessons/:id/placement', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const id=String(req.params.id||''), categoryRaw=req.body?.categoryId==null||req.body.categoryId===''?'':String(req.body.categoryId), sortOrder=Number(req.body?.sortOrder);
+    if(!/^\\d{1,20}$/.test(id)||!Number.isInteger(sortOrder)||sortOrder<0||sortOrder>999999)return res.status(400).json({error:'invalid_placement'});
+    try {
+      let categoryId=null;
+      if(categoryRaw){if(!/^\\d{1,20}$/.test(categoryRaw))return res.status(400).json({error:'invalid_category'});const [[c]]=await pool.execute('SELECT id FROM academy_categories WHERE id=? LIMIT 1',[categoryRaw]);if(!c)return res.status(400).json({error:'invalid_category'});categoryId=Number(c.id);}
+      const [result]=await pool.execute('UPDATE academy_lessons SET category_id=?,sort_order=? WHERE id=?',[categoryId,sortOrder,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'lesson_not_found'});
+      return res.json({ok:true,message:'Lesson placement saved.'});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});return next(e); }
+  });
+
+  router.post('/admin/academy/lessons/:id/status', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const id=String(req.params.id||''), status=String(req.body?.status||'');
+    if(!/^\\d{1,20}$/.test(id)||!['draft','published','archived'].includes(status))return res.status(400).json({error:'invalid_lesson_status'});
+    try {
+      const [result]=await pool.execute('UPDATE academy_lessons SET status=? WHERE id=?',[status,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'lesson_not_found'});
+      return res.json({ok:true,message:'Lesson status saved.'});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});return next(e); }
+  });
+
+  router.post('/admin/academy/access', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const uid=String(req.body?.memberUid||'').trim().toUpperCase(), reason=String(req.body?.reason||'').trim().slice(0,500);
+    if(!/^MONARCH\\d{6}$/.test(uid))return res.status(400).json({error:'invalid_member_uid',message:'Enter MONARCH followed by six digits.'});
+    try {
+      const [[member]]=await pool.execute('SELECT id FROM members WHERE UPPER(monarch_uid)=? LIMIT 1',[uid]);
+      if(!member)return res.status(404).json({error:'member_not_found',message:'No member matches that Monarch UID.'});
+      await pool.execute("INSERT INTO academy_access (member_id,status,access_source,granted_by,reason,expires_at) VALUES (?,'approved','admin',?,?,NULL) ON DUPLICATE KEY UPDATE status='approved',access_source='admin',granted_by=VALUES(granted_by),payment_transaction_id=NULL,paid_amount=NULL,paid_currency=NULL,exchange_rate=NULL,reason=VALUES(reason),expires_at=NULL",[member.id,req.session.memberId,reason||'Access granted by administrator']);
+      return res.json({ok:true,message:'Full Academy access granted.'});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Academy access schema is not configured.'});return next(e); }
+  });
+
+  router.post('/admin/academy/access/revoke', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const uid=String(req.body?.memberUid||'').trim().toUpperCase();
+    if(!/^MONARCH\\d{6}$/.test(uid))return res.status(400).json({error:'invalid_member_uid',message:'Enter MONARCH followed by six digits.'});
+    try {
+      const [[member]]=await pool.execute('SELECT id FROM members WHERE UPPER(monarch_uid)=? LIMIT 1',[uid]);
+      if(!member)return res.status(404).json({error:'member_not_found'});
+      const [result]=await pool.execute("UPDATE academy_access SET status='revoked',reason='Access revoked by administrator' WHERE member_id=? AND status='approved'",[member.id]);
+      if(!result.affectedRows)return res.status(404).json({error:'no_active_access',message:'This member has no active Academy access to revoke.'});
+      return res.json({ok:true,message:'Full Academy access revoked.'});
+    } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});return next(e); }
+  });
+
   router.get('/academy', noStore, apiAuth, async (req,res,next) => {
     try {
       const [[access]]=await pool.execute("SELECT id,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
