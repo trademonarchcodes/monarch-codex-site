@@ -241,13 +241,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/app-update/migration/latest', noStore, async (_req, res) => {
     try {
       const { release, version, body } = await loadAndroidRelease('migration-apk');
-      const mandatory = /Mandatory:\\s*(true|yes|1)/i.test(body);
+      const mandatory = /Mandatory:\s*(true|yes|1)/i.test(body);
       return res.set('Cache-Control', 'no-store').json({
         version,
         mandatory,
         releaseNotes: body
-          .replace(/Version:\\s*[0-9]+\\.[0-9]+\\.[0-9]+\\+[0-9]+/i, '')
-          .replace(/Mandatory:\\s*(true|yes|1)/i, '')
+          .replace(/Version:\s*[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+/i, '')
+          .replace(/Mandatory:\s*(true|yes|1)/i, '')
           .trim(),
         apkUrl: new URL('/api/mobile/app-update/migration/apk', appBaseUrl).toString(),
         checksumUrl: new URL('/api/mobile/app-update/migration/checksum', appBaseUrl).toString(),
