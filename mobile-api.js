@@ -72,6 +72,61 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') return { adminRole:null, isAdmin:false, isSovereignAdmin:false }; throw e; }
   };
 
+  const requireTelegramAdmin = async (req, res, next) => {
+    try {
+      if (!req.session || !req.session.memberId) return res.status(401).json({ message: 'Please sign in to continue.' });
+      const [[admin]] = await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1', [req.session.memberId]);
+      const role = String(admin?.role || '');
+      if (!['super_admin', 'main_admin', 'sovereign_desk_admin'].includes(role)) {
+        return res.status(403).json({ message: 'Sovereign Desk administrator access is required.' });
+      }
+      req.telegramAdminRole = role;
+      next();
+    } catch (error) { next(error); }
+  };
+
+  const callTelegramWorker = async (req, res, path, method = 'GET', body = undefined) => {
+    const base = String(process.env.SOVEREIGN_TELEGRAM_WORKER_URL || '').trim().replace(/\/+$/, '');
+    const secret = process.env.SOVEREIGN_TELEGRAM_SHARED_SECRET || '';
+    if (!base || !secret) return res.status(503).json({ message: 'Telegram management is not configured yet. Set the Worker URL and shared secret on the website server.' });
+    try {
+      const member = await memberById(req.session.memberId);
+      if (!member?.email) return res.status(403).json({ message: 'Could not verify the administrator identity.' });
+      const target = new URL(path, base);
+      const response = await fetch(target, {
+        method,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'X-MONARCH-BACKEND-SECRET': secret,
+          'X-MONARCH-ADMIN-EMAIL': String(member.email).toLowerCase()
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(15000)
+      });
+      const data = await response.json().catch(() => ({ message: 'Telegram Worker returned an unreadable response.' }));
+      return res.status(response.status).json(data);
+    } catch (error) {
+      return res.status(502).json({ message: 'Could not reach the Telegram management service. No website wallet or financial records were changed.' });
+    }
+  };
+
+  router.get('/telegram/admin-chats', noStore, apiAuth, requireTelegramAdmin, (req, res) =>
+    callTelegramWorker(req, res, '/telegram/admin-chats'));
+  router.post('/telegram/admin-chat-assignment', noStore, apiAuth, requireTelegramAdmin, (req, res) =>
+    callTelegramWorker(req, res, '/telegram/admin-chat-assignment', 'POST', req.body || {}));
+  router.get('/telegram/admin-chat-members', noStore, apiAuth, requireTelegramAdmin, (req, res) => {
+    const chatId = String(req.query.chat_id || '').trim();
+    if (!/^-?\d{1,20}$/.test(chatId)) return res.status(400).json({ message: 'A valid chat_id is required.' });
+    return callTelegramWorker(req, res, '/telegram/admin-chat-members?chat_id=' + encodeURIComponent(chatId));
+  });
+  router.post('/telegram/admin-action', noStore, apiAuth, requireTelegramAdmin, (req, res) => {
+    const allowed = new Set(['send_message','edit_message','delete_message','pin_message','unpin_message','set_chat_title','set_chat_description','approve_join_request','decline_join_request','ban_member','unban_member','restrict_member','remove_member','message_member_to_join','remove_bot']);
+    if (!allowed.has(String(req.body?.action || '').toLowerCase())) return res.status(400).json({ message: 'Unsupported Telegram action.' });
+    if (req.body?.action === 'remove_bot' && req.telegramAdminRole !== 'super_admin') return res.status(403).json({ message: 'Only Super Admin can disconnect the bot from a group or channel.' });
+    return callTelegramWorker(req, res, '/telegram/admin-action', 'POST', req.body || {});
+  });
+
   router.get('/health', noStore, (_req, res) => res.json({ ok: true, service: 'monarch-codex-mobile-api', version: 1 }));
 
   // Public Android update manifest and asset proxy. The private GitHub release token stays on the server.
