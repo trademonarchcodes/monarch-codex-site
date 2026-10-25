@@ -137,7 +137,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       error.statusCode = 503;
       throw error;
     }
-    const response = await fetch('https://api.github.com/repos/trademonarchcodes/monarch-codex-android/releases/tags/' + encodeURIComponent(tag)', {
+    const response = await fetch('https://api.github.com/repos/trademonarchcodes/monarch-codex-android/releases/tags/' + encodeURIComponent(tag), {
       headers: {
         Authorization: 'Bearer ' + token,
         Accept: 'application/vnd.github+json',
