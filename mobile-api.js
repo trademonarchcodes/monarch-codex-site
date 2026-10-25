@@ -2363,7 +2363,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
       const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
       if(lesson.access_level==='premium'&&!access){await conn.rollback();return res.status(403).json({error:'full_access_required'});}
-      if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id))){await conn.rollback();return res.status(409).json({error:'finish_current_lesson_first'});}
+      if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id))){await conn.rollback();return res.status(409).json({error:'finish_current_lesson_first',message:'Complete the current lesson in this category before moving forward.'});}
       if(completed.has(Number(id))){
         const [[replay]]=await conn.execute('SELECT id FROM academy_lesson_replays WHERE member_id=? AND lesson_id=? AND consumed_at IS NULL ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE',[req.session.memberId,id]);
         if(!replay){await conn.rollback();return res.status(402).json({error:'replay_fee_required',message:'Pay $2 to replay this previous video.'});}
@@ -2388,7 +2388,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const completed=new Set(progress.filter(p=>p.completed_at).map(p=>Number(p.lesson_id)));
       if(!progress.some(p=>Number(p.lesson_id)===Number(id)&&p.last_started_at))return res.status(409).json({error:'open_video_first',message:'Open the lesson video before marking it finished.'});
       const firstIncomplete=lessons.find(l=>!completed.has(Number(l.id)));
-      if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id)))return res.status(409).json({error:'finish_current_lesson_first'});
+      if(firstIncomplete&&Number(firstIncomplete.id)!==Number(id)&&!completed.has(Number(id)))return res.status(409).json({error:'finish_current_lesson_first',message:'Complete the current lesson in this category before moving forward.'});
       await pool.execute('INSERT INTO academy_progress (member_id,lesson_id,completed_at) VALUES (?,?,CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP)',[req.session.memberId,id]);
       res.json({ok:true,completed:true});
     }catch(e){if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});next(e);}
