@@ -36,3 +36,22 @@ test('Academy migration preserves admin fee transaction type when both migration
     assert.ok(migration.includes("'" + type + "'"), 'missing transaction type: ' + type);
   }
 });
+
+
+test('Academy category migration is additive and seeds the requested starter categories', () => {
+  const categories = fs.readFileSync(path.join(__dirname, '..', 'migrations', '029_academy_categories.sql'), 'utf8');
+  assert.match(categories, /CREATE TABLE IF NOT EXISTS academy_categories/);
+  assert.match(categories, /ADD COLUMN category_id BIGINT UNSIGNED NULL/);
+  assert.match(categories, /AI Tutorials/);
+  assert.match(categories, /Trading Tutorial/);
+  assert.match(categories, /ON DELETE SET NULL/);
+  assert.doesNotMatch(categories, /UPDATE member_wallets|DELETE FROM financial_transactions|TRUNCATE/i);
+});
+
+test('Academy admin category creation and lesson placement routes exist', () => {
+  assert.ok(server.includes("app.post('/admin/academy/categories'"));
+  assert.ok(server.includes("app.post('/admin/academy/lessons/:id/placement'"));
+  assert.ok(server.includes('academy_categories SET is_active=IF'));
+  assert.ok(server.includes('SET category_id=?,sort_order=? WHERE id=?'));
+  assert.ok(server.includes('c.name AS category_name'));
+});
