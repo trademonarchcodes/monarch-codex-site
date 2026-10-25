@@ -130,14 +130,14 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/health', noStore, (_req, res) => res.json({ ok: true, service: 'monarch-codex-mobile-api', version: 1 }));
 
   // Public Android update manifest and asset proxy. The private GitHub release token stays on the server.
-  const loadAndroidRelease = async () => {
+  const loadAndroidRelease = async (tag = 'latest-apk') => {
     const token = process.env.MONARCH_ANDROID_RELEASE_TOKEN || process.env.GITHUB_RELEASE_TOKEN;
     if (!token) {
       const error = new Error('The Android update service has not been configured by the site administrator.');
       error.statusCode = 503;
       throw error;
     }
-    const response = await fetch('https://api.github.com/repos/trademonarchcodes/monarch-codex-android/releases/tags/latest-apk', {
+    const response = await fetch('https://api.github.com/repos/trademonarchcodes/monarch-codex-android/releases/tags/' + encodeURIComponent(tag)', {
       headers: {
         Authorization: 'Bearer ' + token,
         Accept: 'application/vnd.github+json',
@@ -155,7 +155,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         : status === 403
           ? 'Android update access is forbidden. Give the Hostinger token Contents: Read-only access to trademmonarchcodes/monarch-codex-android.'
           : status === 404
-            ? 'GitHub could not find the release for the configured token. Confirm the Hostinger token can access trademmonarchcodes/monarch-codex-android and that the latest-apk release exists.'
+            ? 'GitHub could not find the release for the configured token. Confirm the Hostinger token can access trademmonarchcodes/monarch-codex-android and that the ' + tag + ' release exists.'
             : 'The official Android release could not be reached. Please try again later.';
       const error = new Error(message);
       error.statusCode = [401, 403, 404].includes(status) ? 503 : 502;
@@ -200,8 +200,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     }
   });
 
-  const streamAndroidReleaseAsset = async (assetName, res) => {
-    const { token, apk, checksum } = await loadAndroidRelease();
+  const streamAndroidReleaseAsset = async (assetName, res, tag = 'latest-apk') => {
+    const { token, apk, checksum } = await loadAndroidRelease(tag);
     const asset = assetName === 'app-release.apk' ? apk : checksum;
     const response = await fetch(asset.url, {
       headers: {
@@ -234,6 +234,43 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   router.get('/app-update/checksum', noStore, async (_req, res) => {
     try { await streamAndroidReleaseAsset('app-release.apk.sha256', res); }
     catch (error) { if (!res.headersSent) res.status(error.statusCode || 502).json({ error: 'android_checksum_download_failed', message: 'The APK verification file could not be downloaded. Please try again later.' }); }
+  });
+
+  // Separate migration channel for the newly signed app identity. Keep the legacy
+  // latest-apk channel intact so already-installed legacy apps are not switched over.
+  router.get('/app-update/migration/latest', noStore, async (_req, res) => {
+    try {
+      const { release, version, body } = await loadAndroidRelease('migration-apk');
+      const mandatory = /Mandatory:\\s*(true|yes|1)/i.test(body);
+      return res.set('Cache-Control', 'no-store').json({
+        version,
+        mandatory,
+        releaseNotes: body
+          .replace(/Version:\\s*[0-9]+\\.[0-9]+\\.[0-9]+\\+[0-9]+/i, '')
+          .replace(/Mandatory:\\s*(true|yes|1)/i, '')
+          .trim(),
+        apkUrl: new URL('/api/mobile/app-update/migration/apk', appBaseUrl).toString(),
+        checksumUrl: new URL('/api/mobile/app-update/migration/checksum', appBaseUrl).toString(),
+        publishedAt: release.published_at || null
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 502).json({
+        error: 'android_migration_update_unavailable',
+        message: error.statusCode === 503
+          ? error.message
+          : 'The official Android migration release is temporarily unavailable. Please try again later.'
+      });
+    }
+  });
+
+  router.get('/app-update/migration/apk', noStore, async (_req, res) => {
+    try { await streamAndroidReleaseAsset('app-release.apk', res, 'migration-apk'); }
+    catch (error) { if (!res.headersSent) res.status(error.statusCode || 502).json({ error: 'android_migration_apk_download_failed', message: 'The new Android app could not be downloaded. Please try again later.' }); }
+  });
+
+  router.get('/app-update/migration/checksum', noStore, async (_req, res) => {
+    try { await streamAndroidReleaseAsset('app-release.apk.sha256', res, 'migration-apk'); }
+    catch (error) { if (!res.headersSent) res.status(error.statusCode || 502).json({ error: 'android_migration_checksum_download_failed', message: 'The new app verification file could not be downloaded. Please try again later.' }); }
   });
 
   router.post('/auth/login', apiLoginLimiter, noStore, async (req, res, next) => {
