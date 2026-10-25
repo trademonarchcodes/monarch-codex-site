@@ -265,11 +265,62 @@
     window.addEventListener('pagehide', stopSelfieCamera);
   }
 
+  // Phone camera photos can be very large. Reduce upload size before sending them so
+  // mobile networks and hosting proxies are less likely to reset the multipart request.
+  // Keep the full image aspect ratio and use a high-quality JPEG for readable documents.
+  function prepareKycImage(file, outputName) {
+    return new Promise(function (resolve, reject) {
+      if (!file) return resolve(null);
+      var url;
+      try { url = URL.createObjectURL(file); } catch (_) { return resolve(file); }
+      var image = new Image();
+      image.onload = function () {
+        try {
+          var width = image.naturalWidth || image.width;
+          var height = image.naturalHeight || image.height;
+          if (!width || !height) { URL.revokeObjectURL(url); return resolve(file); }
+          if (file.size <= 2 * 1024 * 1024 && Math.max(width, height) <= 2000) {
+            URL.revokeObjectURL(url);
+            return resolve(file);
+          }
+          var scale = Math.min(1, 2000 / Math.max(width, height));
+          var canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(width * scale));
+          canvas.height = Math.max(1, Math.round(height * scale));
+          var context = canvas.getContext('2d');
+          if (!context || !canvas.toBlob) {
+            URL.revokeObjectURL(url);
+            return resolve(file);
+          }
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          function encode(quality) {
+            canvas.toBlob(function (blob) {
+              if (!blob) return reject(new Error('Could not prepare an image for secure upload. Please choose the image again.'));
+              if (blob.size > 4 * 1024 * 1024 && quality > 0.72) return encode(quality - 0.08);
+              if (blob.size > 7 * 1024 * 1024) return reject(new Error('One of your images is too large to upload reliably. Please take a clearer, closer photo and try again.'));
+              resolve(new File([blob], outputName + '.jpg', { type: 'image/jpeg', lastModified: Date.now() }));
+            }, 'image/jpeg', quality);
+          }
+          encode(0.88);
+        } catch (_) {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+          reject(new Error('Could not prepare an image for secure upload. Please choose the image again.'));
+        }
+      };
+      image.onerror = function () {
+        try { URL.revokeObjectURL(url); } catch (_) {}
+        reject(new Error('One of your images could not be opened. Please select it again.'));
+      };
+      image.src = url;
+    });
+  }
+
   form.addEventListener('input', saveDraft);
   form.addEventListener('change', saveDraft);
   restoreDraft();
 
-  next.addEventListener('click', function () {
+  next.addEventListener('click', async function () {
     if (uploading || !validateCurrentStage()) return;
     if (current < stages.length - 1) {
       showStage(current + 1, 'next');
@@ -285,8 +336,25 @@
     data.set('selfie', new File([selfieBlob], 'selfie.jpg', { type: 'image/jpeg' }));
     next.disabled = true;
     uploading = true;
+    message.textContent = 'Preparing your images securely…';
+    if (notice) notice.textContent = 'Optimizing photos for a more reliable upload. Please keep this page open.';
+    try {
+      for (var imageField of ['documentFront', 'documentBack', 'selfie']) {
+        var originalImage = data.get(imageField);
+        if (originalImage && typeof originalImage.size === 'number' && originalImage.size > 0) {
+          var preparedImage = await prepareKycImage(originalImage, imageField);
+          data.set(imageField, preparedImage, preparedImage.name || (imageField + '.jpg'));
+        }
+      }
+    } catch (imageError) {
+      message.textContent = imageError.message || 'Could not prepare your images. Please select them again.';
+      if (notice) notice.textContent = 'Your information has not been submitted. Please check the images and try again.';
+      next.disabled = false;
+      uploading = false;
+      return;
+    }
     message.textContent = 'Submitting securely…';
-    if (notice) notice.textContent = 'Uploading your verification securely. Please keep this page open.';
+    if (notice) notice.textContent = 'Uploading your optimized verification photos securely. Please keep this page open.';
     fetch('/kyc/submit', { method: 'POST', body: data, credentials: 'same-origin' })
       .then(function (response) { return response.json().catch(function () { return {}; }).then(function (body) { if (!response.ok) throw new Error(body.error || 'Submission failed.'); return body; }); })
       .then(function (body) {
@@ -296,8 +364,13 @@
         window.setTimeout(function () { window.location.assign('/kyc'); }, 700);
       })
       .catch(function (error) {
-        message.textContent = error.message || 'Secure submission failed. Please try again later.';
-        if (notice) notice.textContent = 'Your submission was not confirmed. Please correct any errors or try again.';
+        var networkFailure = error && (error.name === 'TypeError' || /failed to fetch|networkerror|load failed/i.test(error.message || ''));
+        message.textContent = networkFailure
+          ? 'The connection was interrupted before the server confirmed your submission.'
+          : (error.message || 'Secure submission failed. Please try again later.');
+        if (notice) notice.textContent = networkFailure
+          ? 'Your status is not confirmed. Reload the KYC page to check whether it arrived before retrying. If it is not pending, try again on a stable connection.'
+          : 'Your submission was not confirmed. Please review the message above and try again.';
         next.disabled = false;
         uploading = false;
       });
