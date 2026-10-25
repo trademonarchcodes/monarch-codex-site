@@ -2240,6 +2240,18 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});return next(e); }
   });
 
+  // Native Android Academy admin read API; permissions mirror the website admin.
+  router.get('/admin/academy', noStore, apiAuth, requireCategoryAccess('invest_market','view'), async (req,res,next) => {
+    try {
+      const [categories] = await pool.query('SELECT id,name,description,sort_order,is_active FROM academy_categories ORDER BY sort_order ASC,name ASC');
+      const [lessons] = await pool.query('SELECT l.id,l.title,l.description,l.video_url,l.access_level,l.status,l.sort_order,l.category_id,c.name AS category_name FROM academy_lessons l LEFT JOIN academy_categories c ON c.id=l.category_id ORDER BY COALESCE(c.sort_order,999999) ASC,c.name ASC,l.sort_order ASC,l.id ASC LIMIT 300');
+      res.json({categories,lessons});
+    } catch(e) {
+      if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code)) return res.status(503).json({error:'academy_setup_required',message:'Academy tables are not ready. Verify the production backup and migration first.'});
+      next(e);
+    }
+  });
+
   router.get('/academy', noStore, apiAuth, async (req,res,next) => {
     try {
       const [[access]]=await pool.execute("SELECT id,access_source,expires_at FROM academy_access WHERE member_id=? AND status='approved' AND (expires_at IS NULL OR expires_at>NOW()) LIMIT 1",[req.session.memberId]);
