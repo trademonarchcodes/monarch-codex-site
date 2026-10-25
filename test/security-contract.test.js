@@ -24,7 +24,7 @@ test('KYC submission prevents duplicate pending or approved submissions', () => 
 test('member notifications are scoped to the signed-in member and Academy content is database-backed', () => {
   assert.match(server, /SELECT id,notification_type,title,body,target_url,read_at,created_at FROM member_notifications WHERE member_id=\? ORDER BY created_at DESC LIMIT 100/);
   assert.match(server, /WHERE id=\? AND member_id=\?/);
-  assert.match(server, /INSERT INTO academy_lessons \(title,description,content,video_url,access_level,status,created_by\)/);
+  assert.match(server, /INSERT INTO academy_lessons \(title,description,content,video_url,access_level,status,sort_order,category_id,created_by\)/);
   assert.match(server, /UPDATE member_notifications SET read_at=COALESCE\(read_at,CURRENT_TIMESTAMP\) WHERE member_id=\? AND read_at IS NULL/);
 });
 
