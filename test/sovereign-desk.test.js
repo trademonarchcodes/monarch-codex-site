@@ -6,6 +6,7 @@ const path = require('node:path');
 const routerSource = fs.readFileSync(path.join(__dirname, '..', 'sovereign-desk.js'), 'utf8');
 const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '010_sovereign_desk_announcements.sql'), 'utf8');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 
 test('mobile API failures return JSON support references and correlate to sanitized request IDs', () => {
   assert.match(server, /req\.get\('X-Request-ID'\)/);
@@ -15,6 +16,17 @@ test('mobile API failures return JSON support references and correlate to saniti
   assert.match(server, /requestId/);
   assert.match(server, /stack: err && err\.stack/);
   assert.match(server, /res\.setHeader\('X-Request-ID', requestId\)/);
+});
+
+test('mobile signal validation avoids collation-sensitive SQL string comparisons', () => {
+  const routeStart = mobileApi.indexOf("desk.post('/signals/:id/validation'");
+  const routeEnd = mobileApi.indexOf("desk.post('/signals/:id/status'", routeStart);
+  assert.ok(routeStart >= 0 && routeEnd > routeStart, 'signal validation route must exist');
+  const route = mobileApi.slice(routeStart, routeEnd);
+  assert.match(route, /SELECT status,published_at FROM sovereign_signals WHERE id=\? LIMIT 1/);
+  assert.match(route, /const keepPublished=validation==='valid'&&signal\.status==='published'/);
+  assert.match(route, /SET validation_status=\?,status=\?,published_at=\?,updated_by=\? WHERE id=\?/);
+  assert.doesNotMatch(route, /\?\s*=\s*'valid'/);
 });
 
 test('Sovereign Desk has real member and administrator routes for its core workflows', () => {
