@@ -1918,9 +1918,22 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     const id=String(req.params.id),validation=deskClean(req.body.validation_status,12);
     if(!deskId(id)||!['pending','valid','invalid'].includes(validation))return res.status(400).json({error:'invalid_signal_validation'});
     try {
-      const [r]=await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=CASE WHEN ?='valid' AND status='published' THEN status WHEN ?='valid' THEN 'draft' ELSE 'draft' END,published_at=CASE WHEN ?='valid' AND status='published' THEN published_at ELSE NULL END,updated_by=? WHERE id=?",[validation,validation,validation,validation,req.session.memberId,id]);
+      // Avoid comparing a bound validation string to SQL string literals. MySQL can
+      // throw ER_CANT_AGGREGATE_2COLLATIONS when the connection and schema collations differ.
+      const [[signal]]=await pool.execute(
+        'SELECT status,published_at FROM sovereign_signals WHERE id=? LIMIT 1',
+        [id]
+      );
+      if(!signal)return res.status(404).json({error:'signal_not_found'});
+      const keepPublished=validation==='valid'&&signal.status==='published';
+      const nextStatus=keepPublished?'published':'draft';
+      const publishedAt=keepPublished?signal.published_at:null;
+      const [r]=await pool.execute(
+        'UPDATE sovereign_signals SET validation_status=?,status=?,published_at=?,updated_by=? WHERE id=?',
+        [validation,nextStatus,publishedAt,req.session.memberId,id]
+      );
       if(!r.affectedRows)return res.status(404).json({error:'signal_not_found'});
-      res.json({ok:true});
+      res.json({ok:true,validation_status:validation,status:nextStatus,published_at:publishedAt});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.post('/signals/:id/status', async (req,res,next) => {
