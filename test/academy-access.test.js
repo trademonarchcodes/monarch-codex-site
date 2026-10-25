@@ -55,3 +55,10 @@ test('Academy admin category creation and lesson placement routes exist', () => 
   assert.ok(server.includes('SET category_id=?,sort_order=? WHERE id=?'));
   assert.ok(server.includes('c.name AS category_name'));
 });
+
+
+test('lesson progression is scoped to the lesson category, not the whole Academy', () => {
+  assert.ok(server.includes("categoryLessons=lessons.filter(item=>String(item.category_id??'')===String(l.category_id??''))"));
+  assert.ok(server.includes("lessons.filter(l=>String(l.category_id??'')===String(lesson.category_id??''))"));
+  assert.ok(server.includes("lessons.filter(l=>String(l.category_id??'')===String(target.category_id??''))"));
+});
