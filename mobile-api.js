@@ -1912,7 +1912,8 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     try {
       const [[slot]] = await pool.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1');
       const [[counts]] = await pool.execute("SELECT COUNT(*) AS claimed FROM sovereign_signal_access WHERE access_type='event_free' AND status IN ('pending','approved')");
-      const claimed = Math.max(Number(slot && slot.claimed_count)||0, Number(counts && counts.claimed)||0);
+      // The access table is authoritative. Revoked/rejected requests must release their slots.
+      const claimed = Number(counts && counts.claimed)||0;
       const now = new Date();
       res.json({eventStartedAt:'2026-10-24T00:00:00Z',endsAt:FREE_SIGNAL_EVENT_END.toISOString(),serverTime:now.toISOString(),limit:20,claimed:Math.min(claimed,20),remaining:Math.max(0,20-claimed),open:now<FREE_SIGNAL_EVENT_END && claimed<20});
     } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'free_signals_event_setup_required'}); next(e); }
@@ -1923,13 +1924,17 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       await conn.beginTransaction();
       const now = new Date();
       if(now>=FREE_SIGNAL_EVENT_END){await conn.rollback();return res.status(410).json({error:'event_closed',message:'The Free Signals event has ended.'});}
-      const [[existing]]=await conn.execute("SELECT id,status FROM sovereign_signal_access WHERE member_id=? AND access_type='event_free' LIMIT 1",[req.session.memberId]);
-      if(existing){await conn.rollback();return res.status(409).json({error:'already_requested',status:existing.status,message:'You have already requested a Free Signals slot.'});}
-      const [[slot]]=await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
+      const [[existing]]=await conn.execute("SELECT id,status FROM sovereign_signal_access WHERE member_id=? AND access_type='event_free' LIMIT 1 FOR UPDATE",[req.session.memberId]);
+      if(existing && ['pending','approved'].includes(String(existing.status))){await conn.rollback();return res.status(409).json({error:'already_requested',status:existing.status,message:'You already have an active Free Signals request.'});}
+      await conn.execute('SELECT claimed_count FROM sovereign_signal_event_slots WHERE id=1 FOR UPDATE');
       const [[counts]]=await conn.execute("SELECT COUNT(*) AS claimed FROM sovereign_signal_access WHERE access_type='event_free' AND status IN ('pending','approved')");
-      const claimed=Math.max(Number(slot && slot.claimed_count)||0,Number(counts && counts.claimed)||0);
+      const claimed=Number(counts && counts.claimed)||0;
       if(claimed>=20){await conn.rollback();return res.status(409).json({error:'event_full',message:'All 20 Free Signals event slots have been claimed.'});}
-      await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,requested_at) VALUES (?,'event_free','pending',CURRENT_TIMESTAMP)",[req.session.memberId]);
+      if(existing) {
+        await conn.execute("UPDATE sovereign_signal_access SET status='pending',requested_at=CURRENT_TIMESTAMP,reviewed_by=NULL,reviewed_at=NULL,review_reason=NULL,starts_at=NULL,expires_at=NULL WHERE id=?",[existing.id]);
+      } else {
+        await conn.execute("INSERT INTO sovereign_signal_access (member_id,access_type,status,requested_at) VALUES (?,'event_free','pending',CURRENT_TIMESTAMP)",[req.session.memberId]);
+      }
       await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=? WHERE id=1',[claimed+1]);
       await conn.commit();
       res.status(201).json({ok:true,status:'pending',claimed:claimed+1,remaining:Math.max(0,19-claimed),message:'Your request is submitted for review.'});
@@ -1988,6 +1993,11 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     const validation=deskClean(body.validation_status ?? body.validationStatus ?? body.status,12).toLowerCase();
     if(!deskId(id)||!['pending','valid','invalid'].includes(validation))return res.status(400).json({error:'invalid_signal_validation',message:'Choose Pending, Valid or Invalid.'});
     try {
+      if(validation==='invalid') {
+        const [deleted]=await pool.execute('DELETE FROM sovereign_signals WHERE id=?',[id]);
+        if(!deleted.affectedRows)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
+        return res.json({ok:true,deleted:true,message:'Invalid signal deleted.'});
+      }
       const [[existing]]=await pool.execute('SELECT id,status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
       if(!existing)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
       const keepPublished=validation==='valid'&&existing.status==='published';
@@ -2074,7 +2084,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         await conn.execute('UPDATE sovereign_signal_access SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_reason=? WHERE id=?',[decision,req.session.memberId,note||null,id]);
         if(decision==='revoked')await conn.execute("UPDATE sovereign_desk_access SET status='revoked',reason=? WHERE member_id=?",[note||'Access revoked by administrator',a.member_id]);
       }
-      await conn.commit();res.json({ok:true});
+      const [[activeSlots]]=await conn.execute("SELECT COUNT(*) AS claimed FROM sovereign_signal_access WHERE access_type='event_free' AND status IN ('pending','approved')");
+      await conn.execute('UPDATE sovereign_signal_event_slots SET claimed_count=? WHERE id=1',[Number(activeSlots && activeSlots.claimed)||0]);
+      await conn.commit();res.json({ok:true,claimed:Number(activeSlots && activeSlots.claimed)||0});
     } catch(e) { await conn.rollback().catch(()=>{});try { deskFail(res,e); } catch(err) { next(err); } }
     finally { conn.release(); }
   });
