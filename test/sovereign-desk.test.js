@@ -46,3 +46,10 @@ test('announcement migration is additive and preserves member records', () => {
   assert.match(migration, /FOREIGN KEY \(created_by\) REFERENCES members\(id\)/);
   assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE TABLE|CREATE TABLE members\b/i);
 });
+
+
+test('signal publishing explains validation requirements without bypassing validation', () => {
+  assert.match(routerSource, /validation_status!==\x27valid\x27\)return res\.redirect\(\x27\/sovereign-admin\/signals\?validation=required\x27\)/);
+  assert.match(routerSource, /choose “Valid — approve for members”/);
+  assert.match(routerSource, /const title=\(asset\+\x27 \x27\+direction\.toUpperCase\(\)\)\.slice\(0,180\),publish=validation===\x27valid\x27/);
+});
