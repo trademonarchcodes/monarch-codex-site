@@ -6,6 +6,7 @@ const path = require('node:path');
 const routerSource = fs.readFileSync(path.join(__dirname, '..', 'sovereign-desk.js'), 'utf8');
 const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '010_sovereign_desk_announcements.sql'), 'utf8');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 
 test('Sovereign Desk has real member and administrator routes for its core workflows', () => {
   for (const route of [
@@ -52,4 +53,12 @@ test('signal publishing explains validation requirements without bypassing valid
   assert.match(routerSource, /validation_status!==\x27valid\x27\)return res\.redirect\(\x27\/sovereign-admin\/signals\?validation=required\x27\)/);
   assert.match(routerSource, /choose “Valid — approve for members”/);
   assert.match(routerSource, /const title=\(asset\+\x27 \x27\+direction\.toUpperCase\(\)\)\.slice\(0,180\),publish=validation===\x27valid\x27/);
+});
+
+
+test('validating a Sovereign Desk signal publishes it and returns a success message', () => {
+  assert.match(mobileApi, /const publish=validation===\x27valid\x27/);
+  assert.match(mobileApi, /status:publish\?\x27published\x27:\x27draft\x27/);
+  assert.match(mobileApi, /Signal validated and published\./);
+  assert.match(mobileApi, /status===\x27published\x27&&signal\.validation_status!==\x27valid\x27/);
 });
