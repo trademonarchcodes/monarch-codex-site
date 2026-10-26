@@ -2000,9 +2000,9 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       }
       const [[existing]]=await pool.execute('SELECT id,status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
       if(!existing)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
-      const keepPublished=validation==='valid'&&existing.status==='published';
-      await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_by=? WHERE id=?",[validation,keepPublished?'published':'draft',keepPublished?'published':'draft',req.session.memberId,id]);
-      res.json({ok:true,validation_status:validation,status:keepPublished?'published':'draft'});
+      const publish=validation==='valid';
+      await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_by=? WHERE id=?",[validation,publish?'published':'draft',publish?'published':'draft',req.session.memberId,id]);
+      res.json({ok:true,validation_status:validation,status:publish?'published':'draft',message:publish?'Signal validated and published.':'Signal saved as a draft until validated.'});
     } catch(e) { console.error('[sovereign-desk] signal validation failed', { signalId:id, code:e?.code, message:e?.message }); try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.post('/signals/:id/status', async (req,res,next) => {
