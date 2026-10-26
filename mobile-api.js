@@ -1983,12 +1983,16 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.post('/signals/:id/validation', async (req,res,next) => {
-    const id=String(req.params.id),validation=deskClean(req.body.validation_status,12);
-    if(!deskId(id)||!['pending','valid','invalid'].includes(validation))return res.status(400).json({error:'invalid_signal_validation'});
+    const body=req.body||{};
+    const id=String(req.params.id);
+    const validation=deskClean(body.validation_status ?? body.validationStatus ?? body.status,12).toLowerCase();
+    if(!deskId(id)||!['pending','valid','invalid'].includes(validation))return res.status(400).json({error:'invalid_signal_validation',message:'Choose Pending, Valid or Invalid.'});
     try {
-      const [r]=await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=CASE WHEN ?='valid' AND status='published' THEN status WHEN ?='valid' THEN 'draft' ELSE 'draft' END,published_at=CASE WHEN ?='valid' AND status='published' THEN published_at ELSE NULL END,updated_by=? WHERE id=?",[validation,validation,validation,validation,req.session.memberId,id]);
-      if(!r.affectedRows)return res.status(404).json({error:'signal_not_found'});
-      res.json({ok:true});
+      const [[existing]]=await pool.execute('SELECT id,status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
+      if(!existing)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
+      const keepPublished=validation==='valid'&&existing.status==='published';
+      await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_by=? WHERE id=?",[validation,keepPublished?'published':'draft',keepPublished?'published':'draft',req.session.memberId,id]);
+      res.json({ok:true,validation_status:validation,status:keepPublished?'published':'draft'});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.post('/signals/:id/status', async (req,res,next) => {
