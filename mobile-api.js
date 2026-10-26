@@ -1993,7 +1993,7 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const keepPublished=validation==='valid'&&existing.status==='published';
       await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_by=? WHERE id=?",[validation,keepPublished?'published':'draft',keepPublished?'published':'draft',req.session.memberId,id]);
       res.json({ok:true,validation_status:validation,status:keepPublished?'published':'draft'});
-    } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
+    } catch(e) { console.error('[sovereign-desk] signal validation failed', { signalId:id, code:e?.code, message:e?.message }); try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.post('/signals/:id/status', async (req,res,next) => {
     const id=String(req.params.id),status=deskClean(req.body.status,20);
