@@ -1906,6 +1906,112 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   });
 
 
+
+  // Sovereign Desk private member-to-admin support chat. Messages expire after seven days.
+  // No group-chat endpoint is exposed; members can only access their own conversation.
+  const ensureSovereignChatTables = async () => {
+    await pool.query("CREATE TABLE IF NOT EXISTS sovereign_private_messages (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, member_id BIGINT UNSIGNED NOT NULL, sender_member_id BIGINT UNSIGNED NOT NULL, sender_role ENUM('member','admin') NOT NULL, body VARCHAR(4000) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, expires_at DATETIME NOT NULL, deleted_at DATETIME NULL, deleted_by BIGINT UNSIGNED NULL, KEY idx_sd_chat_member_time (member_id,created_at), KEY idx_sd_chat_expiry (expires_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    await pool.query("CREATE TABLE IF NOT EXISTS sovereign_private_message_reports (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, message_id BIGINT UNSIGNED NOT NULL, member_id BIGINT UNSIGNED NOT NULL, reported_by BIGINT UNSIGNED NOT NULL, reason VARCHAR(1000) NOT NULL, status ENUM('open','reviewed','dismissed') NOT NULL DEFAULT 'open', reviewed_by BIGINT UNSIGNED NULL, reviewed_at DATETIME NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY idx_sd_chat_reports_status (status,created_at), KEY idx_sd_chat_reports_message (message_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  };
+  const sovereignChatAdmin = async (req) => {
+    const [[admin]] = await pool.execute("SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1",[req.session.memberId]);
+    return Boolean(admin && ['super_admin','main_admin'].includes(String(admin.role)));
+  };
+  const expireSovereignChatMessages = async () => {
+    await pool.execute("UPDATE sovereign_private_messages SET deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP), deleted_by=COALESCE(deleted_by,0) WHERE expires_at<=CURRENT_TIMESTAMP AND deleted_at IS NULL");
+  };
+  router.get('/sovereign/chat/admin/conversations', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureSovereignChatTables();
+      if (!(await sovereignChatAdmin(req))) return res.status(403).json({error:'admin_required',message:'Only authorized Sovereign Desk support administrators can view member conversations.'});
+      await expireSovereignChatMessages();
+      const [items] = await pool.query("SELECT m.member_id AS memberId, u.monarch_uid AS monarchUid, u.full_name AS memberName, u.username, MAX(m.created_at) AS lastMessageAt, SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN m.deleted_at IS NULL THEN m.body ELSE NULL END ORDER BY m.created_at DESC SEPARATOR '\\n'), '\\n', 1) AS lastMessage, SUM(CASE WHEN m.sender_role='member' AND m.deleted_at IS NULL THEN 1 ELSE 0 END) AS memberMessageCount FROM sovereign_private_messages m JOIN members u ON u.id=m.member_id GROUP BY m.member_id,u.monarch_uid,u.full_name,u.username ORDER BY lastMessageAt DESC LIMIT 200");
+      const [[reports]] = await pool.query("SELECT COUNT(*) AS openReports FROM sovereign_private_message_reports WHERE status='open'");
+      return res.json({items,openReports:Number(reports.openReports)||0,retentionDays:7});
+    } catch(e) { return next(e); }
+  });
+  router.get('/sovereign/chat/messages', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureSovereignChatTables();
+      await expireSovereignChatMessages();
+      const admin = await sovereignChatAdmin(req);
+      const requested = Number(req.query.memberId||0);
+      const memberId = admin && Number.isSafeInteger(requested) && requested>0 ? requested : Number(req.session.memberId);
+      if (admin && requested>0) {
+        const [[member]] = await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[memberId]);
+        if (!member) return res.status(404).json({error:'member_not_found'});
+      }
+      const [items] = await pool.execute("SELECT id,member_id AS memberId,sender_member_id AS senderMemberId,sender_role AS senderRole,body,created_at AS createdAt,expires_at AS expiresAt FROM sovereign_private_messages WHERE member_id=? AND deleted_at IS NULL AND expires_at>CURRENT_TIMESTAMP ORDER BY created_at ASC LIMIT 500",[memberId]);
+      return res.json({items,retentionDays:7,adminView:admin && requested>0});
+    } catch(e) { return next(e); }
+  });
+  router.post('/sovereign/chat/messages', noStore, apiAuth, async (req,res,next) => {
+    const body=String(req.body?.body||'').trim();
+    if(!body || body.length>4000) return res.status(400).json({error:'invalid_message',message:'Messages must contain between 1 and 4000 characters.'});
+    try {
+      await ensureSovereignChatTables();
+      await expireSovereignChatMessages();
+      const admin=await sovereignChatAdmin(req);
+      const requested=Number(req.body?.memberId||0);
+      const memberId=admin && Number.isSafeInteger(requested) && requested>0 ? requested : Number(req.session.memberId);
+      if(admin && requested>0) {
+        const [[member]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[memberId]);
+        if(!member)return res.status(404).json({error:'member_not_found'});
+      }
+      const [result]=await pool.execute("INSERT INTO sovereign_private_messages (member_id,sender_member_id,sender_role,body,expires_at) VALUES (?,?,?,?,DATE_ADD(CURRENT_TIMESTAMP,INTERVAL 7 DAY))",[memberId,Number(req.session.memberId),admin?'admin':'member',body]);
+      try { await auditPlatformAction(req.session.memberId,'sovereign_chat.message_sent','sovereign_private_message',result.insertId,{memberId,senderRole:admin?'admin':'member'}); } catch(_) {}
+      return res.status(201).json({ok:true,id:result.insertId,memberId,expiresInDays:7});
+    } catch(e) { return next(e); }
+  });
+  router.delete('/sovereign/chat/messages/:id', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_message_id'});
+    try {
+      await ensureSovereignChatTables();
+      const admin=await sovereignChatAdmin(req);
+      const [result]=admin
+        ? await pool.execute("UPDATE sovereign_private_messages SET deleted_at=CURRENT_TIMESTAMP,deleted_by=? WHERE id=? AND deleted_at IS NULL",[req.session.memberId,id])
+        : await pool.execute("UPDATE sovereign_private_messages SET deleted_at=CURRENT_TIMESTAMP,deleted_by=? WHERE id=? AND sender_member_id=? AND sender_role='member' AND deleted_at IS NULL",[req.session.memberId,id,req.session.memberId]);
+      if(!result.affectedRows)return res.status(404).json({error:'message_not_found_or_not_owned',message:'The message was not found or you do not have permission to remove it.'});
+      try { await auditPlatformAction(req.session.memberId,admin?'sovereign_chat.message_moderated':'sovereign_chat.message_deleted','sovereign_private_message',id,{admin}); } catch(_) {}
+      return res.json({ok:true});
+    } catch(e) { return next(e); }
+  });
+  router.post('/sovereign/chat/messages/:id/report', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id), reason=String(req.body?.reason||'').trim().slice(0,1000);
+    if(!Number.isSafeInteger(id)||id<1||reason.length<3)return res.status(400).json({error:'invalid_report',message:'Choose a message and provide a short reason.'});
+    try {
+      await ensureSovereignChatTables();
+      const [[message]]=await pool.execute("SELECT id,member_id AS memberId FROM sovereign_private_messages WHERE id=? AND deleted_at IS NULL AND expires_at>CURRENT_TIMESTAMP LIMIT 1",[id]);
+      if(!message)return res.status(404).json({error:'message_not_found'});
+      const admin=await sovereignChatAdmin(req);
+      if(Number(message.memberId)!==Number(req.session.memberId) && !admin)return res.status(403).json({error:'forbidden'});
+      const [result]=await pool.execute("INSERT INTO sovereign_private_message_reports (message_id,member_id,reported_by,reason) VALUES (?,?,?,?)",[id,message.memberId,req.session.memberId,reason]);
+      try { await auditPlatformAction(req.session.memberId,'sovereign_chat.message_reported','sovereign_private_message_report',result.insertId,{messageId:id}); } catch(_) {}
+      return res.status(201).json({ok:true,reportId:result.insertId,status:'open'});
+    } catch(e) { return next(e); }
+  });
+  router.get('/sovereign/chat/admin/reports', noStore, apiAuth, async (req,res,next) => {
+    try {
+      await ensureSovereignChatTables();
+      if (!(await sovereignChatAdmin(req))) return res.status(403).json({error:'admin_required'});
+      const [items]=await pool.query("SELECT r.id,r.message_id AS messageId,r.member_id AS memberId,m.full_name AS memberName,r.reported_by AS reportedBy,r.reason,r.status,r.created_at AS createdAt,p.body AS messageBody,p.sender_role AS senderRole FROM sovereign_private_message_reports r JOIN members m ON m.id=r.member_id JOIN sovereign_private_messages p ON p.id=r.message_id WHERE r.status='open' ORDER BY r.created_at ASC LIMIT 200");
+      return res.json({items});
+    } catch(e) { return next(e); }
+  });
+  router.post('/sovereign/chat/admin/reports/:id/review', noStore, apiAuth, async (req,res,next) => {
+    const id=Number(req.params.id), status=String(req.body?.status||'');
+    if(!Number.isSafeInteger(id)||id<1||!['reviewed','dismissed'].includes(status))return res.status(400).json({error:'invalid_report_status'});
+    try {
+      await ensureSovereignChatTables();
+      if (!(await sovereignChatAdmin(req))) return res.status(403).json({error:'admin_required'});
+      const [result]=await pool.execute("UPDATE sovereign_private_message_reports SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='open'",[status,req.session.memberId,id]);
+      if(!result.affectedRows)return res.status(404).json({error:'report_not_found'});
+      try { await auditPlatformAction(req.session.memberId,'sovereign_chat.report_'+status,'sovereign_private_message_report',id,{status}); } catch(_) {}
+      return res.json({ok:true,status});
+    } catch(e) { return next(e); }
+  });
+
   // First-20 Free Signals event. One shared server-side deadline is used by web and Android.
   const FREE_SIGNAL_EVENT_END = new Date('2026-11-22T23:59:59Z');
   router.get('/sovereign/free-signals-event', noStore, async (_req,res,next) => {
