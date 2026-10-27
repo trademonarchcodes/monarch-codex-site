@@ -2018,7 +2018,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [[signal]]=await pool.execute('SELECT id,validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
       if(!signal)return res.status(404).json({error:'signal_not_found'});
       if(status==='published'&&signal.validation_status!=='valid')return res.status(409).json({error:'signal_not_validated',message:'Mark the signal VALID before publishing.'});
-      await pool.execute('UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?=\'published\' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);
+      // Avoid comparing a bound status parameter with a SQL string literal: MySQL may reject mixed collations.
+      if(status==='published') {
+        await pool.execute("UPDATE sovereign_signals SET status=?,published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[status,req.session.memberId,id]);
+      } else {
+        await pool.execute('UPDATE sovereign_signals SET status=?,published_at=published_at,updated_by=? WHERE id=?',[status,req.session.memberId,id]);
+      }
       res.json({ok:true});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
@@ -2035,7 +2040,16 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   desk.post('/guidance/:id/status', async (req,res,next) => {
     const id=String(req.params.id),status=deskClean(req.body.status,20);
     if(!deskId(id)||!['draft','published','archived'].includes(status))return res.status(400).json({error:'invalid_guidance_status'});
-    try { const [r]=await pool.execute('UPDATE sovereign_guidance SET status=?,published_at=CASE WHEN ?=\'published\' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);if(!r.affectedRows)return res.status(404).json({error:'guidance_not_found'});res.json({ok:true}); }
+    try {
+      let r;
+      // Use separate statements so status publication does not compare collated strings in SQL.
+      if(status==='published') {
+        [r]=await pool.execute("UPDATE sovereign_guidance SET status=?,published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[status,req.session.memberId,id]);
+      } else {
+        [r]=await pool.execute('UPDATE sovereign_guidance SET status=?,published_at=published_at,updated_by=? WHERE id=?',[status,req.session.memberId,id]);
+      }
+      if(!r.affectedRows)return res.status(404).json({error:'guidance_not_found'});res.json({ok:true});
+    }
     catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.get('/access', async (req,res,next) => {
