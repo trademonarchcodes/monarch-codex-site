@@ -127,7 +127,22 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     return callTelegramWorker(req, res, '/telegram/admin-action', 'POST', req.body || {});
   });
 
-  router.get('/health', noStore, (_req, res) => res.json({ ok: true, service: 'monarch-codex-mobile-api', version: 1 }));
+  // Read-only readiness probe: distinguishes an API process that is alive from one
+  // that can reach its database. Never expose SQL errors, hostnames, or credentials.
+  router.get('/health', noStore, async (_req, res) => {
+    try {
+      await pool.query('SELECT 1 AS ready');
+      return res.json({ ok: true, ready: true, service: 'monarch-codex-mobile-api', version: 1 });
+    } catch (_error) {
+      return res.status(503).json({
+        ok: false,
+        ready: false,
+        service: 'monarch-codex-mobile-api',
+        version: 1,
+        message: 'The API is running but its database dependency is unavailable.'
+      });
+    }
+  });
 
   // Public Android update manifest and asset proxy. The private GitHub release token stays on the server.
   const loadAndroidRelease = async (tag = 'latest-apk') => {
@@ -1328,6 +1343,44 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       if(e&&e.code==='ER_ROW_IS_REFERENCED_2')return res.status(409).json({error:'member_has_protected_records',message:'The database has protected records linked to this account. No deletion was committed; review those relationships before retrying.'});
       return next(e);
     } finally { if(conn)conn.release(); }
+  });
+
+  // Read-only mobile admin investment report; no wallet or investment records are mutated.
+  router.get('/admin/investments/report', noStore, apiAuth, requireCategoryAccess('invest_market','view'), async (req,res,next) => {
+    try {
+      const [rows] = await pool.query(
+        'SELECT i.id,i.member_id,i.package_name_snapshot,i.currency,i.principal_amount,i.fee_amount,i.total_charged,i.status,i.purchase_reference,i.starts_at,i.matures_at,m.full_name,m.username,m.monarch_uid FROM member_investments i JOIN members m ON m.id=i.member_id ORDER BY i.created_at DESC,i.id DESC LIMIT 200'
+      );
+      const totals = {};
+      for (const row of rows) {
+        const currency = String(row.currency || '');
+        if (!totals[currency]) totals[currency] = { count: 0, principal: 0, fees: 0, charged: 0 };
+        totals[currency].count += 1;
+        totals[currency].principal += Number(row.principal_amount) || 0;
+        totals[currency].fees += Number(row.fee_amount) || 0;
+        totals[currency].charged += Number(row.total_charged) || 0;
+      }
+      return res.set('Cache-Control','no-store, private').json({
+        records: rows.map(row => ({
+          id: Number(row.id), memberId: Number(row.member_id),
+          memberName: row.full_name || row.username || ('Member #' + row.member_id),
+          username: row.username || '', uid: row.monarch_uid || '',
+          packageName: row.package_name_snapshot || 'Package unavailable',
+          currency: row.currency, principal: String(row.principal_amount),
+          fee: String(row.fee_amount), totalCharged: String(row.total_charged),
+          status: row.status, reference: row.purchase_reference,
+          startedAt: row.starts_at, maturesAt: row.matures_at
+        })),
+        totals,
+        limit: 200,
+        readOnly: true
+      });
+    } catch (error) {
+      if (error && (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_FIELD_ERROR')) {
+        return res.status(503).json({ error: 'investment_report_unavailable', message: 'Investment reporting is unavailable until the required purchase schema is installed.' });
+      }
+      next(error);
+    }
   });
 
   router.get('/admin/overview', noStore, apiAuth, requireCategoryAccess('members_roles','view'), async (req, res, next) => {
