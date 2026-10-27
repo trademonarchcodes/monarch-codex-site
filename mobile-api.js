@@ -1954,6 +1954,52 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       next();
     } catch (e) { next(e); }
   };
+  // Member-facing Sovereign Desk signal feed. This must be registered before the
+  // /sovereign admin router below, whose middleware intentionally requires an admin role.
+  router.get('/sovereign/signals', noStore, apiAuth, async (req, res, next) => {
+    try {
+      // This URL is shared by the native admin workspace and the member feed.
+      // Resolve administrator access first so admins receive drafts as well as published signals.
+      const [[admin]] = await pool.execute(
+        'SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',
+        [req.session.memberId]
+      );
+      if (admin && ['sovereign_desk_admin', 'super_admin', 'main_admin'].includes(String(admin.role))) {
+        const [items] = await pool.execute(
+          'SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,validation_status,published_at,expires_at,created_at,updated_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100'
+        );
+        return res.json({ items, adminView: true });
+      }
+      const [[access]] = await pool.execute(
+        "SELECT status,starts_at,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1",
+        [req.session.memberId]
+      );
+      const now = Date.now();
+      const active = Boolean(access && access.status === 'approved' &&
+        (!access.starts_at || new Date(access.starts_at).getTime() <= now) &&
+        access.expires_at && new Date(access.expires_at).getTime() > now);
+      if (!active) {
+        return res.json({
+          items: [],
+          accessRequired: true,
+          message: 'Activate Sovereign Desk signals access to view published signals.'
+        });
+      }
+      const [items] = await pool.execute(
+        "SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND validation_status='valid' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100"
+      );
+      return res.json({ items, accessRequired: false });
+    } catch (e) {
+      if (e && ['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR','ER_NO_SUCH_COLUMN'].includes(e.code)) {
+        return res.status(503).json({
+          error: 'sovereign_setup_required',
+          message: 'Sovereign Desk signals are not available because the database schema is incomplete.'
+        });
+      }
+      return next(e);
+    }
+  });
+
   const desk = express.Router();
   desk.use(noStore, apiAuth, sovereignAdminApi);
   const deskClean = (v,max) => String(v == null ? '' : v).trim().slice(0,max);
@@ -1998,10 +2044,15 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         if(!deleted.affectedRows)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
         return res.json({ok:true,deleted:true,message:'Invalid signal deleted.'});
       }
-      const [[existing]]=await pool.execute('SELECT id,status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
+      const [[existing]]=await pool.execute('SELECT id FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
       if(!existing)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
       const publish=validation==='valid';
-      await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_by=? WHERE id=?",[validation,publish?'published':'draft',publish?'published':'draft',req.session.memberId,id]);
+      // Keep SQL branches separate to avoid bound-text/SQL-literal collation comparisons.
+      if(publish) {
+        await pool.execute("UPDATE sovereign_signals SET validation_status=?,status='published',published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[validation,req.session.memberId,id]);
+      } else {
+        await pool.execute("UPDATE sovereign_signals SET validation_status=?,status='draft',published_at=NULL,updated_by=? WHERE id=?",[validation,req.session.memberId,id]);
+      }
       res.json({ok:true,validation_status:validation,status:publish?'published':'draft',message:publish?'Signal validated and published.':'Signal saved as a draft until validated.'});
     } catch(e) { console.error('[sovereign-desk] signal validation failed', { signalId:id, code:e?.code, message:e?.message }); try { deskFail(res,e); } catch(err) { next(err); } }
   });
@@ -2012,7 +2063,12 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [[signal]]=await pool.execute('SELECT id,validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
       if(!signal)return res.status(404).json({error:'signal_not_found'});
       if(status==='published'&&signal.validation_status!=='valid')return res.status(409).json({error:'signal_not_validated',message:'Mark the signal VALID before publishing.'});
-      await pool.execute('UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?=\'published\' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);
+      // Avoid comparing a bound status parameter with a SQL string literal: MySQL may reject mixed collations.
+      if(status==='published') {
+        await pool.execute("UPDATE sovereign_signals SET status=?,published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[status,req.session.memberId,id]);
+      } else {
+        await pool.execute('UPDATE sovereign_signals SET status=?,published_at=published_at,updated_by=? WHERE id=?',[status,req.session.memberId,id]);
+      }
       res.json({ok:true});
     } catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
@@ -2029,7 +2085,16 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   desk.post('/guidance/:id/status', async (req,res,next) => {
     const id=String(req.params.id),status=deskClean(req.body.status,20);
     if(!deskId(id)||!['draft','published','archived'].includes(status))return res.status(400).json({error:'invalid_guidance_status'});
-    try { const [r]=await pool.execute('UPDATE sovereign_guidance SET status=?,published_at=CASE WHEN ?=\'published\' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?',[status,status,req.session.memberId,id]);if(!r.affectedRows)return res.status(404).json({error:'guidance_not_found'});res.json({ok:true}); }
+    try {
+      let r;
+      // Use separate statements so status publication does not compare collated strings in SQL.
+      if(status==='published') {
+        [r]=await pool.execute("UPDATE sovereign_guidance SET status=?,published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[status,req.session.memberId,id]);
+      } else {
+        [r]=await pool.execute('UPDATE sovereign_guidance SET status=?,published_at=published_at,updated_by=? WHERE id=?',[status,req.session.memberId,id]);
+      }
+      if(!r.affectedRows)return res.status(404).json({error:'guidance_not_found'});res.json({ok:true});
+    }
     catch(e) { try { deskFail(res,e); } catch(err) { next(err); } }
   });
   desk.get('/access', async (req,res,next) => {
