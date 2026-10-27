@@ -62,3 +62,14 @@ test('member signal API is registered before the admin-only Sovereign router and
   assert.match(memberFeed, /validation_status='valid'/);
   assert.match(memberFeed, /expires_at IS NULL OR expires_at>NOW\(\)/);
 });
+
+test('website signal publishing avoids bound-text CASE comparisons that can trigger MySQL collation errors', () => {
+  const statusRoute = routerSource.slice(
+    routerSource.indexOf("router.post('/sovereign-admin/signals/:id/status'"),
+    routerSource.indexOf("router.get('/sovereign-admin/guidance'")
+  );
+  assert.match(statusRoute, /if\(requested==='published'\)/);
+  assert.match(statusRoute, /published_at=COALESCE\(published_at,CURRENT_TIMESTAMP\)/);
+  assert.match(statusRoute, /published_at=published_at/);
+  assert.doesNotMatch(statusRoute, /CASE WHEN \?='published'/);
+});
