@@ -49,6 +49,18 @@ test('announcement migration is additive and preserves member records', () => {
 
 const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 
+test('shared Android Sovereign signals GET returns all records to admins before applying member access filters', () => {
+  const memberRoute = mobileApi.indexOf("router.get('/sovereign/signals'");
+  const adminMount = mobileApi.indexOf("router.use('/sovereign', desk)");
+  const route = mobileApi.slice(memberRoute, adminMount);
+  assert.match(route, /SELECT role FROM admin_users WHERE member_id=\? AND is_active=1 LIMIT 1/);
+  assert.match(route, /sovereign_desk_admin.*super_admin.*main_admin/);
+  assert.match(route, /if \(admin &&/);
+  assert.match(route, /status,validation_status,published_at,expires_at,created_at,updated_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100/);
+  assert.match(route, /adminView: true/);
+  assert.ok(route.indexOf('adminView: true') < route.indexOf('sovereign_signal_access'));
+});
+
 test('member signal API is registered before the admin-only Sovereign router and returns only valid published records', () => {
   const memberRoute = mobileApi.indexOf("router.get('/sovereign/signals'");
   const adminMount = mobileApi.indexOf("router.use('/sovereign', desk)");
