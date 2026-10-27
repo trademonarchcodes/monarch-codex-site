@@ -85,3 +85,21 @@ test('website signal publishing avoids bound-text CASE comparisons that can trig
   assert.match(statusRoute, /published_at=published_at/);
   assert.doesNotMatch(statusRoute, /CASE WHEN \?='published'/);
 });
+
+
+test('validating a Sovereign Desk signal publishes it without unsafe SQL collation comparisons', () => {
+  const validationRoute = mobileApi.slice(
+    mobileApi.indexOf("desk.post('/signals/:id/validation'"),
+    mobileApi.indexOf("desk.post('/signals/:id/status'")
+  );
+  assert.match(validationRoute, /const publish=validation===\x27valid\x27/);
+  assert.match(validationRoute, /status=\x27published\x27,published_at=COALESCE\(published_at,CURRENT_TIMESTAMP\)/);
+  assert.match(validationRoute, /Signal validated and published\./);
+  assert.doesNotMatch(validationRoute, /CASE WHEN \?=\x27published\x27/);
+});
+
+test('website publishing gives actionable guidance when a signal is not valid yet', () => {
+  assert.match(routerSource, /validation=required/);
+  assert.match(routerSource, /Valid — approve for members/);
+  assert.match(routerSource, /Pending or Invalid remain hidden/);
+});
