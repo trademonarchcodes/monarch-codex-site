@@ -134,7 +134,7 @@ function createSovereignDeskRouter(deps) {
       const tableRows = rows.map(s=>'<tr><td><strong>'+esc(s.asset_pair)+' · '+esc(s.direction.toUpperCase())+'</strong><br><small>Price: '+esc(s.price||s.entry_zone||'—')+'</small><br><small>TP: '+esc(s.take_profit_1||'—')+' · SL: '+esc(s.stop_loss||'—')+'</small></td><td>'+statusLabel(s.validation_status||'pending')+'<br><small>Delivery: '+statusLabel(s.status)+'</small></td><td>'+dateLabel(s.published_at || s.created_at)+'</td><td><div class="ac-actions"><a class="copy-btn" href="/sovereign-admin/signals/'+Number(s.id)+'/edit">Edit / validate</a>'+postForm(req,'/sovereign-admin/signals/'+Number(s.id)+'/status','<select name="status" aria-label="Signal delivery status"><option value="draft">Keep hidden</option><option value="published">Publish (valid only)</option><option value="closed">Close</option><option value="archived">Archive</option></select>','Apply')+'</div></td></tr>').join('');
       const content = panel('Create a signal','Enter the instrument, BUY/SELL action, price and optional take-profit/stop-loss. A signal stays hidden until explicitly marked VALID and published.',signalForm(req)) +
         panel('Saved signals','Signals are stored in the database; publishing timestamps and status are recorded.',table(['Signal','Status','Published / created','Actions'],tableRows,'No signals have been created yet.'));
-      deskAdminPage(req,res,'Signals & analysis','/sovereign-admin/signals',notice(req.query.saved ? 'Signal saved.' : req.query.status ? 'Signal status updated.' : '')+content);
+      deskAdminPage(req,res,'Signals & analysis','/sovereign-admin/signals',notice(req.query.validation === 'required' ? 'This signal is not published yet. Open “Edit / validate”, choose “Valid — approve for members”, and save. Saving a valid signal publishes it; signals marked Pending or Invalid remain hidden.' : req.query.saved ? 'Signal saved. If you selected Valid, it is now published; otherwise open Edit / validate when it is ready for review.' : req.query.status ? 'Signal status updated.' : '')+content);
     } catch(e){dbUnavailable(res,next,e,'Signals setup required');}
   });
 
@@ -178,7 +178,7 @@ function createSovereignDeskRouter(deps) {
     try{
       const [[signal]]=await pool.execute('SELECT validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[req.params.id]);
       if(!signal)return res.status(404).send('Signal not found.');
-      if(requested==='published'&&signal.validation_status!=='valid')return res.status(409).send('Mark this signal VALID before publishing it to members.');
+      if(requested==='published'&&signal.validation_status!=='valid')return res.redirect('/sovereign-admin/signals?validation=required');
       // Keep the published branch free of a bound-text comparison against a SQL literal.
       // MySQL can reject that comparison when connection and column collations differ.
       let result;
