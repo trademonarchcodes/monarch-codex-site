@@ -1,18 +1,91 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b0b0c"><title>The Sovereign Desk | Monarch Codex</title><link rel="stylesheet" href="assets/css/style.css"><style>.feature-shell{width:min(100% - 32px,900px);margin:42px auto}.feature-brand{color:#f3cf3c;font-weight:900;letter-spacing:.12em;text-decoration:none}.feature-panel{margin-top:28px;padding:clamp(22px,4vw,42px);border:1px solid rgba(243,207,60,.3);border-radius:22px;background:linear-gradient(145deg,#1e1e23,#111115)}.feature-panel h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.1}.feature-muted{color:#b8b6c0}.feature-link{display:inline-block;margin:8px 10px 0 0;padding:11px 16px;border:1px solid #f3cf3c;border-radius:999px;color:#ffe16b;text-decoration:none;font-weight:800}.feature-note{padding:14px;border-left:3px solid #f3cf3c;background:#211d10}</style></head><body><main class="feature-shell"><a class="feature-brand" href="/">MONARCH CODEX</a><section class="feature-panel"><p style="color:#f3cf3c;font-weight:900;letter-spacing:.12em">THE SOVEREIGN DESK</p><h1>Signals, mentorship<br>and member learning.</h1><p class="feature-muted">Your home for Signals, Guidance and Desk Chat. Free Signals are available to the first 20 members who request a slot during this limited event. Requests are reviewed before access is activated.</p>
-<section class="feature-panel" style="margin-top:18px">
-<p style="color:#f3cf3c;font-weight:900;letter-spacing:.08em">FREE SIGNALS · FIRST 20 MEMBERS</p>
-<h2 id="eventSlots">Loading available slots…</h2><h3 id="eventClock">Loading event countdown…</h3>
-<p class="feature-muted">Event ends November 22, 2026 at 23:59:59 UTC, or earlier if all 20 slots are claimed. Trading involves risk; results are not guaranteed.</p>
-<button class="feature-link" id="requestFreeSignals" type="button">Request Free Signals access</button><p id="eventMessage" class="feature-muted" aria-live="polite"></p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#09090B">
+<title>Sovereign Desk | Monarch Codex</title>
+<link rel="stylesheet" href="/assets/css/style.css">
+<style>
+:root{--sd-gold:#D4AF37;--sd-ink:#09090B;--sd-panel:#151518;--sd-muted:#A9A7AF;--sd-line:rgba(212,175,55,.28)}
+*{box-sizing:border-box}body{margin:0;background:var(--sd-ink);color:#F7F5ED;font-family:Inter,Manrope,system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:inherit}.sd-shell{width:min(1180px,calc(100% - 32px));margin:24px auto 56px}
+.sd-topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0 22px;border-bottom:1px solid var(--sd-line)}
+.sd-brand{display:flex;align-items:center;gap:11px;text-decoration:none;font-size:12px;font-weight:950;letter-spacing:.13em;color:var(--sd-gold)}
+.sd-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid var(--sd-gold);border-radius:13px;background:linear-gradient(145deg,#2B240F,#121214);font-size:21px}
+.sd-status{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--sd-line);border-radius:999px;padding:8px 11px;color:#D8D3C2;font-size:10px;font-weight:800;letter-spacing:.08em}
+.sd-dot{width:7px;height:7px;border-radius:50%;background:var(--sd-gold);box-shadow:0 0 12px #D4AF3766}
+.sd-hero{position:relative;overflow:hidden;margin:24px 0 25px;padding:clamp(24px,5vw,48px);border:1px solid rgba(212,175,55,.52);border-radius:25px;background:radial-gradient(ellipse at 100% 0,rgba(212,175,55,.18),transparent 42%),linear-gradient(140deg,#211B0D,#151518 58%,#101012)}
+.sd-eyebrow{color:var(--sd-gold);font-size:10px;font-weight:950;letter-spacing:.19em}
+.sd-hero h1{font-size:clamp(31px,5vw,56px);line-height:1.02;letter-spacing:-.045em;margin:15px 0 13px;max-width:700px}
+.sd-hero p{max-width:660px;color:#BEBBC2;font-size:14px;line-height:1.7;margin:0}
+.sd-uid{display:inline-flex;align-items:center;gap:9px;margin-top:22px;padding:11px 14px;border:1px solid var(--sd-line);border-radius:12px;background:#09090B55;color:var(--sd-gold);font-size:11px;font-weight:900}
+.sd-section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:28px 2px 13px}
+.sd-section-head h2{font-size:15px;letter-spacing:.08em;margin:0;font-weight:950}
+.sd-section-head span{color:var(--sd-muted);font-size:10px}
+.sd-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.sd-card{min-height:174px;display:flex;flex-direction:column;align-items:flex-start;padding:18px;border:1px solid var(--sd-line);border-radius:18px;background:linear-gradient(155deg,#19191D,#111113);text-decoration:none;transition:transform .18s,border-color .18s,background .18s}
+.sd-card:hover,.sd-card:focus-visible{transform:translateY(-2px);border-color:var(--sd-gold);background:linear-gradient(155deg,#241F12,#111113);outline:none}
+.sd-icon{display:grid;place-items:center;width:43px;height:43px;border-radius:13px;background:#D4AF3719;border:1px solid #D4AF3733;color:var(--sd-gold);font-size:21px}
+.sd-card h3{margin:15px 0 6px;font-size:15px;font-weight:900}
+.sd-card p{margin:0;color:var(--sd-muted);font-size:11px;line-height:1.55}
+.sd-arrow{margin-top:auto;padding-top:12px;color:var(--sd-gold);font-size:12px;font-weight:900}
+.sd-content{margin-top:18px;padding:clamp(18px,3vw,27px);border:1px solid var(--sd-line);border-radius:20px;background:var(--sd-panel)}
+.sd-content h2{margin:0 0 8px;font-size:18px}.sd-content p{color:var(--sd-muted);font-size:12px;line-height:1.65}
+.sd-event{display:grid;grid-template-columns:1fr auto;align-items:center;gap:14px;padding:15px;border-radius:14px;border:1px solid var(--sd-line);background:#0D0D0F}
+.sd-event h3{margin:0 0 6px;color:var(--sd-gold);font-size:12px;letter-spacing:.08em}.sd-event p{margin:0}
+.sd-btn{display:inline-flex;align-items:center;justify-content:center;min-height:43px;padding:10px 15px;border:1px solid var(--sd-gold);border-radius:999px;background:var(--sd-gold);color:#09090B;text-decoration:none;font-size:11px;font-weight:950;cursor:pointer}
+.sd-btn:disabled{opacity:.5;cursor:not-allowed}.sd-message{margin-top:10px;color:#DAD6C8;font-size:12px}
+.sd-notice{display:flex;gap:11px;margin-top:18px;padding:15px;border-left:3px solid var(--sd-gold);border-radius:8px;background:#201B0D;color:#D4CFBF;font-size:11px;line-height:1.6}
+.sd-footer{display:flex;flex-wrap:wrap;gap:16px;margin-top:24px;padding:18px 2px;border-top:1px solid var(--sd-line);color:var(--sd-muted);font-size:11px}.sd-footer a{color:var(--sd-gold);text-decoration:none}
+@media(max-width:900px){.sd-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sd-card{min-height:160px}}
+@media(max-width:520px){.sd-shell{width:min(100% - 22px,1180px);margin-top:10px}.sd-topbar{padding-bottom:15px}.sd-status{font-size:8px;padding:7px 8px}.sd-grid{gap:9px}.sd-card{padding:13px;min-height:157px}.sd-card h3{font-size:13px}.sd-card p{font-size:10px}.sd-event{grid-template-columns:1fr}.sd-event .sd-btn{width:100%}.sd-hero{border-radius:20px}}
+</style>
+</head>
+<body>
+<main class="sd-shell">
+<header class="sd-topbar">
+<a class="sd-brand" href="/"><span class="sd-mark" aria-hidden="true">♛</span><span>MONARCH CODEX<br><small style="font-size:9px;letter-spacing:.22em;color:#B8B4A6">SOVEREIGN DESK</small></span></a>
+<span class="sd-status"><span class="sd-dot"></span> MEMBER WORKSPACE</span>
+</header>
+<section class="sd-hero">
+<div class="sd-eyebrow">MONARCH CODEX · MEMBER WORKSPACE</div>
+<h1>Welcome to your trading desk.</h1>
+<p>A focused workspace for market insights, trading records, trading education and disciplined decision-making. Everything organized, without the noise.</p>
+<div class="sd-uid">♙ &nbsp; ACCESS IS SUBJECT TO MEMBER ELIGIBILITY</div>
 </section>
-<section class="feature-panel"><h2>Guidance</h2><p class="feature-muted">Educational market guidance and mentorship resources are part of the Sovereign Desk.</p><a class="feature-link" href="/academy">Open Academy</a></section>
-<section class="feature-panel"><h2>Desk Chat</h2><p class="feature-muted">Use the member community and official support channels for questions and discussion.</p><a class="feature-link" href="/community">Open Community</a><a class="feature-link" href="mailto:support@monarchcodex.online">Contact Support</a></section><div class="feature-note"><strong>Access notice:</strong> Trading signals can lose money. No outcome or profit is guaranteed.</div><p><a class="feature-link" href="/login">Member login</a><a class="feature-link" href="/register">Create account</a><a class="feature-link" href="/">Return home</a></p></section></main><script>
+<div class="sd-section-head"><h2>YOUR WORKSPACE</h2><span>7 MEMBER SECTIONS</span></div>
+<nav class="sd-grid" aria-label="Sovereign Desk sections">
+<a class="sd-card" href="#signals"><span class="sd-icon">↗</span><h3>Signals</h3><p>Published signal updates and verified trading ideas.</p><span class="sd-arrow">OPEN SECTION ↗</span></a>
+<a class="sd-card" href="#watchlist"><span class="sd-icon">◉</span><h3>Watchlist</h3><p>The shared market table published by the desk administrator.</p><span class="sd-arrow">VIEW WATCHLIST ↗</span></a>
+<a class="sd-card" href="#history"><span class="sd-icon">◷</span><h3>History</h3><p>Review available past signals and desk records.</p><span class="sd-arrow">VIEW HISTORY ↗</span></a>
+<a class="sd-card" href="#market-brief"><span class="sd-icon">▤</span><h3>Market Brief</h3><p>Market context, important themes and educational notes.</p><span class="sd-arrow">READ BRIEF ↗</span></a>
+<a class="sd-card" href="#journal"><span class="sd-icon">✎</span><h3>Journal</h3><p>A dedicated space for trading plans and personal reflections.</p><span class="sd-arrow">OPEN JOURNAL ↗</span></a>
+<a class="sd-card" href="#performance"><span class="sd-icon">⌁</span><h3>Performance</h3><p>A place for performance summaries when verified records exist.</p><span class="sd-arrow">VIEW SUMMARY ↗</span></a>
+<a class="sd-card" href="/academy"><span class="sd-icon">◇</span><h3>Academy</h3><p>Continue learning with lessons available to your account.</p><span class="sd-arrow">OPEN ACADEMY ↗</span></a>
+</nav>
+<section class="sd-content" id="signals">
+<h2>Signals &amp; access</h2><p>Signal information should be published by the desk and shown only to eligible members. No sample entry prices, targets, or stop-losses are invented by this dashboard.</p>
+<div class="sd-event"><div><h3>FREE SIGNALS · FIRST 20 MEMBERS</h3><p id="eventSlots">Checking available places…</p><p id="eventClock" style="margin-top:5px">Checking event countdown…</p></div><button class="sd-btn" id="requestFreeSignals" type="button">Request access</button></div>
+<p id="eventMessage" class="sd-message" aria-live="polite"></p>
+</section>
+<section class="sd-content" id="watchlist"><h2>Shared Watchlist</h2><p>The member view is designed to be read-only. The administrator publishes the table once for eligible members. The current source does not establish a verified published table for this screen, so no market prices or instruments are fabricated.</p></section>
+<section class="sd-content" id="history"><h2>History</h2><p>Past signal records will appear here when available from the existing verified source. No performance or historical trade records are fabricated.</p></section>
+<section class="sd-content" id="market-brief"><h2>Market Brief</h2><p>A dedicated space for administrator-published market context and educational notes. Live market data integration can be considered separately later.</p></section>
+<section class="sd-content" id="journal"><h2>Journal</h2><p>Journal layout reserved for trading plans and reflections. This visual redesign does not add persistent journal storage or change the database.</p></section>
+<section class="sd-content" id="performance"><h2>Performance</h2><p>Performance summaries should use verified records only. No returns, win rates, or profitability claims are generated by this design.</p></section>
+<div class="sd-notice"><span aria-hidden="true">⚠</span><span>Trading involves risk. Signals and education do not guarantee profits. Use independent judgment and risk controls; only verified published information should be treated as current.</span></div>
+<footer class="sd-footer"><a href="/login">Member login</a><a href="/community">Community</a><a href="/academy">Academy</a><a href="mailto:support@monarchcodex.online">Contact support</a><a href="/">Monarch Codex home</a></footer>
+</main>
+<script>
 (function(){
 const slots=document.getElementById('eventSlots'),clock=document.getElementById('eventClock'),msg=document.getElementById('eventMessage'),btn=document.getElementById('requestFreeSignals');
 let end=0,offset=0,isOpen=false;
-async function refresh(){try{const r=await fetch('/api/mobile/sovereign/free-signals-event',{cache:'no-store'});if(!r.ok)throw new Error('status');const d=await r.json();end=Date.parse(d.endsAt);offset=Date.parse(d.serverTime)-Date.now();slots.textContent=d.remaining+' of '+d.limit+' slots remaining · '+d.claimed+' claimed';isOpen=!!d.open;btn.disabled=!isOpen;btn.style.opacity=isOpen?'1':'.5';if(!isOpen)msg.textContent=Date.now()+offset>=end?'This event has ended.':'All 20 slots have been claimed.';}catch(e){slots.textContent='Event status unavailable';clock.textContent='Please try again later.';btn.disabled=true;}}
+async function refresh(){try{const r=await fetch('/api/mobile/sovereign/free-signals-event',{cache:'no-store',credentials:'same-origin'});if(!r.ok)throw new Error('status');const d=await r.json();end=Date.parse(d.endsAt);offset=Date.parse(d.serverTime)-Date.now();slots.textContent=d.remaining+' of '+d.limit+' places remaining · '+d.claimed+' claimed';isOpen=!!d.open;btn.disabled=!isOpen;if(!isOpen)msg.textContent=Date.now()+offset>=end?'This event has ended.':'All available places have been claimed.';}catch(e){slots.textContent='Event status unavailable';clock.textContent='Please try again later.';btn.disabled=true;}}
 function tick(){if(!end)return;const ms=end-(Date.now()+offset);if(ms<=0){clock.textContent='Event closed';btn.disabled=true;return;}clock.textContent='Time remaining: '+Math.floor(ms/86400000)+'d '+Math.floor(ms%86400000/3600000)+'h '+Math.floor(ms%3600000/60000)+'m '+Math.floor(ms%60000/1000)+'s';}
 btn.addEventListener('click',async()=>{btn.disabled=true;msg.textContent='Submitting your request…';try{const r=await fetch('/api/mobile/sovereign/free-signals-event/request',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(!r.ok){if(d.error==='unauthorized'||r.status===401){msg.textContent='Please log in first, then return here to request access.';return;}msg.textContent=d.message||'Could not submit request.';}else msg.textContent=d.message||'Request submitted for review.';await refresh();}catch(e){msg.textContent='Network error. Please try again.';}finally{btn.disabled=!isOpen;}});
 refresh().then(tick);setInterval(tick,1000);setInterval(refresh,60000);
 })();
-</script></body></html>
+</script>
+</body>
+</html>
