@@ -1954,6 +1954,40 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       next();
     } catch (e) { next(e); }
   };
+  // Member-facing Sovereign Desk signal feed. This must be registered before the
+  // /sovereign admin router below, whose middleware intentionally requires an admin role.
+  router.get('/sovereign/signals', noStore, apiAuth, async (req, res, next) => {
+    try {
+      const [[access]] = await pool.execute(
+        "SELECT status,starts_at,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1",
+        [req.session.memberId]
+      );
+      const now = Date.now();
+      const active = Boolean(access && access.status === 'approved' &&
+        (!access.starts_at || new Date(access.starts_at).getTime() <= now) &&
+        access.expires_at && new Date(access.expires_at).getTime() > now);
+      if (!active) {
+        return res.json({
+          items: [],
+          accessRequired: true,
+          message: 'Activate Sovereign Desk signals access to view published signals.'
+        });
+      }
+      const [items] = await pool.execute(
+        "SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,published_at,expires_at FROM sovereign_signals WHERE status='published' AND validation_status='valid' AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY published_at DESC,id DESC LIMIT 100"
+      );
+      return res.json({ items, accessRequired: false });
+    } catch (e) {
+      if (e && ['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR','ER_NO_SUCH_COLUMN'].includes(e.code)) {
+        return res.status(503).json({
+          error: 'sovereign_setup_required',
+          message: 'Sovereign Desk signals are not available because the database schema is incomplete.'
+        });
+      }
+      return next(e);
+    }
+  });
+
   const desk = express.Router();
   desk.use(noStore, apiAuth, sovereignAdminApi);
   const deskClean = (v,max) => String(v == null ? '' : v).trim().slice(0,max);
