@@ -2505,6 +2505,39 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
     } catch(e) { if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required',message:'Academy lesson schema is not configured.'});return next(e); }
   });
 
+  // Academy lesson lifecycle: archive is reversible; permanent deletion is Super Admin only.
+  router.post('/admin/academy/lessons/:id/archive', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_lesson_id'});
+    try {
+      const [result]=await pool.execute("UPDATE academy_lessons SET status='archived' WHERE id=? AND status<>'archived'",[id]);
+      if(!result.affectedRows){const [[lesson]]=await pool.execute('SELECT id,status FROM academy_lessons WHERE id=? LIMIT 1',[id]);if(!lesson)return res.status(404).json({error:'lesson_not_found'});}
+      try { await auditPlatformAction(req.session.memberId,'academy.lesson_archived','academy_lesson',id,{status:'archived'}); } catch(_) {}
+      return res.json({ok:true,id,status:'archived',message:'Lesson archived. It can be restored from the lesson status control.'});
+    } catch(e){if(['ER_NO_SUCH_TABLE','ER_BAD_FIELD_ERROR'].includes(e.code))return res.status(503).json({error:'academy_setup_required'});return next(e);}
+  });
+  router.delete('/admin/academy/lessons/:id', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
+    const id=Number(req.params.id);
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_lesson_id'});
+    let conn;
+    try {
+      const [[admin]]=await pool.execute("SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1",[req.session.memberId]);
+      if(!admin||String(admin.role)!=='super_admin')return res.status(403).json({error:'super_admin_required',message:'Permanent lesson deletion is restricted to Super Admin.'});
+      conn=await pool.getConnection();await conn.beginTransaction();
+      const [[lesson]]=await conn.execute('SELECT id,title,status FROM academy_lessons WHERE id=? LIMIT 1 FOR UPDATE',[id]);
+      if(!lesson){await conn.rollback();return res.status(404).json({error:'lesson_not_found'});}
+      await conn.execute("INSERT INTO admin_audit_log (admin_member_id,action,target_type,target_id,details,ip_address) VALUES (?,?,?,?,?,?)",[req.session.memberId,'academy.lesson_permanently_deleted','academy_lesson',String(id),JSON.stringify({title:lesson.title,status:lesson.status}),req.ip||null]);
+      await conn.execute('DELETE FROM academy_lessons WHERE id=?',[id]);
+      await conn.commit();
+      return res.json({ok:true,id,message:'Lesson permanently deleted. Related progress records follow the configured database foreign-key rules.'});
+    } catch(e) {
+      if(conn)try{await conn.rollback();}catch(_){}
+      if(e&&e.code==='ER_NO_SUCH_TABLE')return res.status(503).json({error:'academy_setup_required',message:'The Academy or audit schema is not configured. No deletion was committed.'});
+      if(e&&e.code==='ER_ROW_IS_REFERENCED_2')return res.status(409).json({error:'lesson_has_protected_records',message:'This lesson has related records that prevent permanent deletion. Archive it instead; no deletion was committed.'});
+      return next(e);
+    } finally {if(conn)conn.release();}
+  });
+
   router.post('/admin/academy/lessons/:id/placement', noStore, apiAuth, requireCategoryAccess('invest_market','manage'), async (req,res,next) => {
     const id=String(req.params.id||''), categoryRaw=req.body?.categoryId==null||req.body.categoryId===''?'':String(req.body.categoryId), sortOrder=Number(req.body?.sortOrder);
     if(!/^\\d{1,20}$/.test(id)||!Number.isInteger(sortOrder)||sortOrder<0||sortOrder>999999)return res.status(400).json({error:'invalid_placement'});
