@@ -2001,7 +2001,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
       const [[existing]]=await pool.execute('SELECT id,status FROM sovereign_signals WHERE id=? LIMIT 1',[id]);
       if(!existing)return res.status(404).json({error:'signal_not_found',message:'Signal not found. Refresh the draft list and try again.'});
       const keepPublished=validation==='valid'&&existing.status==='published';
-      await pool.execute("UPDATE sovereign_signals SET validation_status=?,status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_by=? WHERE id=?",[validation,keepPublished?'published':'draft',keepPublished?'published':'draft',req.session.memberId,id]);
+      // Avoid comparing a bound text parameter with a SQL string literal here:
+      // MySQL can reject that comparison when their connection collations differ.
+      if(keepPublished) {
+        await pool.execute("UPDATE sovereign_signals SET validation_status=?,status='published',published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[validation,req.session.memberId,id]);
+      } else {
+        await pool.execute("UPDATE sovereign_signals SET validation_status=?,status='draft',published_at=NULL,updated_by=? WHERE id=?",[validation,req.session.memberId,id]);
+      }
       res.json({ok:true,validation_status:validation,status:keepPublished?'published':'draft'});
     } catch(e) { console.error('[sovereign-desk] signal validation failed', { signalId:id, code:e?.code, message:e?.message }); try { deskFail(res,e); } catch(err) { next(err); } }
   });
