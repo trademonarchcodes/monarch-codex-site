@@ -46,3 +46,19 @@ test('announcement migration is additive and preserves member records', () => {
   assert.match(migration, /FOREIGN KEY \(created_by\) REFERENCES members\(id\)/);
   assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE TABLE|CREATE TABLE members\b/i);
 });
+
+const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
+
+test('member signal API is registered before the admin-only Sovereign router and returns only valid published records', () => {
+  const memberRoute = mobileApi.indexOf("router.get('/sovereign/signals'");
+  const adminMount = mobileApi.indexOf("router.use('/sovereign', desk)");
+  assert.ok(memberRoute >= 0, 'Missing member-facing signals API');
+  assert.ok(adminMount > memberRoute, 'Member feed must run before admin-only /sovereign router');
+  const memberFeed = mobileApi.slice(memberRoute, adminMount);
+  assert.match(memberFeed, /apiAuth/);
+  assert.match(memberFeed, /sovereign_signal_access/);
+  assert.match(memberFeed, /accessRequired:\s*true/);
+  assert.match(memberFeed, /status='published'/);
+  assert.match(memberFeed, /validation_status='valid'/);
+  assert.match(memberFeed, /expires_at IS NULL OR expires_at>NOW\(\)/);
+});
