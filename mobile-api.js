@@ -1958,6 +1958,18 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
   // /sovereign admin router below, whose middleware intentionally requires an admin role.
   router.get('/sovereign/signals', noStore, apiAuth, async (req, res, next) => {
     try {
+      // This URL is shared by the native admin workspace and the member feed.
+      // Resolve administrator access first so admins receive drafts as well as published signals.
+      const [[admin]] = await pool.execute(
+        'SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',
+        [req.session.memberId]
+      );
+      if (admin && ['sovereign_desk_admin', 'super_admin', 'main_admin'].includes(String(admin.role))) {
+        const [items] = await pool.execute(
+          'SELECT id,title,asset_pair,direction,price,entry_zone,stop_loss,take_profit_1,take_profit_2,timeframe,explanation,status,validation_status,published_at,expires_at,created_at,updated_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100'
+        );
+        return res.json({ items, adminView: true });
+      }
       const [[access]] = await pool.execute(
         "SELECT status,starts_at,expires_at FROM sovereign_signal_access WHERE member_id=? LIMIT 1",
         [req.session.memberId]
