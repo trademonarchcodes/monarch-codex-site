@@ -179,7 +179,14 @@ function createSovereignDeskRouter(deps) {
       const [[signal]]=await pool.execute('SELECT validation_status FROM sovereign_signals WHERE id=? LIMIT 1',[req.params.id]);
       if(!signal)return res.status(404).send('Signal not found.');
       if(requested==='published'&&signal.validation_status!=='valid')return res.redirect('/sovereign-admin/signals?validation=required');
-      const [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=CASE WHEN ?='published' THEN COALESCE(published_at,CURRENT_TIMESTAMP) ELSE published_at END,updated_by=? WHERE id=?",[requested,requested,req.session.memberId,req.params.id]);
+      // Keep the published branch free of a bound-text comparison against a SQL literal.
+      // MySQL can reject that comparison when connection and column collations differ.
+      let result;
+      if(requested==='published') {
+        [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=COALESCE(published_at,CURRENT_TIMESTAMP),updated_by=? WHERE id=?",[requested,req.session.memberId,req.params.id]);
+      } else {
+        [result]=await pool.execute("UPDATE sovereign_signals SET status=?,published_at=published_at,updated_by=? WHERE id=?",[requested,req.session.memberId,req.params.id]);
+      }
       if(!result.affectedRows)return res.status(404).send('Signal not found.');
       res.redirect('/sovereign-admin/signals?status=updated');
     }catch(e){dbUnavailable(res,next,e,'Signals setup required');}
