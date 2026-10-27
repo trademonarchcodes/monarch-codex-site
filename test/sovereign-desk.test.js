@@ -6,7 +6,6 @@ const path = require('node:path');
 const routerSource = fs.readFileSync(path.join(__dirname, '..', 'sovereign-desk.js'), 'utf8');
 const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '010_sovereign_desk_announcements.sql'), 'utf8');
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 
 test('Sovereign Desk has real member and administrator routes for its core workflows', () => {
   for (const route of [
@@ -48,17 +47,59 @@ test('announcement migration is additive and preserves member records', () => {
   assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE TABLE|CREATE TABLE members\b/i);
 });
 
+const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
 
-test('signal publishing explains validation requirements without bypassing validation', () => {
-  assert.match(routerSource, /validation_status!==\x27valid\x27\)return res\.redirect\(\x27\/sovereign-admin\/signals\?validation=required\x27\)/);
-  assert.match(routerSource, /choose “Valid — approve for members”/);
-  assert.match(routerSource, /const title=\(asset\+\x27 \x27\+direction\.toUpperCase\(\)\)\.slice\(0,180\),publish=validation===\x27valid\x27/);
+test('shared Android Sovereign signals GET returns all records to admins before applying member access filters', () => {
+  const memberRoute = mobileApi.indexOf("router.get('/sovereign/signals'");
+  const adminMount = mobileApi.indexOf("router.use('/sovereign', desk)");
+  const route = mobileApi.slice(memberRoute, adminMount);
+  assert.match(route, /SELECT role FROM admin_users WHERE member_id=\? AND is_active=1 LIMIT 1/);
+  assert.match(route, /sovereign_desk_admin.*super_admin.*main_admin/);
+  assert.match(route, /if \(admin &&/);
+  assert.match(route, /status,validation_status,published_at,expires_at,created_at,updated_at FROM sovereign_signals ORDER BY created_at DESC LIMIT 100/);
+  assert.match(route, /adminView: true/);
+  assert.ok(route.indexOf('adminView: true') < route.indexOf('sovereign_signal_access'));
+});
+
+test('member signal API is registered before the admin-only Sovereign router and returns only valid published records', () => {
+  const memberRoute = mobileApi.indexOf("router.get('/sovereign/signals'");
+  const adminMount = mobileApi.indexOf("router.use('/sovereign', desk)");
+  assert.ok(memberRoute >= 0, 'Missing member-facing signals API');
+  assert.ok(adminMount > memberRoute, 'Member feed must run before admin-only /sovereign router');
+  const memberFeed = mobileApi.slice(memberRoute, adminMount);
+  assert.match(memberFeed, /apiAuth/);
+  assert.match(memberFeed, /sovereign_signal_access/);
+  assert.match(memberFeed, /accessRequired:\s*true/);
+  assert.match(memberFeed, /status='published'/);
+  assert.match(memberFeed, /validation_status='valid'/);
+  assert.match(memberFeed, /expires_at IS NULL OR expires_at>NOW\(\)/);
+});
+
+test('website signal publishing avoids bound-text CASE comparisons that can trigger MySQL collation errors', () => {
+  const statusRoute = routerSource.slice(
+    routerSource.indexOf("router.post('/sovereign-admin/signals/:id/status'"),
+    routerSource.indexOf("router.get('/sovereign-admin/guidance'")
+  );
+  assert.match(statusRoute, /if\(requested==='published'\)/);
+  assert.match(statusRoute, /published_at=COALESCE\(published_at,CURRENT_TIMESTAMP\)/);
+  assert.match(statusRoute, /published_at=published_at/);
+  assert.doesNotMatch(statusRoute, /CASE WHEN \?='published'/);
 });
 
 
-test('validating a Sovereign Desk signal publishes it and returns a success message', () => {
-  assert.match(mobileApi, /const publish=validation===\x27valid\x27/);
-  assert.match(mobileApi, /status:publish\?\x27published\x27:\x27draft\x27/);
-  assert.match(mobileApi, /Signal validated and published\./);
-  assert.match(mobileApi, /status===\x27published\x27&&signal\.validation_status!==\x27valid\x27/);
+test('validating a Sovereign Desk signal publishes it without unsafe SQL collation comparisons', () => {
+  const validationRoute = mobileApi.slice(
+    mobileApi.indexOf("desk.post('/signals/:id/validation'"),
+    mobileApi.indexOf("desk.post('/signals/:id/status'")
+  );
+  assert.match(validationRoute, /const publish=validation===\x27valid\x27/);
+  assert.match(validationRoute, /status=\x27published\x27,published_at=COALESCE\(published_at,CURRENT_TIMESTAMP\)/);
+  assert.match(validationRoute, /Signal validated and published\./);
+  assert.doesNotMatch(validationRoute, /CASE WHEN \?=\x27published\x27/);
+});
+
+test('website publishing gives actionable guidance when a signal is not valid yet', () => {
+  assert.match(routerSource, /validation=required/);
+  assert.match(routerSource, /Valid — approve for members/);
+  assert.match(routerSource, /Pending or Invalid remain hidden/);
 });
