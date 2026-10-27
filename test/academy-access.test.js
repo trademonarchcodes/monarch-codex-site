@@ -62,3 +62,17 @@ test('lesson progression is scoped to the lesson category, not the whole Academy
   assert.ok(server.includes("lessons.filter(l=>String(l.category_id??'')===String(lesson.category_id??''))"));
   assert.ok(server.includes("lessons.filter(l=>String(l.category_id??'')===String(target.category_id??''))"));
 });
+
+test('Sovereign Desk support inbox is linked and member chat endpoints are present', () => {
+  assert.ok(server.includes("['/sovereign-chat-admin.html','Support inbox & reports','✉']"));
+  assert.ok(server.includes("href=\"/sovereign-admin/chat\"") || server.includes("'/sovereign-admin/chat'"));
+  const mobileApi = fs.readFileSync(path.join(__dirname, '..', 'mobile-api.js'), 'utf8');
+  for (const route of [
+    "router.get('/sovereign/chat/messages'",
+    "router.post('/sovereign/chat/messages'",
+    "router.delete('/sovereign/chat/messages/:id'",
+    "router.post('/sovereign/chat/messages/:id/report'",
+    "router.get('/sovereign/chat/admin/conversations'",
+    "router.post('/sovereign/chat/admin/reports/:id/review'"
+  ]) assert.ok(mobileApi.includes(route), 'missing chat route: ' + route);
+});

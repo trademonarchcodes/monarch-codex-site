@@ -718,7 +718,7 @@ function adminControlPage(title, active, content, req) {
   const groups = deskOnly ? [
     {label:'Workspace',links:[['/sovereign-admin','Desk overview','◫']]},
     {label:'Trading desk',links:[['/sovereign-admin/signals','Trading signals','↗'],['/sovereign-admin/guidance','Guidance & learning','✦'],['/sovereign-admin/roles/request','Founder Partner request','♜'],['/market-movers.html','Live Markets','⌁']]},
-    {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/signal-access','Subscriptions & signal access','◆'],['/sovereign-admin/chat','Member conversations','◉'],['/community','Community feed','◉'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/events','Homepage events','◷'],['/sovereign-admin/watchlist','Weekly trade watchlist','▦']]},
+    {label:'Members & communication',links:[['/sovereign-admin/access','Access requests','♙'],['/sovereign-admin/signal-access','Subscriptions & signal access','◆'],['/sovereign-admin/chat','Member conversations','◉'],['/sovereign-chat-admin.html','Support inbox & reports','✉'],['/community','Community feed','◉'],['/sovereign-admin/announcements','Announcements','▤'],['/sovereign-admin/events','Homepage events','◷'],['/sovereign-admin/watchlist','Weekly trade watchlist','▦']]},
     {label:'Governance',links:[['/sovereign-admin/governance','Governance & concerns','⚖'],['/sovereign-admin/activity','Activity log','◷']]},
     {label:'Your account',links:[['/admin/profile','My admin profile','◎']]}
   ] : [
