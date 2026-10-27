@@ -167,8 +167,30 @@ async function requireAuth(req, res, next) {
     }
     next();
   } catch (e) {
-    if (e && (e.code === 'ER_BAD_FIELD_ERROR' || e.code === 'ER_NO_SUCH_TABLE')) return next();
+    // Never grant a member route when the account/block-status check cannot run.
+    if (e && (e.code === 'ER_BAD_FIELD_ERROR' || e.code === 'ER_NO_SUCH_TABLE')) {
+      return res.status(503).send(page('Account access temporarily unavailable',
+        '<h1>Account access temporarily unavailable</h1><p class="muted">We could not verify this account securely. Please try again shortly.</p>'));
+    }
     next(e);
+  }
+}
+async function redirectAuthenticatedMember(req, res, next) {
+  if (!req.session || !req.session.memberId) return next();
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, is_blocked FROM members WHERE id = ? LIMIT 1',
+      [req.session.memberId]
+    );
+    if (rows.length && Number(rows[0].is_blocked) !== 1) return res.redirect('/dashboard');
+    req.session.destroy(error => error ? next(error) : next());
+  } catch (error) {
+    // If we cannot validate an existing session, do not show auth forms or reveal state.
+    if (error && (error.code === 'ER_BAD_FIELD_ERROR' || error.code === 'ER_NO_SUCH_TABLE')) {
+      return res.status(503).send(page('Sign-in temporarily unavailable',
+        '<h1>Sign-in temporarily unavailable</h1><p class="muted">We could not verify the current session safely. Please try again shortly.</p>'));
+    }
+    next(error);
   }
 }
 async function requireApprovedKyc(req, res, next) {
@@ -511,7 +533,7 @@ app.get('/api/wallet-balances', requireAuth, async (req,res,next) => {
   }
 });
 app.get('/api/referral-check', async (req, res) => { try { const code = String(req.query.code || '').trim().toUpperCase(); if (!/^MONARCH\d{6}$/.test(code)) return res.json({ exists: false }); const [rows] = await pool.execute('SELECT id FROM members WHERE monarch_uid = ? LIMIT 1', [code]); return res.json({ exists: rows.length > 0 }); } catch (_) { return res.status(503).json({ exists: false, error: 'verification_unavailable' }); } });
-app.get('/register', (req, res) => res.send(registerForm(req)));
+app.get('/register', redirectAuthenticatedMember, (req, res) => res.send(registerForm(req)));
 app.post('/register', registrationLimiter, csrfCheck, async (req, res, next) => {
   try {
     const fullName = String(req.body.fullName || '').trim(), email = String(req.body.email || '').trim().toLowerCase();
@@ -622,7 +644,7 @@ app.get('/verify-email', async (req, res, next) => {
     });
   } catch (e) { next(e); }
 });
-app.get('/login', (req, res) => res.send(loginForm(req)));
+app.get('/login', redirectAuthenticatedMember, (req, res) => res.send(loginForm(req)));
 app.post('/login', loginLimiter, csrfCheck, async (req, res, next) => {
   try {
     const identity = String(req.body.identity || '').trim(), password = String(req.body.password || '');
@@ -3636,6 +3658,114 @@ app.use('/assets', express.static(path.join(__dirname, 'assets'), { dotfiles: 'i
 app.use('/api/mobile', createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl: (process.env.APP_BASE_URL || 'https://monarchcodex.online').replace(/\/+$/, ''), depositProofUpload, decryptProfileValue, loginLimiter, registrationLimiter }));
 app.use(createRoleManagementRouter({ pool, requireWebCategoryAccess }));
 app.use((req, res) => res.status(404).send(page('Not found', '<h1>Page not found</h1><a class="btn" href="/">Return to Monarch Codex</a>')));
+
+// Member-to-member transfers and service payments. All wallet mutations are atomic and server-authoritative.
+function walletActionPage(title, active, member, inner, req) {
+  return memberPage(title, active, member,
+    '<section class="member-card" style="max-width:760px;margin:0 auto">' +
+    '<p style="color:#d9ae52;font-size:11px;font-weight:800;letter-spacing:1.4px">MONARCH WALLET</p>' +
+    '<h1 style="margin:4px 0 8px">' + esc(title) + '</h1>' +
+    '<p class="muted">Payments are processed securely against your account wallet.</p>' +
+    inner + '</section>', req);
+}
+function walletActionMessage(title, message, backUrl, req, status=200) {
+  const html = page(title, '<main style="max-width:620px;margin:8vh auto;padding:24px"><section class="member-card"><h1>' +
+    esc(title) + '</h1><p class="muted">' + esc(message) + '</p><a class="btn" href="' +
+    esc(backUrl) + '">Continue</a></section></main>');
+  return {html,status};
+}
+app.get('/transfer', requireAuth, requireApprovedKyc, async (req,res,next) => {
+  try {
+    const member=await getMemberForPage(req,res); if(!member)return;
+    const key=crypto.randomBytes(32).toString('hex');
+    const inner='<form method="post" action="/transfer" class="member-form" onsubmit="return confirm(&quot;Confirm this transfer? Verify the recipient, currency and amount carefully. A completed transfer may not be reversible.&quot;);">' + csrfField(req) +
+      '<input type="hidden" name="request_key" value="'+key+'">' +
+      '<label for="recipient">Recipient Monarch ID, username or email</label><input id="recipient" name="recipient" autocomplete="off" maxlength="190" required placeholder="Enter member details">' +
+      '<label for="currency">Currency</label><select id="currency" name="currency" required><option value="NGN">NGN — Nigerian naira</option><option value="USD">USD — US dollar</option></select>' +
+      '<label for="amount">Amount</label><input id="amount" name="amount" type="number" min="0.00000001" max="1000000000000" step="0.00000001" inputmode="decimal" required placeholder="0.00">' +
+      '<p class="muted">Check the recipient and amount carefully. A completed transfer cannot be cancelled automatically.</p>' +
+      '<button class="btn" type="submit">Review and send transfer</button></form>';
+    res.send(walletActionPage('Transfer','/transfer',member,inner,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Transfers unavailable','<h1>Transfers are being set up</h1><p>Wallet transfer database setup is required. No money has moved.</p>')); next(e); }
+});
+app.post('/transfer', requireAuth, requireApprovedKyc, csrfCheck, async(req,res,next) => {
+  const recipientText=String(req.body.recipient||'').trim().slice(0,190);
+  const currency=String(req.body.currency||'');
+  const amountText=String(req.body.amount||'').trim();
+  const requestKey=String(req.body.request_key||'');
+  if(!recipientText || !['NGN','USD'].includes(currency) || !/^\d{1,12}(?:\.\d{1,8})?$/.test(amountText) || !/^[a-f0-9]{64}$/.test(requestKey))
+    return res.status(400).send(page('Check transfer details','<h1>Check transfer details</h1><p>Enter a valid recipient, currency and positive amount.</p><a class="btn" href="/transfer">Try again</a>'));
+  const amount=Number(amountText);
+  if(!Number.isFinite(amount)||amount<=0||amount>1000000000000)return res.status(400).send(page('Invalid amount','<h1>Invalid amount</h1><p>Enter a positive amount.</p><a class="btn" href="/transfer">Try again</a>'));
+  let conn;
+  try {
+    const sender=await getMemberForPage(req,res); if(!sender)return;
+    conn=await pool.getConnection(); await conn.beginTransaction();
+    const [[existing]]=await conn.execute('SELECT id,reference FROM member_transfers WHERE sender_member_id=? AND request_key=? LIMIT 1',[sender.id,requestKey]);
+    if(existing){await conn.commit();return res.send(page('Transfer already processed','<h1>Transfer already processed</h1><p>Reference: '+esc(existing.reference)+'</p><a class="btn" href="/transactions">View activity</a>'));}
+    const [[recipient]]=await conn.execute('SELECT id,monarch_uid,full_name,username,email FROM members WHERE (monarch_uid=? OR username=? OR email=?) AND id<>? AND is_blocked=0 LIMIT 1',[recipientText,recipientText,recipientText,sender.id]);
+    if(!recipient){await conn.rollback();return res.status(400).send(page('Recipient not found','<h1>Recipient not found</h1><p>Check the Monarch ID, username or email. No money was moved.</p><a class="btn" href="/transfer">Try again</a>'));}
+    const ids=[Number(sender.id),Number(recipient.id)].sort((a,b)=>a-b);
+    for(const id of ids) await conn.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0)',[id,currency]);
+    const [wallets]=await conn.execute('SELECT member_id,balance FROM member_wallets WHERE member_id IN (?,?) AND currency=? ORDER BY member_id FOR UPDATE',[ids[0],ids[1],currency]);
+    const senderWallet=wallets.find(w=>Number(w.member_id)===Number(sender.id));
+    const recipientWallet=wallets.find(w=>Number(w.member_id)===Number(recipient.id));
+    if(!senderWallet||!recipientWallet||Number(senderWallet.balance)<amount){await conn.rollback();return res.status(400).send(page('Insufficient balance','<h1>Insufficient balance</h1><p>Your available '+esc(currency)+' balance is not enough. No transfer was made.</p><a class="btn" href="/transfer">Return to transfer</a>'));}
+    const reference='TRF-'+crypto.randomBytes(12).toString('hex').toUpperCase();
+    await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE member_id=? AND currency=?',[amount,sender.id,currency]);
+    await conn.execute('UPDATE member_wallets SET balance=balance+? WHERE member_id=? AND currency=?',[amount,recipient.id,currency]);
+    await conn.execute('INSERT INTO member_transfers (sender_member_id,recipient_member_id,currency,amount,reference,request_key) VALUES (?,?,?,?,?,?)',[sender.id,recipient.id,currency,amount,reference,requestKey]);
+    await conn.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)',[sender.id,'member_transfer_debit',currency,amount,reference+'-OUT']);
+    await conn.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)',[recipient.id,'member_transfer_credit',currency,amount,reference+'-IN']);
+    await conn.commit();
+    res.send(page('Transfer complete','<main style="max-width:620px;margin:8vh auto;padding:24px"><section class="member-card"><p style="color:#d9ae52;font-weight:800">TRANSFER COMPLETE</p><h1>'+esc(currency+' '+amount.toLocaleString('en-US',{maximumFractionDigits:8}))+'</h1><p>Sent to '+esc(recipient.full_name||recipient.username||recipient.monarch_uid||'Monarch Codex member')+'.</p><p>Reference: <strong>'+esc(reference)+'</strong></p><a class="btn" href="/transactions">View activity</a></section></main>'));
+  } catch(e) {
+    if(conn)try{await conn.rollback();}catch(_){}
+    if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(page('Transfers unavailable','<h1>Transfers temporarily unavailable</h1><p>Required wallet database setup is incomplete. No transfer was completed.</p>'));
+    next(e);
+  } finally {if(conn)conn.release();}
+});
+app.get('/pay', requireAuth, requireApprovedKyc, async(req,res,next) => {
+  try {
+    const member=await getMemberForPage(req,res); if(!member)return;
+    const [services]=await pool.execute('SELECT id,name,description,currency,price FROM service_catalog WHERE is_active=1 ORDER BY name');
+    const key=crypto.randomBytes(32).toString('hex');
+    const options=services.map(x=>'<option value="'+Number(x.id)+'">'+esc(x.name)+' — '+esc(x.currency)+' '+Number(x.price).toLocaleString('en-US',{maximumFractionDigits:8})+'</option>').join('');
+    const inner=services.length
+      ? '<form method="post" action="/pay" class="member-form" onsubmit="return confirm(&quot;Confirm payment for the selected service? The amount will be deducted from your wallet.&quot;);">'+csrfField(req)+'<input type="hidden" name="request_key" value="'+key+'"><label for="service_id">Choose a service</label><select id="service_id" name="service_id" required>'+options+'</select><p class="muted">The service price and currency are set by Monarch Codex. Review them before confirming payment.</p><button class="btn" type="submit">Review and pay</button></form>'
+      : '<div class="member-card"><h2>No services are available yet</h2><p class="muted">The service catalogue is empty or all services are inactive. No payment can be made until an administrator configures a service.</p></div>';
+    res.send(walletActionPage('Pay','/pay',member,inner,req));
+  } catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return res.status(503).send(page('Payments unavailable','<h1>Service payments are being set up</h1><p>Required database setup is incomplete. No payment was made.</p>')); next(e); }
+});
+app.post('/pay', requireAuth, requireApprovedKyc, csrfCheck, async(req,res,next) => {
+  const serviceId=String(req.body.service_id||''), requestKey=String(req.body.request_key||'');
+  if(!/^\d{1,20}$/.test(serviceId)||! /^[a-f0-9]{64}$/.test(requestKey))return res.status(400).send(page('Check payment details','<h1>Check payment details</h1><a class="btn" href="/pay">Try again</a>'));
+  let conn;
+  try {
+    const member=await getMemberForPage(req,res); if(!member)return;
+    conn=await pool.getConnection(); await conn.beginTransaction();
+    const [[existing]]=await conn.execute('SELECT id,reference FROM service_payments WHERE member_id=? AND request_key=? LIMIT 1',[member.id,requestKey]);
+    if(existing){await conn.commit();return res.send(page('Payment already processed','<h1>Payment already processed</h1><p>Reference: '+esc(existing.reference)+'</p><a class="btn" href="/transactions">View activity</a>'));}
+    const [[service]]=await conn.execute('SELECT id,name,currency,price FROM service_catalog WHERE id=? AND is_active=1 LIMIT 1 FOR UPDATE',[serviceId]);
+    if(!service){await conn.rollback();return res.status(400).send(page('Service unavailable','<h1>Service unavailable</h1><p>This service is no longer available. No payment was made.</p><a class="btn" href="/pay">Choose another service</a>'));}
+    const amount=Number(service.price), currency=String(service.currency);
+    if(!Number.isFinite(amount)||amount<=0||!['NGN','USD'].includes(currency)){await conn.rollback();return res.status(503).send(page('Payment unavailable','<h1>Service pricing is invalid</h1><p>No payment was made.</p>'));}
+    await conn.execute('INSERT IGNORE INTO member_wallets (member_id,currency,balance) VALUES (?,?,0)',[member.id,currency]);
+    const [[wallet]]=await conn.execute('SELECT balance FROM member_wallets WHERE member_id=? AND currency=? FOR UPDATE',[member.id,currency]);
+    if(!wallet||Number(wallet.balance)<amount){await conn.rollback();return res.status(400).send(page('Insufficient balance','<h1>Insufficient balance</h1><p>Your '+esc(currency)+' wallet does not have enough available funds. No payment was made.</p><a class="btn" href="/pay">Return to services</a>'));}
+    const reference='PAY-'+crypto.randomBytes(12).toString('hex').toUpperCase();
+    await conn.execute('UPDATE member_wallets SET balance=balance-? WHERE member_id=? AND currency=?',[amount,member.id,currency]);
+    await conn.execute('INSERT INTO service_payments (member_id,service_id,currency,amount,reference,request_key,status) VALUES (?,?,?,?,?,?,?)',[member.id,service.id,currency,amount,reference,requestKey,'completed']);
+    await conn.execute('INSERT INTO financial_transactions (member_id,deposit_request_id,transaction_type,currency,amount,reference) VALUES (?,NULL,?,?,?,?)',[member.id,'service_payment_debit',currency,amount,reference]);
+    await conn.commit();
+    res.send(page('Payment complete','<main style="max-width:620px;margin:8vh auto;padding:24px"><section class="member-card"><p style="color:#d9ae52;font-weight:800">PAYMENT COMPLETE</p><h1>'+esc(service.name)+'</h1><p>Paid '+esc(currency+' '+amount.toLocaleString('en-US',{maximumFractionDigits:8}))+'.</p><p>Reference: <strong>'+esc(reference)+'</strong></p><a class="btn" href="/transactions">View activity</a></section></main>'));
+  } catch(e) {
+    if(conn)try{await conn.rollback();}catch(_){}
+    if(e.code==='ER_NO_SUCH_TABLE'||e.code==='ER_BAD_FIELD_ERROR')return res.status(503).send(page('Payments unavailable','<h1>Service payments temporarily unavailable</h1><p>Required wallet database setup is incomplete. No payment was made.</p>'));
+    next(e);
+  } finally {if(conn)conn.release();}
+});
+
 app.use((err, req, res, _next) => {
   const incidentId = crypto.randomBytes(5).toString('hex').toUpperCase();
   console.error('[app error][' + incidentId + ']', {
