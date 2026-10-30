@@ -96,7 +96,6 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     const rootId = await founderId();
     if (!rootId) return [];
     const start = mode === 'monthly' ? (period && /^\\d{4}-\\d{2}$/.test(period) ? new Date(Number(period.slice(0,4)),Number(period.slice(5,7))-1,1) : monthStart()) : null;
-    const params = start ? [rootId,start] : [rootId];
     const timeClause = start ? ' AND child.created_at >= ?' : '';
     const [rows] = await pool.execute(`
       WITH RECURSIVE reachable AS (
@@ -105,6 +104,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
         UNION ALL
         SELECT c.id,c.referred_by,r.root_id,r.depth+1,CONCAT(r.path,c.id,'/')
         FROM members c JOIN reachable r ON (c.referred_by=r.id OR (r.id=r.root_id AND c.referred_by IS NULL))
+        JOIN monarch_public_profiles cp ON cp.member_id=c.id AND cp.approved=1 AND cp.visible=1 AND cp.requested=1 AND cp.profile_status='published'
         WHERE r.depth<30 AND LOCATE(CONCAT('/',c.id,'/'),r.path)=0
       )
       SELECT m.id,m.username,COALESCE(NULLIF(p.nickname,''),m.full_name,m.username) AS display_name,
