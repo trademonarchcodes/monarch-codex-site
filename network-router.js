@@ -96,7 +96,8 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     const rootId = await founderId();
     if (!rootId) return [];
     const start = mode === 'monthly' ? (period && /^\\d{4}-\\d{2}$/.test(period) ? new Date(Number(period.slice(0,4)),Number(period.slice(5,7))-1,1) : monthStart()) : null;
-    const timeClause = start ? ' AND child.created_at >= ?' : '';
+    const end = start ? new Date(start.getFullYear(),start.getMonth()+1,1) : null;
+    const timeClause = start ? ' AND child.created_at >= ? AND child.created_at < ?' : '';
     const [rows] = await pool.execute(`
       WITH RECURSIVE reachable AS (
         SELECT m.id,m.referred_by,m.id AS root_id,0 AS depth,CAST(CONCAT('/',m.id,'/') AS CHAR(4000)) AS path
@@ -121,7 +122,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
       GROUP BY m.id,m.username,p.nickname,m.full_name,mp.avatar_key,r.path
       ORDER BY direct_referrals DESC,network_size DESC,m.id ASC
       LIMIT 100
-    `, start ? [rootId,start,rootId] : [rootId,rootId]);
+    `, start ? [rootId,start,end,rootId] : [rootId,rootId]);
     return rows.map((r,i)=>({...r,rank:i+1,direct_referrals:Number(r.direct_referrals||0),network_size:Number(r.network_size||0),roles:String(r.roles||'').split('||').filter(Boolean)}));
   }
 
