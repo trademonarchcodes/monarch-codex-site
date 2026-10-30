@@ -39,3 +39,19 @@ CREATE TABLE IF NOT EXISTS monarch_leaderboard_monthly_archive (
   KEY idx_monarch_monthly_archive_rank (period_month,rank_position),
   CONSTRAINT fk_monarch_monthly_archive_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS monarch_network_profile_revisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  member_id BIGINT UNSIGNED NOT NULL,
+  nickname VARCHAR(80) NOT NULL,
+  bio VARCHAR(600) NULL,
+  status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  reviewed_by_member_id BIGINT UNSIGNED NULL,
+  reviewed_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_network_profile_revision_pending (member_id,status,created_at),
+  KEY idx_network_profile_revision_queue (status,created_at),
+  CONSTRAINT fk_network_profile_revision_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+  CONSTRAINT fk_network_profile_revision_reviewer FOREIGN KEY (reviewed_by_member_id) REFERENCES members(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
