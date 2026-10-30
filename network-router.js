@@ -99,7 +99,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     if (!rootId) return [];
     const start = mode === 'monthly' ? (period && /^\d{4}-\d{2}$/.test(period) ? new Date(Number(period.slice(0,4)),Number(period.slice(5,7))-1,1) : monthStart()) : null;
     const end = start ? new Date(start.getFullYear(),start.getMonth()+1,1) : null;
-    const timeClause = start ? ' AND child.created_at >= ? AND child.created_at < ?' : '';
+    const timeClause = start ? ' AND child.joined_at >= ? AND child.joined_at < ?' : '';
     const [rows] = await pool.execute(`
       WITH RECURSIVE reachable AS (
         SELECT m.id,m.referred_by,m.id AS root_id,0 AS depth,CAST(CONCAT('/',m.id,'/') AS CHAR(4000)) AS path
@@ -287,7 +287,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     if(!/^\d{4}-\d{2}$/.test(period)||period>=monthKey())return res.status(400).send('Only a completed month can be archived.');
     const rows=await leaderboard('monthly',period);
     const conn=await pool.getConnection();
-    try{await conn.beginTransaction();for(const r of rows)await conn.execute('INSERT INTO monarch_leaderboard_monthly_archive (period_month,member_id,direct_referrals,network_size,rank_position) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE direct_referrals=VALUES(direct_referrals),network_size=VALUES(network_size),rank_position=VALUES(rank_position)',[period,r.id,r.direct_referrals,r.network_size,r.rank]);await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();}
+    try{await conn.beginTransaction();for(const r of rows)await conn.execute('INSERT INTO monarch_leaderboard_monthly_archive (period_month,member_id,direct_referrals,network_size,rank_position,display_name,username) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE direct_referrals=VALUES(direct_referrals),network_size=VALUES(network_size),rank_position=VALUES(rank_position),display_name=VALUES(display_name),username=VALUES(username)',[period,r.id,r.direct_referrals,r.network_size,r.rank,r.display_name,r.username]);await conn.commit();}catch(e){await conn.rollback();throw e;}finally{conn.release();}
     res.redirect('/admin/network/leaderboard?archived='+encodeURIComponent(period));
   }catch(e){next(e);}}));
 
