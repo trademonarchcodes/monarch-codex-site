@@ -178,9 +178,9 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   router.get('/admin/network',requireAdmin,async(req,res,next)=>{try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
     const [rows]=await pool.query("SELECT m.id,m.full_name,m.username,m.email,p.nickname,p.bio,p.profile_status,p.requested,p.approved,p.visible,mp.avatar_key FROM members m LEFT JOIN monarch_public_profiles p ON p.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id ORDER BY (p.profile_status='pending') DESC,m.created_at DESC LIMIT 300");
-    const table=rows.map(m=>'<tr><td>'+safe(m.full_name)+'<br><small>@'+safe(m.username)+'</small></td><td>'+safe(m.nickname||'—')+'</td><td>'+safe(m.profile_status||'draft')+'</td><td><form method="post" action="/admin/network/members/'+m.id+'" class="network-form">'+csrfField(req)+'<input name="nickname" maxlength="80" value="'+safe(m.nickname||m.full_name)+'" aria-label="Display name"><textarea name="bio" maxlength="600" aria-label="Biography">'+safe(m.bio||'')+'</textarea><input name="username" maxlength="30" value="'+safe(m.username)+'" aria-label="Username"><label><input type="checkbox" name="publish" value="yes" '+(m.profile_status==='published'?'checked':'')+'> Publish profile</label><button type="submit">Save profile</button></form></td></tr>').join('');
-    const content=styles()+'<section class="ac-panel"><h2>Network profile administration</h2><p>Review profile submissions, edit usernames and public descriptions, then publish or unpublish profiles. Photographs are managed through the existing secure profile-photo storage workflow.</p><div class="ac-table-wrap"><table class="network-table"><thead><tr><th>Member</th><th>Display name</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>'+table+'</tbody></table></div></section>';
-    res.send(adminControlPage('Monarch Network','/admin/network',content,req));
+    const table=rows.map(m=>'<tr><td>'+safe(m.full_name)+'<br><small>@'+safe(m.username)+'</small></td><td>'+safe(m.nickname||'—')+'</td><td>'+safe(m.profile_status||'draft')+'</td><td><form method="post" action="/admin/network/members/'+m.id+'" class="network-form">'+csrfField(req)+'<input name="nickname" maxlength="80" value="'+safe(m.nickname||m.full_name)+'" aria-label="Display name"><textarea name="bio" maxlength="600" aria-label="Biography">'+safe(m.bio||'')+'</textarea><input name="username" maxlength="30" value="'+safe(m.username)+'" aria-label="Username"><label><input type="checkbox" name="publish" value="yes" '+(m.profile_status==='published'?'checked':'')+'> Publish profile</label><button type="submit">Save profile</button></form><form class="network-photo-form" data-member-id="'+m.id+'">'+csrfField(req)+'<input type="file" accept="image/jpeg,image/png,image/webp" required><button type="submit">Upload photo</button></form></td></tr>').join('');
+    const content=styles()+'<section class="ac-panel"><h2>Network profile administration</h2><p>Review profile submissions, edit usernames and public descriptions, then publish or unpublish profiles. Photographs can be uploaded here using the existing private profile-photo storage.</p><div class="ac-table-wrap"><table class="network-table"><thead><tr><th>Member</th><th>Display name</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>'+table+'</tbody></table></div></section>';
+    res.send(adminControlPage('Monarch Network','/admin/network',content+'<script>document.querySelectorAll(".network-photo-form").forEach(f=>f.addEventListener("submit",e=>{e.preventDefault();const file=f.querySelector("input[type=file]").files[0];if(!file)return;const reader=new FileReader();reader.onload=async()=>{const token=f.querySelector("[name=_csrf]")?.value||"";const response=await fetch("/admin/network/members/"+f.dataset.memberId+"/photo",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":token},body:JSON.stringify({_csrf:token,mimeType:file.type,imageBase64:reader.result})});if(response.ok){alert("Profile photograph updated.");location.reload();}else{const data=await response.json().catch(()=>({}));alert(data.message||"Photo upload failed.");}};reader.readAsDataURL(file);}));</script>',req));
   }catch(e){next(e);}});
   router.post('/admin/network/members/:id',requireAdmin,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
@@ -203,6 +203,27 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     }catch(e){await connection.rollback();throw e;}finally{connection.release();}
     res.redirect('/admin/network');
   }catch(e){next(e);}}));
+
+  router.post('/admin/network/members/:id/photo',requireAdmin,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;let newPath=null;try{
+    if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
+    const id=Number(req.params.id),mime=String(req.body.mimeType||''),encoded=String(req.body.imageBase64||'');
+    if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
+    if(!['image/jpeg','image/png','image/webp'].includes(mime)||!encoded||encoded.length>4*1024*1024)return res.status(400).json({error:'invalid_image',message:'Choose a JPG, PNG or WebP image under 3 MB.'});
+    const buf=Buffer.from(encoded.replace(/^data:image\\/[a-zA-Z0-9.+-]+;base64,/,''),'base64');
+    const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
+    if(!valid||!buf.length||buf.length>3*1024*1024)return res.status(400).json({error:'invalid_image',message:'The uploaded file is not a valid supported image.'});
+    const dir=process.env.PROFILE_UPLOAD_DIR;
+    if(!dir||!path.isAbsolute(dir)||dir===path.resolve(__dirname)||dir.startsWith(path.resolve(__dirname)+path.sep))return res.status(503).json({error:'uploads_unavailable',message:'Private profile photo storage is not configured.'});
+    fs.mkdirSync(dir,{recursive:true,mode:0o700});
+    const ext={'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp'}[mime],key=crypto.randomBytes(24).toString('hex')+ext;
+    newPath=path.join(dir,key);fs.writeFileSync(newPath,buf,{mode:0o600,flag:'wx'});
+    const [[target]]=await pool.execute('SELECT id FROM members WHERE id=? LIMIT 1',[id]);if(!target){fs.unlinkSync(newPath);return res.sendStatus(404);}
+    const [oldRows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[id]);const old=String(oldRows[0]?.avatar_key||'');
+    await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[id,key]);
+    await pool.execute('INSERT INTO monarch_network_audit (actor_member_id,target_member_id,action,before_data,after_data) VALUES (?,?,?,?,?)',[req.session.memberId,id,'profile.photo_replaced',JSON.stringify({avatar_key:old||null}),JSON.stringify({avatar_key:key})]);
+    if(old&&old!==key&&/^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(old)){try{fs.unlinkSync(path.join(dir,old));}catch(e){if(e.code!=='ENOENT')console.error('[network photo cleanup] failed');}}
+    res.json({ok:true,photoUrl:'/member-avatar/'+encodeURIComponent(key)});
+  }catch(e){if(newPath){try{fs.unlinkSync(newPath);}catch(_){}}next(e);}}));
 
   router.get('/admin/network/leaderboard',requireAdmin,async(req,res,next)=>{try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
