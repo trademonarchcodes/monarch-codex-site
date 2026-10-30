@@ -727,7 +727,7 @@ function adminControlPage(title, active, content, req) {
     {label:'Financial operations',links:[['/admin/transactions','Transactions','◷'],['/admin/deposits','Deposits','↓'],['/admin/withdrawals','Withdrawals','↑']]},
     {label:'Investments & balances',links:[['/admin/investments','Investments','◆'],['/admin/earnings','Profits & bonuses','✦'],['/admin/balances','Balance management','＋']]},
     {label:'Trading workspace',links:[['/admin/sovereign-desk','Sovereign Desk','⌁'],['/market-movers.html','Live Markets','↗']]},
-    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/cooperative-connections','Online Cooperative','♙'],['/admin/monarchs','Homepage profiles','✦']]},
+    {label:'Members & verification',links:[['/admin/members','Member management','♙'],['/admin/roles','Member roles','♧'],['/admin/kyc','KYC review','◇'],['/admin/cooperative-connections','Online Cooperative','♙'],['/admin/monarchs','Homepage profiles','✦'],['/admin/network','Referral network','⌘'],['/admin/network/leaderboard','Network leaderboard','♜']]},
     {label:'Community & platform links',links:[['/community','Community feed','◉'],['/admin/community-moderation','Community moderation','◉'],['/admin/feedback','Member feedback','✎'],['/admin/social-links','Official social links','↗']]},
     {label:'Growth & learning',links:[['/admin/referrals','Referrals','⇄'],['/admin/academy','Academy','▣'],['/admin/tools','Tools & resources','⚒']]},
     {label:'Notifications & security',links:[['/admin/notifications','Notifications','♧'],['/admin/audit','Audit & access','▤'],['/admin/settings','Platform settings','⚙']]},
@@ -3618,6 +3618,19 @@ app.get('/', async (_req, res, next) => {
       else if (html.includes('</main>')) html = html.replace('</main>', monarchsSection + '</main>');
       else if (html.includes('</body>')) html = html.replace('</body>', monarchsSection + '</body>');
       else html += monarchsSection;
+    }
+    const networkPreview = `
+<section id="monarch-network-preview" style="padding:64px 20px;background:radial-gradient(ellipse at 50% 0,rgba(213,174,85,.12),transparent 55%),#09090b;color:#f8f3e6;text-align:center">
+  <div style="max-width:1100px;margin:auto"><p style="color:#dfbd62;letter-spacing:.18em;font-size:11px;font-weight:800">CONNECTED BY REFERRAL · UNITED BY PURPOSE</p>
+  <h2 style="font-size:clamp(30px,5vw,54px);color:#f1d27b;margin:10px 0">MONARCH CODEX NETWORK</h2>
+  <p style="color:#aaa;max-width:620px;margin:0 auto 24px">Explore our published member profiles, discover the referral network and celebrate community growth.</p>
+  <div id="mcNetworkPreviewStats" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:20px auto"><span style="border:1px solid #6c572d;border-radius:12px;padding:14px 22px">Published members <strong id="mcPublishedCount" style="display:block;color:#e7c46b;font-size:24px">—</strong></span><span style="border:1px solid #6c572d;border-radius:12px;padding:14px 22px">Top monthly referrals <strong id="mcMonthlyTop" style="display:block;color:#e7c46b;font-size:24px">—</strong></span></div>
+  <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap"><a href="/network" style="background:#c7a34f;color:#111;padding:12px 20px;border-radius:999px;font-weight:800;text-decoration:none">Explore Network</a><a href="/leaderboard" style="border:1px solid #c7a34f;color:#e7c46b;padding:12px 20px;border-radius:999px;font-weight:800;text-decoration:none">View Leaderboard</a></div></div>
+</section>
+<script>(async()=>{try{const [n,l]=await Promise.all([fetch('/api/public-network'),fetch('/api/public-leaderboard?period=monthly')]);if(n.ok){const d=await n.json();const e=document.getElementById('mcPublishedCount');if(e)e.textContent=d.totalPublished||0;}if(l.ok){const d=await l.json();const e=document.getElementById('mcMonthlyTop');if(e)e.textContent=d.rows?.[0]?.display_name||'—';}}catch(_){}})();</script>`;
+    if (!html.includes('id="monarch-network-preview"')) {
+      if (html.includes('</body>')) html = html.replace('</body>', networkPreview + '</body>');
+      else html += networkPreview;
     }
     res.type('html').send(html);
   } catch (e) { next(e); }
