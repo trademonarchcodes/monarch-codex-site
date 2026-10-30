@@ -185,7 +185,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   router.get('/api/public-leaderboard', async (req,res,next)=>{try{const period=req.query.period==='monthly'?'monthly':'all_time';res.set('Cache-Control','public,max-age=60').json({period,month:period==='monthly'?monthKey():null,rows:await leaderboard(period)});}catch(e){next(e);}});
 
   router.get('/network/profile',requireAuth,async(req,res,next)=>{try{
-    const [[m]]=await pool.execute(\`SELECT m.id,m.full_name,m.username,p.nickname,p.bio,p.requested,p.approved,p.visible,p.profile_status,(SELECT r.nickname FROM monarch_network_profile_revisions r WHERE r.member_id=m.id AND r.status='pending' ORDER BY r.id DESC LIMIT 1) AS pending_nickname,(SELECT r.bio FROM monarch_network_profile_revisions r WHERE r.member_id=m.id AND r.status='pending' ORDER BY r.id DESC LIMIT 1) AS pending_bio FROM members m LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE m.id=?\`,[req.session.memberId]);
+    const [[m]]=await pool.execute(`SELECT m.id,m.full_name,m.username,p.nickname,p.bio,p.requested,p.approved,p.visible,p.profile_status,(SELECT r.nickname FROM monarch_network_profile_revisions r WHERE r.member_id=m.id AND r.status='pending' ORDER BY r.id DESC LIMIT 1) AS pending_nickname,(SELECT r.bio FROM monarch_network_profile_revisions r WHERE r.member_id=m.id AND r.status='pending' ORDER BY r.id DESC LIMIT 1) AS pending_bio FROM members m LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE m.id=?`,[req.session.memberId]);
     if(!m)return res.redirect('/login');
     const content=styles()+'<section class="ac-panel"><h2>My public network profile</h2><p class="network-muted">Submit your display name and biography for Founder/Admin review. Your profile is not public until approved.</p><form class="network-form" method="post" action="/network/profile">'+csrfField(req)+'<label>Public display name<input name="nickname" maxlength="80" required value="'+safe(m.pending_nickname||m.nickname||m.full_name)+'"></label><label>Biography<textarea name="bio" rows="4" maxlength="600">'+safe(m.pending_bio||m.bio||'')+'</textarea></label><button type="submit">Submit profile for approval</button></form><p class="network-muted">Status: '+safe(m.profile_status||'draft')+'</p></section>';
     res.send(memberPage('My Network Profile','/network',m,content,req));
@@ -233,7 +233,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     const id=Number(req.params.id),mime=String(req.body.mimeType||''),encoded=String(req.body.imageBase64||'');
     if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
     if(!['image/jpeg','image/png','image/webp'].includes(mime)||!encoded||encoded.length>4*1024*1024)return res.status(400).json({error:'invalid_image',message:'Choose a JPG, PNG or WebP image under 3 MB.'});
-    const buf=Buffer.from(encoded.replace(/^data:image\\/[a-zA-Z0-9.+-]+;base64,/,''),'base64');
+    const buf=Buffer.from(encoded.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/,''),'base64');
     const valid=(mime==='image/jpeg'&&buf[0]===255&&buf[1]===216&&buf[2]===255)||(mime==='image/png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(mime==='image/webp'&&buf.toString('ascii',0,4)==='RIFF'&&buf.toString('ascii',8,12)==='WEBP');
     if(!valid||!buf.length||buf.length>3*1024*1024)return res.status(400).json({error:'invalid_image',message:'The uploaded file is not a valid supported image.'});
     const dir=process.env.PROFILE_UPLOAD_DIR;
@@ -245,7 +245,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     const [oldRows]=await pool.execute('SELECT avatar_key FROM member_profiles WHERE member_id=? LIMIT 1',[id]);const old=String(oldRows[0]?.avatar_key||'');
     await pool.execute('INSERT INTO member_profiles (member_id,avatar_key) VALUES (?,?) ON DUPLICATE KEY UPDATE avatar_key=VALUES(avatar_key)',[id,key]);
     await pool.execute('INSERT INTO monarch_network_audit (actor_member_id,target_member_id,action,before_data,after_data) VALUES (?,?,?,?,?)',[req.session.memberId,id,'profile.photo_replaced',JSON.stringify({avatar_key:old||null}),JSON.stringify({avatar_key:key})]);
-    if(old&&old!==key&&/^[a-f0-9]{48}\\.(jpg|png|webp)$/.test(old)){try{fs.unlinkSync(path.join(dir,old));}catch(e){if(e.code!=='ENOENT')console.error('[network photo cleanup] failed');}}
+    if(old&&old!==key&&/^[a-f0-9]{48}\.(jpg|png|webp)$/.test(old)){try{fs.unlinkSync(path.join(dir,old));}catch(e){if(e.code!=='ENOENT')console.error('[network photo cleanup] failed');}}
     res.json({ok:true,photoUrl:'/member-avatar/'+encodeURIComponent(key)});
   }catch(e){if(newPath){try{fs.unlinkSync(newPath);}catch(_){}}next(e);}}));
 
