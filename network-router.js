@@ -95,7 +95,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   async function leaderboard(mode, period) {
     const rootId = await founderId();
     if (!rootId) return [];
-    const start = mode === 'monthly' ? (period && /^\\d{4}-\\d{2}$/.test(period) ? new Date(Number(period.slice(0,4)),Number(period.slice(5,7))-1,1) : monthStart()) : null;
+    const start = mode === 'monthly' ? (period && /^\d{4}-\d{2}$/.test(period) ? new Date(Number(period.slice(0,4)),Number(period.slice(5,7))-1,1) : monthStart()) : null;
     const end = start ? new Date(start.getFullYear(),start.getMonth()+1,1) : null;
     const timeClause = start ? ' AND child.created_at >= ? AND child.created_at < ?' : '';
     const [rows] = await pool.execute(`
