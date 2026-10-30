@@ -160,6 +160,20 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     } catch(e){next(e);}
   });
 
+  router.get('/api/mobile/network/profile',async(req,res,next)=>{try{
+    if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
+    const [[m]]=await pool.execute(`SELECT m.full_name,m.username,p.nickname,p.bio,p.profile_status,(SELECT r.nickname FROM monarch_network_profile_revisions r WHERE r.member_id=m.id AND r.status='pending' ORDER BY r.id DESC LIMIT 1) AS pending_nickname,(SELECT r.bio FROM monarch_network_profile_revisions r WHERE r.member_id=m.id AND r.status='pending' ORDER BY r.id DESC LIMIT 1) AS pending_bio FROM members m LEFT JOIN monarch_public_profiles p ON p.member_id=m.id WHERE m.id=?`,[req.session.memberId]);
+    if(!m)return res.status(404).json({error:'member_not_found'});
+    res.set('Cache-Control','no-store, private').json({profile:m});
+  }catch(e){next(e);}});
+  router.post('/api/mobile/network/profile',async(req,res,next)=>{try{
+    if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
+    const nickname=String(req.body.nickname||'').trim(),bio=String(req.body.bio||'').trim();
+    if(!nickname||nickname.length>80||/[<>]/.test(nickname)||bio.length>600||/[<>]/.test(bio))return res.status(400).json({error:'invalid_profile',message:'Check your display name and biography.'});
+    const [result]=await pool.execute("INSERT INTO monarch_network_profile_revisions (member_id,nickname,bio,status) VALUES (?,?,?,'pending')",[req.session.memberId,nickname,bio]);
+    res.status(201).json({ok:true,revisionId:result.insertId,status:'pending',message:'Your profile changes were submitted for admin review.'});
+  }catch(e){next(e);}});
+
   router.get('/api/mobile/network',async(req,res,next)=>{try{
     if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
     const data=await publicTree();res.set('Cache-Control','no-store, private').json({tree:data?buildTree(data.rows):null,totalPublished:data?data.rows.length:0});
