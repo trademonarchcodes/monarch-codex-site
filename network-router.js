@@ -1,6 +1,9 @@
 'use strict';
 
 const express = require('express');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
 
 module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }) {
   const router = express.Router();
@@ -28,7 +31,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     if (!rootId) return null;
     const [rows] = await pool.execute(`
       WITH RECURSIVE visible_network AS (
-        SELECT m.id,m.referred_by,m.monarch_uid,m.full_name,m.username,m.created_at,
+        SELECT m.id,m.referred_by,m.monarch_uid,m.full_name,m.username,m.created_at,m.id AS root_id,
                COALESCE(NULLIF(p.nickname,''),m.full_name,m.username) AS display_name,
                p.bio,mp.avatar_key,0 AS depth,CAST(CONCAT('/',m.id,'/') AS CHAR(4000)) AS path
         FROM members m
@@ -36,12 +39,12 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
         LEFT JOIN member_profiles mp ON mp.member_id=m.id
         WHERE m.id=? AND COALESCE(m.is_blocked,0)=0
         UNION ALL
-        SELECT c.id,c.referred_by,c.monarch_uid,c.full_name,c.username,c.created_at,
+        SELECT c.id,c.referred_by,c.monarch_uid,c.full_name,c.username,c.created_at,n.root_id,
                COALESCE(NULLIF(p.nickname,''),c.full_name,c.username) AS display_name,
                p.bio,mp.avatar_key,n.depth+1,
                CONCAT(n.path,c.id,'/')
         FROM members c
-        JOIN visible_network n ON c.referred_by=n.id
+        JOIN visible_network n ON (c.referred_by=n.id OR (n.id=n.root_id AND c.referred_by IS NULL))
         JOIN monarch_public_profiles p ON p.member_id=c.id
         LEFT JOIN member_profiles mp ON mp.member_id=c.id
         WHERE p.approved=1 AND p.visible=1 AND p.requested=1
@@ -68,7 +71,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   function buildTree(rows) {
     const byId = new Map();
     for (const row of rows) byId.set(Number(row.id), {
-      id:Number(row.id), sponsorId:row.referred_by == null ? null : Number(row.referred_by),
+      id:Number(row.id), sponsorId:row.referred_by == null ? (Number(row.depth)===0 ? null : Number(rows[0]?.id)) : Number(row.referred_by),
       username:row.username || '', name:row.display_name || 'Monarch member',
       monarchId:row.monarch_uid || '', bio:row.bio || '',
       avatarUrl:row.avatar_key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(row.avatar_key) ? '/member-avatar/'+encodeURIComponent(row.avatar_key) : '',
@@ -92,16 +95,16 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   async function leaderboard(mode, period) {
     const rootId = await founderId();
     if (!rootId) return [];
-    const start = mode === 'monthly' ? monthStart() : null;
+    const start = mode === 'monthly' ? (period && /^\\d{4}-\\d{2}$/.test(period) ? new Date(Number(period.slice(0,4)),Number(period.slice(5,7))-1,1) : monthStart()) : null;
     const params = start ? [rootId,start] : [rootId];
     const timeClause = start ? ' AND child.created_at >= ?' : '';
     const [rows] = await pool.execute(`
       WITH RECURSIVE reachable AS (
-        SELECT m.id,m.referred_by,0 AS depth,CAST(CONCAT('/',m.id,'/') AS CHAR(4000)) AS path
+        SELECT m.id,m.referred_by,m.id AS root_id,0 AS depth,CAST(CONCAT('/',m.id,'/') AS CHAR(4000)) AS path
         FROM members m WHERE m.id=?
         UNION ALL
-        SELECT c.id,c.referred_by,r.depth+1,CONCAT(r.path,c.id,'/')
-        FROM members c JOIN reachable r ON c.referred_by=r.id
+        SELECT c.id,c.referred_by,r.root_id,r.depth+1,CONCAT(r.path,c.id,'/')
+        FROM members c JOIN reachable r ON (c.referred_by=r.id OR (r.id=r.root_id AND c.referred_by IS NULL))
         WHERE r.depth<30 AND LOCATE(CONCAT('/',c.id,'/'),r.path)=0
       )
       SELECT m.id,m.username,COALESCE(NULLIF(p.nickname,''),m.full_name,m.username) AS display_name,
