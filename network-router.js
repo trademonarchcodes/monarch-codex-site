@@ -31,20 +31,22 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     if (!rootId) return null;
     const [rows] = await pool.execute(`
       WITH RECURSIVE visible_network AS (
-        SELECT m.id,m.referred_by,m.monarch_uid,m.full_name,m.username,m.created_at,m.id AS root_id,
+        SELECT m.id,m.referred_by,root_rel.sponsor_member_id AS original_sponsor_id,m.monarch_uid,m.full_name,m.username,m.created_at,m.id AS root_id,
                COALESCE(NULLIF(p.nickname,''),m.full_name,m.username) AS display_name,
                p.bio,mp.avatar_key,0 AS depth,CAST(CONCAT('/',m.id,'/') AS CHAR(4000)) AS path
         FROM members m
         LEFT JOIN monarch_public_profiles p ON p.member_id=m.id
         LEFT JOIN member_profiles mp ON mp.member_id=m.id
+        LEFT JOIN monarch_referral_relationships root_rel ON root_rel.member_id=m.id
         WHERE m.id=? AND COALESCE(m.is_blocked,0)=0
         UNION ALL
-        SELECT c.id,c.referred_by,c.monarch_uid,c.full_name,c.username,c.created_at,n.root_id,
+        SELECT c.id,c.referred_by,rr.sponsor_member_id AS original_sponsor_id,c.monarch_uid,c.full_name,c.username,c.created_at,n.root_id,
                COALESCE(NULLIF(p.nickname,''),c.full_name,c.username) AS display_name,
                p.bio,mp.avatar_key,n.depth+1,
                CONCAT(n.path,c.id,'/')
         FROM members c
-        JOIN visible_network n ON (c.referred_by=n.id OR (n.id=n.root_id AND c.referred_by IS NULL))
+        JOIN monarch_referral_relationships rr ON rr.member_id=c.id
+        JOIN visible_network n ON (rr.sponsor_member_id=n.id OR (n.id=n.root_id AND rr.sponsor_member_id IS NULL))
         JOIN monarch_public_profiles p ON p.member_id=c.id
         LEFT JOIN member_profiles mp ON mp.member_id=c.id
         WHERE p.approved=1 AND p.visible=1 AND p.requested=1
@@ -53,16 +55,16 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
           AND n.depth<30
           AND LOCATE(CONCAT('/',c.id,'/'),n.path)=0
       )
-      SELECT n.id,n.referred_by,n.monarch_uid,n.username,n.display_name,n.bio,n.avatar_key,n.created_at,n.depth,
+      SELECT n.id,n.referred_by,n.original_sponsor_id,n.monarch_uid,n.username,n.display_name,n.bio,n.avatar_key,n.created_at,n.depth,
              CASE WHEN a.member_id IS NOT NULL THEN 'Founder' ELSE 'Member' END AS account_type,
              GROUP_CONCAT(DISTINCT rc.role_name ORDER BY rc.role_name SEPARATOR '||') AS roles,
-             (SELECT COUNT(*) FROM members ch WHERE ch.referred_by=n.id) AS direct_registered,
+             (SELECT COUNT(*) FROM monarch_referral_relationships ch WHERE ch.sponsor_member_id=n.id) AS direct_registered,
              (SELECT COUNT(*) FROM visible_network d WHERE d.path LIKE CONCAT(n.path,'%') AND d.id<>n.id) AS published_descendants
       FROM visible_network n
       LEFT JOIN admin_users a ON a.member_id=n.id AND a.is_active=1
       LEFT JOIN member_role_assignments ra ON ra.member_id=n.id
       LEFT JOIN member_role_catalog rc ON rc.id=ra.role_id AND rc.is_active=1
-      GROUP BY n.id,n.referred_by,n.monarch_uid,n.username,n.display_name,n.bio,n.avatar_key,n.created_at,n.depth,n.path,a.member_id
+      GROUP BY n.id,n.referred_by,n.original_sponsor_id,n.monarch_uid,n.username,n.display_name,n.bio,n.avatar_key,n.created_at,n.depth,n.path,a.member_id
       ORDER BY n.depth,n.display_name
     `, [rootId]);
     return { rootId, rows };
@@ -71,7 +73,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   function buildTree(rows) {
     const byId = new Map();
     for (const row of rows) byId.set(Number(row.id), {
-      id:Number(row.id), sponsorId:row.referred_by == null ? (Number(row.depth)===0 ? null : Number(rows[0]?.id)) : Number(row.referred_by),
+      id:Number(row.id), sponsorId:Number(row.depth)===0?null:(row.original_sponsor_id==null?Number(rows[0]?.id):Number(row.original_sponsor_id)),
       username:row.username || '', name:row.display_name || 'Monarch member',
       monarchId:row.monarch_uid || '', bio:row.bio || '',
       avatarUrl:row.avatar_key && /^[a-f0-9]{48}\.(jpg|png|webp)$/.test(row.avatar_key) ? '/member-avatar/'+encodeURIComponent(row.avatar_key) : '',
@@ -104,7 +106,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
         FROM members m WHERE m.id=?
         UNION ALL
         SELECT c.id,c.referred_by,r.root_id,r.depth+1,CONCAT(r.path,c.id,'/')
-        FROM members c JOIN reachable r ON (c.referred_by=r.id OR (r.id=r.root_id AND c.referred_by IS NULL))
+        FROM members c JOIN monarch_referral_relationships rr ON rr.member_id=c.id JOIN reachable r ON (rr.sponsor_member_id=r.id OR (r.id=r.root_id AND rr.sponsor_member_id IS NULL))
         JOIN monarch_public_profiles cp ON cp.member_id=c.id AND cp.approved=1 AND cp.visible=1 AND cp.requested=1 AND cp.profile_status='published'
         WHERE r.depth<30 AND LOCATE(CONCAT('/',c.id,'/'),r.path)=0
       )
@@ -115,7 +117,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
       FROM reachable r JOIN members m ON m.id=r.id
       JOIN monarch_public_profiles p ON p.member_id=m.id AND p.approved=1 AND p.visible=1 AND p.requested=1 AND p.profile_status='published'
       LEFT JOIN member_profiles mp ON mp.member_id=m.id
-      LEFT JOIN members child ON child.referred_by=m.id ${timeClause}
+      LEFT JOIN monarch_referral_relationships child ON child.sponsor_member_id=m.id ${timeClause}
       LEFT JOIN member_role_assignments ra ON ra.member_id=m.id
       LEFT JOIN member_role_catalog rc ON rc.id=ra.role_id AND rc.is_active=1
       WHERE m.id<>?
