@@ -136,7 +136,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
   function renderTreeNode(node, depth=0) {
     if (!node) return '';
     const avatar = node.avatarUrl ? '<img src="'+safe(node.avatarUrl)+'" alt="" loading="lazy">' : '<span class="network-avatar-fallback">♛</span>';
-    const roles = node.roles.map(r=>'<span class="network-role">'+safe(r)+'</span>').join('');
+    const roles = (node.accountType==='Founder'?'<span class="network-role">Founder</span>':'')+node.roles.map(r=>'<span class="network-role">'+safe(r)+'</span>').join('');
     const children = node.children.map(c=>renderTreeNode(c,depth+1)).join('');
     return '<li class="network-node" data-depth="'+depth+'"><details '+(depth<1?'open':'')+'><summary><span class="network-card">'+avatar+'<span class="network-person"><strong>'+safe(node.name)+'</strong><small>@'+safe(node.username)+'</small><span class="network-roles">'+roles+'</span><small>'+node.directRegistered+' direct registrations · '+node.publishedDescendants+' published descendants</small></span><span class="network-expand">'+(node.children.length?'＋':'•')+'</span></span></summary>'+(children?'<ul>'+children+'</ul>':'')+'</details></li>';
   }
