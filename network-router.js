@@ -159,6 +159,27 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     } catch(e){next(e);}
   });
 
+  router.get('/api/mobile/network',async(req,res,next)=>{try{
+    if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
+    const data=await publicTree();res.set('Cache-Control','no-store, private').json({tree:data?buildTree(data.rows):null,totalPublished:data?data.rows.length:0});
+  }catch(e){next(e);}});
+  router.get('/api/mobile/leaderboard',async(req,res,next)=>{try{
+    if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
+    const period=req.query.period==='monthly'?'monthly':'all_time';res.set('Cache-Control','no-store, private').json({period,month:period==='monthly'?monthKey():null,rows:await leaderboard(period)});
+  }catch(e){next(e);}});
+  router.get('/api/mobile/admin/network/leaderboard',async(req,res,next)=>{try{
+    if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
+    const [[a]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+    if(!a||a.role==='sovereign_desk_admin')return res.status(403).json({error:'forbidden'});
+    const period=req.query.period==='monthly'?'monthly':'all_time';res.set('Cache-Control','no-store, private').json({period,rows:await leaderboard(period)});
+  }catch(e){next(e);}});
+  router.get('/api/mobile/sovereign/leaderboard',async(req,res,next)=>{try{
+    if(!req.session||!req.session.memberId)return res.status(401).json({error:'authentication_required'});
+    const [[a]]=await pool.execute('SELECT role FROM admin_users WHERE member_id=? AND is_active=1 LIMIT 1',[req.session.memberId]);
+    if(!a||!['sovereign_desk_admin','super_admin','main_admin'].includes(a.role))return res.status(403).json({error:'forbidden'});
+    const period=req.query.period==='monthly'?'monthly':'all_time';res.set('Cache-Control','no-store, private').json({period,rows:await leaderboard(period)});
+  }catch(e){next(e);}});
+
   router.get('/api/public-network', async (_req,res,next)=>{try{const data=await publicTree();res.set('Cache-Control','public,max-age=30').json({tree:data?buildTree(data.rows):null,totalPublished:data?data.rows.length:0});}catch(e){next(e);}});
   router.get('/api/public-leaderboard', async (req,res,next)=>{try{const period=req.query.period==='monthly'?'monthly':'all_time';res.set('Cache-Control','public,max-age=60').json({period,month:period==='monthly'?monthKey():null,rows:await leaderboard(period)});}catch(e){next(e);}});
 
