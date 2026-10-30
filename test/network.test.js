@@ -9,6 +9,11 @@ const router = fs.readFileSync(path.join(root, 'network-router.js'), 'utf8');
 const migration = fs.readFileSync(path.join(root, 'migrations', '022_monarch_network_leaderboards.sql'), 'utf8');
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const mobile = fs.readFileSync(path.join(root, 'mobile-api.js'), 'utf8');
+const createNetworkRouter = require('../network-router');
+
+test('network router module loads without syntax errors', () => {
+  assert.equal(typeof createNetworkRouter, 'function');
+});
 
 test('network tree is built from immutable original sponsor relationships', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS monarch_referral_relationships/);
