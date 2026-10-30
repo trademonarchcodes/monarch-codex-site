@@ -3630,7 +3630,8 @@ app.get('/', async (_req, res, next) => {
 </section>
 <script>(async()=>{try{const [n,l]=await Promise.all([fetch('/api/public-network'),fetch('/api/public-leaderboard?period=monthly')]);if(n.ok){const d=await n.json();const e=document.getElementById('mcPublishedCount');if(e)e.textContent=d.totalPublished||0;}if(l.ok){const d=await l.json();const e=document.getElementById('mcMonthlyTop');if(e)e.textContent=d.rows?.[0]?.display_name||'—';}}catch(_){}})();</script>`;
     if (!html.includes('id="monarch-network-preview"')) {
-      if (html.includes('</body>')) html = html.replace('</body>', networkPreview + '</body>');
+      if (html.includes('<footer class="footer">')) html = html.replace('<footer class="footer">', networkPreview + '<footer class="footer">');
+      else if (html.includes('</body>')) html = html.replace('</body>', networkPreview + '</body>');
       else html += networkPreview;
     }
     res.type('html').send(html);
