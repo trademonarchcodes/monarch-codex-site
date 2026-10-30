@@ -15,6 +15,11 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   };
   const publicBase = 'https://monarchcodex.online';
+  const networkAdminOnly = (req,res,next) => {
+    if (!['super_admin','main_admin'].includes(String(req.adminRole||''))) return res.status(403).send('Founder or main Monarch Codex administration is required for network management.');
+    next();
+  };
+
 
   async function founderId() {
     const [[founder]] = await pool.execute(
@@ -56,7 +61,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
           AND LOCATE(CONCAT('/',c.id,'/'),n.path)=0
       )
       SELECT n.id,n.referred_by,n.original_sponsor_id,n.monarch_uid,n.username,n.display_name,n.bio,n.avatar_key,n.created_at,n.depth,
-             CASE WHEN a.member_id IS NOT NULL THEN 'Founder' ELSE 'Member' END AS account_type,
+             CASE WHEN n.id=n.root_id THEN 'Founder' WHEN a.member_id IS NOT NULL THEN 'Administrator' ELSE 'Member' END AS account_type,
              GROUP_CONCAT(DISTINCT rc.role_name ORDER BY rc.role_name SEPARATOR '||') AS roles,
              (SELECT COUNT(*) FROM monarch_referral_relationships ch WHERE ch.sponsor_member_id=n.id) AS direct_registered,
              (SELECT COUNT(*) FROM visible_network d WHERE d.path LIKE CONCAT(n.path,'%') AND d.id<>n.id) AS published_descendants
@@ -213,14 +218,14 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     res.redirect('/network/profile');
   }catch(e){next(e);}}));
 
-  router.get('/admin/network',requireAdmin,async(req,res,next)=>{try{
+  router.get('/admin/network',requireAdmin,networkAdminOnly,async(req,res,next)=>{try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
     const [rows]=await pool.query("SELECT m.id,m.full_name,m.username,m.email,COALESCE(pr.nickname,p.nickname) AS nickname,COALESCE(pr.bio,p.bio) AS bio,p.profile_status,p.requested,p.approved,p.visible,mp.avatar_key,pr.id AS pending_revision_id FROM members m LEFT JOIN monarch_public_profiles p ON p.member_id=m.id LEFT JOIN member_profiles mp ON mp.member_id=m.id LEFT JOIN monarch_network_profile_revisions pr ON pr.id=(SELECT MAX(r2.id) FROM monarch_network_profile_revisions r2 WHERE r2.member_id=m.id AND r2.status='pending') ORDER BY (pr.id IS NOT NULL) DESC,m.created_at DESC LIMIT 300");
     const table=rows.map(m=>'<tr><td>'+safe(m.full_name)+'<br><small>@'+safe(m.username)+'</small></td><td>'+safe(m.nickname||'—')+'</td><td>'+safe(m.profile_status||'draft')+'</td><td><form method="post" action="/admin/network/members/'+m.id+'" class="network-form">'+csrfField(req)+'<input name="nickname" maxlength="80" value="'+safe(m.nickname||m.full_name)+'" aria-label="Display name"><textarea name="bio" maxlength="600" aria-label="Biography">'+safe(m.bio||'')+'</textarea><input name="username" maxlength="30" value="'+safe(m.username)+'" aria-label="Username"><label>Publication decision<select name="decision"><option value="publish">Publish / approve updates</option><option value="reject">Reject pending revision</option><option value="unpublish">Unpublish profile</option></select></label><button type="submit">Save profile</button></form><form class="network-photo-form" data-member-id="'+m.id+'">'+csrfField(req)+'<input type="file" accept="image/jpeg,image/png,image/webp" required><button type="submit">Upload photo</button></form></td></tr>').join('');
     const content=styles()+'<section class="ac-panel"><h2>Network profile administration</h2><p>Review profile submissions, edit usernames and public descriptions, then publish or unpublish profiles. Photographs can be uploaded here using the existing private profile-photo storage.</p><div class="ac-table-wrap"><table class="network-table"><thead><tr><th>Member</th><th>Display name</th><th>Status</th><th>Admin controls</th></tr></thead><tbody>'+table+'</tbody></table></div></section>';
     res.send(adminControlPage('Monarch Network','/admin/network',content+'<script>document.querySelectorAll(".network-photo-form").forEach(f=>f.addEventListener("submit",e=>{e.preventDefault();const file=f.querySelector("input[type=file]").files[0];if(!file)return;const reader=new FileReader();reader.onload=async()=>{const token=f.querySelector("[name=_csrf]")?.value||"";const response=await fetch("/admin/network/members/"+f.dataset.memberId+"/photo",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":token},body:JSON.stringify({_csrf:token,mimeType:file.type,imageBase64:reader.result})});if(response.ok){alert("Profile photograph updated.");location.reload();}else{const data=await response.json().catch(()=>({}));alert(data.message||"Photo upload failed.");}};reader.readAsDataURL(file);}));</script>',req));
   }catch(e){next(e);}});
-  router.post('/admin/network/members/:id',requireAdmin,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;try{
+  router.post('/admin/network/members/:id',requireAdmin,networkAdminOnly,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
     const id=Number(req.params.id),nickname=String(req.body.nickname||'').trim(),bio=String(req.body.bio||'').trim(),username=String(req.body.username||'').trim();
     if(!Number.isSafeInteger(id)||id<1||!nickname||nickname.length>80||/[<>]/.test(nickname)||bio.length>600||/[<>]/.test(bio)||!/^[A-Za-z0-9_]{3,30}$/.test(username))return res.status(400).send('Invalid profile details.');
@@ -245,7 +250,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     res.redirect('/admin/network');
   }catch(e){next(e);}}));
 
-  router.post('/admin/network/members/:id/photo',requireAdmin,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;let newPath=null;try{
+  router.post('/admin/network/members/:id/photo',requireAdmin,networkAdminOnly,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;let newPath=null;try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
     const id=Number(req.params.id),mime=String(req.body.mimeType||''),encoded=String(req.body.imageBase64||'');
     if(!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:'invalid_member_id'});
@@ -266,7 +271,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     res.json({ok:true,photoUrl:'/member-avatar/'+encodeURIComponent(key)});
   }catch(e){if(newPath){try{fs.unlinkSync(newPath);}catch(_){}}next(e);}}));
 
-  router.get('/admin/network/leaderboard',requireAdmin,async(req,res,next)=>{try{
+  router.get('/admin/network/leaderboard',requireAdmin,networkAdminOnly,async(req,res,next)=>{try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
     const period=req.query.period==='monthly'?'monthly':'all_time',rows=await leaderboard(period);
     const body=rows.map(r=>'<tr><td>#'+r.rank+'</td><td>'+safe(r.display_name)+' <small>@'+safe(r.username)+'</small></td><td>'+r.direct_referrals+'</td><td>'+r.network_size+'</td></tr>').join('');
@@ -281,7 +286,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
     res.send('<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="background:#0b0b0d;color:#f6f0df;font:15px system-ui;padding:20px">'+styles()+'<main class="network-page"><section class="network-hero"><h1>Network leaderboard</h1><p>Read-only view. Sovereign Desk permissions do not grant Monarch Codex profile, role or financial administration.</p><a class="network-button" href="?period=monthly">Monthly</a> <a class="network-button" href="?period=all_time">All time</a></section><table class="network-table"><thead><tr><th>Rank</th><th>Member</th><th>Direct referrals</th><th>Network size</th></tr></thead><tbody>'+body+'</tbody></table><p><a href="/sovereign-admin" style="color:#e7c46b">Back to Sovereign Desk</a></p></main></body></html>');
   }catch(e){next(e);}});
 
-  router.post('/admin/network/archive-month',requireAdmin,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;try{
+  router.post('/admin/network/archive-month',requireAdmin,networkAdminOnly,(req,res,next)=>csrfCheck(req,res,async err=>{if(err)return;try{
     if(req.adminRole==='sovereign_desk_admin')return res.sendStatus(403);
     const period=String(req.body.period||monthKey());
     if(!/^\d{4}-\d{2}$/.test(period)||period>=monthKey())return res.status(400).send('Only a completed month can be archived.');
