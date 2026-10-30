@@ -1,3 +1,15 @@
+
+-- Immutable referral attribution survives profile changes and account deletion.
+CREATE TABLE IF NOT EXISTS monarch_referral_relationships (
+  member_id BIGINT UNSIGNED NOT NULL,
+  sponsor_member_id BIGINT UNSIGNED NULL,
+  joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (member_id),
+  KEY idx_monarch_referral_sponsor (sponsor_member_id,joined_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO monarch_referral_relationships (member_id,sponsor_member_id,joined_at)
+SELECT id,referred_by,created_at FROM members;
 -- Monarch Codex Network + monthly/all-time referral leaderboard.
 -- Additive only. Back up production before applying.
 ALTER TABLE monarch_public_profiles
@@ -21,9 +33,7 @@ CREATE TABLE IF NOT EXISTS monarch_network_audit (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_network_audit_target_created (target_member_id,created_at),
-  KEY idx_network_audit_actor_created (actor_member_id,created_at),
-  CONSTRAINT fk_network_audit_actor FOREIGN KEY (actor_member_id) REFERENCES members(id) ON DELETE SET NULL,
-  CONSTRAINT fk_network_audit_target FOREIGN KEY (target_member_id) REFERENCES members(id) ON DELETE CASCADE
+  KEY idx_network_audit_actor_created (actor_member_id,created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS monarch_leaderboard_monthly_archive (
@@ -33,11 +43,12 @@ CREATE TABLE IF NOT EXISTS monarch_leaderboard_monthly_archive (
   direct_referrals INT UNSIGNED NOT NULL DEFAULT 0,
   network_size INT UNSIGNED NOT NULL DEFAULT 0,
   rank_position INT UNSIGNED NOT NULL,
+  display_name VARCHAR(120) NULL,
+  username VARCHAR(30) NULL,
   archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_monarch_monthly_archive (period_month,member_id),
-  KEY idx_monarch_monthly_archive_rank (period_month,rank_position),
-  CONSTRAINT fk_monarch_monthly_archive_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+  KEY idx_monarch_monthly_archive_rank (period_month,rank_position)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS monarch_network_profile_revisions (
