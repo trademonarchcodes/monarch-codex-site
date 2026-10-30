@@ -18,6 +18,7 @@ const createMonarchsDirectoryRouter = require('./monarchs-directory');
 const createToolsRouter = require('./tools');
 const createMobileApiRouter = require('./mobile-api');
 const createRoleManagementRouter = require('./role-management');
+const createNetworkRouter = require('./network-router');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -3576,6 +3577,7 @@ app.post('/reset-password', resetLimiter, csrfCheck, async (req, res, next) => {
 // Sovereign Desk routes share the existing session, database, CSRF, and role enforcement.
 app.use(createSovereignDeskRouter({ pool, requireAuth, requireApprovedKyc, requireAdmin, csrfCheck, csrfField, adminControlPage, memberPage, getMemberForPage, esc }));
 app.use(createMonarchsDirectoryRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
+app.use(createNetworkRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, esc }));
 app.use(createToolsRouter({ pool, requireAuth, requireAdmin, csrfCheck, csrfField, memberPage, adminControlPage, getMemberForPage, esc }));
 
 // Serve only explicitly public website files. Never expose the application directory (server.js, migrations, package files, or private data) through static hosting.
