@@ -116,7 +116,7 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
         WHERE r.depth<30 AND LOCATE(CONCAT('/',c.id,'/'),r.path)=0
       )
       SELECT m.id,m.username,COALESCE(NULLIF(p.nickname,''),m.full_name,m.username) AS display_name,
-             mp.avatar_key,COUNT(DISTINCT CASE WHEN child.id IS NOT NULL THEN child.id END) AS direct_referrals,
+             mp.avatar_key,COUNT(DISTINCT CASE WHEN child.member_id IS NOT NULL THEN child.member_id END) AS direct_referrals,
              (SELECT COUNT(*) FROM reachable d WHERE d.path LIKE CONCAT(r.path,'%') AND d.id<>m.id) AS network_size,
              GROUP_CONCAT(DISTINCT rc.role_name ORDER BY rc.role_name SEPARATOR '||') AS roles
       FROM reachable r JOIN members m ON m.id=r.id
