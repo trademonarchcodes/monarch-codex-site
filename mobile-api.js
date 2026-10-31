@@ -341,6 +341,13 @@ function createMobileApiRouter({ pool, bcrypt, sendAppEmail, appBaseUrl, deposit
         try {
           const [created] = await pool.execute('INSERT INTO members (monarch_uid, full_name, email, phone, username, password_hash, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?)', [uid, fullName, email, phone, username, passwordHash, referrerId]);
           insertedId = created.insertId;
+          try {
+            await pool.execute('INSERT INTO monarch_referral_relationships (member_id,sponsor_member_id) VALUES (?,?)', [insertedId, referrerId]);
+          } catch (relationshipError) {
+            await pool.execute('DELETE FROM members WHERE id=?', [insertedId]).catch(() => {});
+            insertedId = null;
+            throw relationshipError;
+          }
           break;
         } catch (e) {
           if (e && e.code === 'ER_DUP_ENTRY') {
