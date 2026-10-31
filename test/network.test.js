@@ -15,6 +15,13 @@ test('network router module loads without syntax errors', () => {
   assert.equal(typeof createNetworkRouter, 'function');
 });
 
+test('Founder network root resolves only from configured Founder admin email', () => {
+  assert.match(router, /const founderEmail = 'trademonarchofficial@gmail\\.com'/);
+  assert.match(router, /WHERE LOWER\\(m\\.email\\)=LOWER\\(\\?\\)/);
+  assert.doesNotMatch(router, /SELECT member_id AS id FROM admin_users WHERE is_active=1 AND role IN/);
+  assert.match(router, /return founder \\? Number\\(founder\\.id\\) : null/);
+});
+
 test('network tree is built from immutable original sponsor relationships', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS monarch_referral_relationships/);
   assert.match(migration, /INSERT IGNORE INTO monarch_referral_relationships[\s\S]*SELECT id,referred_by,created_at FROM members/);
