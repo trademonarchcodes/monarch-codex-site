@@ -22,13 +22,13 @@ module.exports = function createNetworkRouter({ pool, requireAuth, requireAdmin,
 
 
   async function founderId() {
+    // The Founder root is tied only to the configured Founder email and an active
+    // Monarch Codex admin account. Never substitute an unrelated administrator.
     const [[founder]] = await pool.execute(
-      "SELECT m.id FROM members m LEFT JOIN admin_users a ON a.member_id=m.id AND a.is_active=1 WHERE LOWER(m.email)=LOWER(?) ORDER BY a.role='super_admin' DESC LIMIT 1",
+      "SELECT m.id FROM members m JOIN admin_users a ON a.member_id=m.id AND a.is_active=1 AND a.role IN ('super_admin','main_admin') WHERE LOWER(m.email)=LOWER(?) LIMIT 1",
       [founderEmail]
     );
-    if (founder) return Number(founder.id);
-    const [[fallback]] = await pool.query("SELECT member_id AS id FROM admin_users WHERE is_active=1 AND role IN ('super_admin','main_admin') ORDER BY FIELD(role,'super_admin','main_admin') LIMIT 1");
-    return fallback ? Number(fallback.id) : null;
+    return founder ? Number(founder.id) : null;
   }
 
   async function publicTree() {
