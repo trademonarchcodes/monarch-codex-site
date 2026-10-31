@@ -16,10 +16,10 @@ test('network router module loads without syntax errors', () => {
 });
 
 test('Founder network root resolves only from configured Founder admin email', () => {
-  assert.match(router, /const founderEmail = 'trademonarchofficial@gmail\\.com'/);
-  assert.match(router, /WHERE LOWER\\(m\\.email\\)=LOWER\\(\\?\\)/);
+  assert.ok(router.includes("const founderEmail = 'trademonarchofficial@gmail.com'"));
+  assert.ok(router.includes('WHERE LOWER(m.email)=LOWER(?)'));
   assert.doesNotMatch(router, /SELECT member_id AS id FROM admin_users WHERE is_active=1 AND role IN/);
-  assert.match(router, /return founder \\? Number\\(founder\\.id\\) : null/);
+  assert.ok(router.includes('return founder ? Number(founder.id) : null'));
 });
 
 test('network tree is built from immutable original sponsor relationships', () => {
